@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Config (contains user-specific IDs)
+edog-config.json
+
+# VS Code extension build
+extensions/vscode/node_modules/
+extensions/vscode/out/
+extensions/vscode/*.vsix
+
+# VS 2022 extension build
+extensions/vs2022/bin/
+extensions/vs2022/obj/
+extensions/vs2022/*.vsix
+
+# Pip package build
+pip-package/dist/
+pip-package/build/
+pip-package/*.egg-info/
+
+# IDE
+.vscode/
+.vs/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
