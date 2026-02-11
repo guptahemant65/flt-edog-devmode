@@ -193,24 +193,25 @@ def show_config():
 # ============================================================================
 PATTERNS = {
     # (original, modified, description)
+    # Using #if false preprocessor directive to disable - avoids StyleCop issues and is reversible
     "auth_engine_ltc": (
         "    [AuthenticationEngine]\n",
-        "",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n    [AuthenticationEngine]\n#endif\n",
         "AuthenticationEngine on LiveTableController"
     ),
     "auth_engine_ltsrc": (
         "    [AuthenticationEngine]\n",
-        "",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n    [AuthenticationEngine]\n#endif\n",
         "AuthenticationEngine on LiveTableSchedulerRunController"
     ),
     "permission_filter_getlatestdag": (
         "        [RequiresPermissionFilter(Permissions.ReadAll)]\n",
-        "",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n        [RequiresPermissionFilter(Permissions.ReadAll)]\n#endif\n",
         "RequiresPermissionFilter on getLatestDag"
     ),
     "permission_filter_rundag": (
         "        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n",
-        "",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n#endif\n",
         "MwcV2RequirePermissionsFilter on runDAG"
     ),
 }
@@ -350,15 +351,6 @@ def write_file(filepath, content):
 # ============================================================================
 def apply_simple_pattern(content, original, modified, description):
     """Apply a simple pattern replacement. Returns (new_content, was_changed, was_already_applied)."""
-    # Handle deletion case (modified is empty) - check if original is missing
-    if modified == "":
-        if original not in content:
-            return content, False, True  # Already applied (line was deleted)
-        if original in content:
-            return content.replace(original, modified, 1), True, False  # Delete now
-        return content, False, False  # Pattern not found
-    
-    # Normal replacement case
     if modified in content:
         return content, False, True  # Already applied
     if original in content:
@@ -368,12 +360,6 @@ def apply_simple_pattern(content, original, modified, description):
 
 def revert_simple_pattern(content, original, modified, description):
     """Revert a simple pattern replacement. Returns (new_content, was_reverted)."""
-    # Handle deletion case (modified is empty) - we need to add back the original
-    if modified == "":
-        # Can't easily revert a deletion without knowing where to put it back
-        # For now, just return False - user should use git checkout
-        return content, False
-    
     if modified in content:
         return content.replace(modified, original, 1), True
     return content, False
@@ -954,41 +940,22 @@ def check_status(repo_root):
     
     status = []
     
-    # Check each file - for patterns where we DELETE lines, check if original is MISSING
+    # Check each file
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
         orig, mod, desc = PATTERNS["auth_engine_ltc"]
-        # If mod is empty, we delete the line, so check if original is missing
-        if mod == "":
-            applied = orig.strip() not in content
-        else:
-            applied = mod in content
-        status.append((desc, applied))
-        
+        status.append((desc, mod in content))
         orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
-        if mod == "":
-            applied = orig.strip() not in content
-        else:
-            applied = mod in content
-        status.append((desc, applied))
+        status.append((desc, mod in content))
     
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
         orig, mod, desc = PATTERNS["auth_engine_ltsrc"]
-        if mod == "":
-            applied = orig.strip() not in content
-        else:
-            applied = mod in content
-        status.append((desc, applied))
-        
+        status.append((desc, mod in content))
         orig, mod, desc = PATTERNS["permission_filter_rundag"]
-        if mod == "":
-            applied = orig.strip() not in content
-        else:
-            applied = mod in content
-        status.append((desc, applied))
+        status.append((desc, mod in content))
     
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
