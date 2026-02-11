@@ -193,17 +193,7 @@ def show_config():
 # ============================================================================
 PATTERNS = {
     # (original, modified, description)
-    # Using #if false preprocessor directive to disable - avoids StyleCop issues and is reversible
-    "auth_engine_ltc": (
-        "    [AuthenticationEngine]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n    [AuthenticationEngine]\n#endif\n",
-        "AuthenticationEngine on LiveTableController"
-    ),
-    "auth_engine_ltsrc": (
-        "    [AuthenticationEngine]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n    [AuthenticationEngine]\n#endif\n",
-        "AuthenticationEngine on LiveTableSchedulerRunController"
-    ),
+    # Using #if EDOG_DEVMODE preprocessor directive to disable - avoids StyleCop issues and is reversible
     "permission_filter_getlatestdag": (
         "        [RequiresPermissionFilter(Permissions.ReadAll)]\n",
         "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n        [RequiresPermissionFilter(Permissions.ReadAll)]\n#endif\n",
@@ -750,22 +740,10 @@ def apply_all_changes(token, repo_root):
     changes_made = []
     errors = []
     
-    # 1. LiveTableController - AuthenticationEngine
+    # 1. LiveTableController - RequiresPermissionFilter on getLatestDag
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["auth_engine_ltc"]
-        new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
-        if changed:
-            if write_file(filepath, new_content):
-                changes_made.append(f"✅ {desc}")
-                content = new_content
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
-        elif already:
-            changes_made.append(f"⏭️  {desc} (already applied)")
-        
-        # RequiresPermissionFilter on getLatestDag
         orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
         new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
         if changed:
@@ -778,21 +756,10 @@ def apply_all_changes(token, repo_root):
     else:
         errors.append(f"❌ Could not read LiveTableController.cs")
     
-    # 2. LiveTableSchedulerRunController - AuthenticationEngine + MwcV2RequirePermissionsFilter
+    # 2. LiveTableSchedulerRunController - MwcV2RequirePermissionsFilter on runDAG
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["auth_engine_ltsrc"]
-        new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
-        if changed:
-            if write_file(filepath, new_content):
-                changes_made.append(f"✅ {desc}")
-                content = new_content
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
-        elif already:
-            changes_made.append(f"⏭️  {desc} (already applied)")
-        
         orig, mod, desc = PATTERNS["permission_filter_rundag"]
         new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
         if changed:
@@ -871,34 +838,24 @@ def revert_all_changes(repo_root):
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        modified = False
-        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            orig, mod, desc = PATTERNS[key]
-            new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
-            if reverted:
-                content = new_content
-                modified = True
+        orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
+        new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
+        if reverted:
+            if write_file(filepath, new_content):
                 changes_made.append(f"✅ Reverted: {desc}")
-        
-        if modified:
-            if not write_file(filepath, content):
+            else:
                 errors.append(f"❌ Failed to write LiveTableController.cs")
     
     # 2. LiveTableSchedulerRunController
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        modified = False
-        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            orig, mod, desc = PATTERNS[key]
-            new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
-            if reverted:
-                content = new_content
-                modified = True
+        orig, mod, desc = PATTERNS["permission_filter_rundag"]
+        new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
+        if reverted:
+            if write_file(filepath, new_content):
                 changes_made.append(f"✅ Reverted: {desc}")
-        
-        if modified:
-            if not write_file(filepath, content):
+            else:
                 errors.append(f"❌ Failed to write LiveTableSchedulerRunController.cs")
     
     # 3. GTSOperationManager
@@ -944,16 +901,12 @@ def check_status(repo_root):
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["auth_engine_ltc"]
-        status.append((desc, mod in content))
         orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
         status.append((desc, mod in content))
     
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["auth_engine_ltsrc"]
-        status.append((desc, mod in content))
         orig, mod, desc = PATTERNS["permission_filter_rundag"]
         status.append((desc, mod in content))
     
