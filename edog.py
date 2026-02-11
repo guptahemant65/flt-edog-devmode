@@ -435,16 +435,66 @@ def apply_gts_spark_client_change(content, token):
         if new_content != content:
             return new_content, "token_updated"
     
-    # Apply fresh bypass - find the method and replace it
-    method_pattern = r'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync\(CancellationToken ct\)\s*\{[^}]+(?:\{[^}]*\}[^}]*)*\}'
+    # Apply fresh bypass - find the method signature and replace the entire method
+    method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
     
-    bypass_code = get_gts_spark_client_bypass(token)
-    new_content, count = re.subn(method_pattern, bypass_code, content, count=1, flags=re.DOTALL)
+    if method_sig not in content:
+        return content, "pattern_not_found"
     
-    if count > 0:
-        return new_content, "applied"
+    # Find the method start
+    sig_start = content.find(method_sig)
+    if sig_start == -1:
+        return content, "pattern_not_found"
     
-    return content, "pattern_not_found"
+    # Find the opening brace after signature
+    brace_start = content.find('{', sig_start)
+    if brace_start == -1:
+        return content, "pattern_not_found"
+    
+    # Find matching closing brace (count braces)
+    brace_count = 1
+    pos = brace_start + 1
+    while pos < len(content) and brace_count > 0:
+        if content[pos] == '{':
+            brace_count += 1
+        elif content[pos] == '}':
+            brace_count -= 1
+        pos += 1
+    
+    if brace_count != 0:
+        return content, "pattern_not_found"
+    
+    method_end = pos
+    
+    # Find the attribute and comment before the method (go back to find [ExcludeFromCodeCoverage])
+    search_start = max(0, sig_start - 200)
+    attr_marker = '// Extracted so as to mock in Test'
+    attr_pos = content.rfind(attr_marker, search_start, sig_start)
+    if attr_pos != -1:
+        # Find start of the line with the comment
+        line_start = content.rfind('\n', 0, attr_pos) + 1
+        method_start = line_start
+    else:
+        # Just use signature start
+        method_start = sig_start
+    
+    # Build the bypass code with proper indentation
+    bypass_code = f'''        // Extracted so as to mock in Test
+        [ExcludeFromCodeCoverage]
+        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
+        {{
+            // EDOG DevMode - bypassing OBO token exchange (hardcoded by edog tool)
+            var hardcodedToken = "{token}";
+            Tracer.LogSanitizedWarning("[DevMode] Using hardcoded MWC V1 token");
+            return await Task.FromResult(new Token
+            {{
+                Value = hardcodedToken,
+                Expiry = DateTimeOffset.UtcNow.AddHours(1),
+            }});
+        }}'''
+    
+    new_content = content[:method_start] + bypass_code + content[method_end:]
+    return new_content, "applied"
 
 
 def revert_gts_operation_manager_change(content):
