@@ -194,23 +194,23 @@ def show_config():
 PATTERNS = {
     # (original, modified, description)
     "auth_engine_ltc": (
-        "    [AuthenticationEngine]",
-        "    // [AuthenticationEngine]  // EDOG DevMode - commented by edog tool",
+        "    [AuthenticationEngine]\n",
+        "",
         "AuthenticationEngine on LiveTableController"
     ),
     "auth_engine_ltsrc": (
-        "    [AuthenticationEngine]",
-        "    // [AuthenticationEngine]  // EDOG DevMode - commented by edog tool",
+        "    [AuthenticationEngine]\n",
+        "",
         "AuthenticationEngine on LiveTableSchedulerRunController"
     ),
     "permission_filter_getlatestdag": (
-        "        [RequiresPermissionFilter(Permissions.ReadAll)]",
-        "        // [RequiresPermissionFilter(Permissions.ReadAll)]  // EDOG DevMode - commented by edog tool",
+        "        [RequiresPermissionFilter(Permissions.ReadAll)]\n",
+        "",
         "RequiresPermissionFilter on getLatestDag"
     ),
     "permission_filter_rundag": (
-        "        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]",
-        "        // [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]  // EDOG DevMode - commented by edog tool",
+        "        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n",
+        "",
         "MwcV2RequirePermissionsFilter on runDAG"
     ),
 }
@@ -939,22 +939,41 @@ def check_status(repo_root):
     
     status = []
     
-    # Check each file
+    # Check each file - for patterns where we DELETE lines, check if original is MISSING
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        _, mod, desc = PATTERNS["auth_engine_ltc"]
-        status.append((desc, mod in content))
-        _, mod, desc = PATTERNS["permission_filter_getlatestdag"]
-        status.append((desc, mod in content))
+        orig, mod, desc = PATTERNS["auth_engine_ltc"]
+        # If mod is empty, we delete the line, so check if original is missing
+        if mod == "":
+            applied = orig.strip() not in content
+        else:
+            applied = mod in content
+        status.append((desc, applied))
+        
+        orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
+        if mod == "":
+            applied = orig.strip() not in content
+        else:
+            applied = mod in content
+        status.append((desc, applied))
     
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        _, mod, desc = PATTERNS["auth_engine_ltsrc"]
-        status.append((desc, mod in content))
-        _, mod, desc = PATTERNS["permission_filter_rundag"]
-        status.append((desc, mod in content))
+        orig, mod, desc = PATTERNS["auth_engine_ltsrc"]
+        if mod == "":
+            applied = orig.strip() not in content
+        else:
+            applied = mod in content
+        status.append((desc, applied))
+        
+        orig, mod, desc = PATTERNS["permission_filter_rundag"]
+        if mod == "":
+            applied = orig.strip() not in content
+        else:
+            applied = mod in content
+        status.append((desc, applied))
     
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
