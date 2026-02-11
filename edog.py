@@ -194,14 +194,24 @@ def show_config():
 PATTERNS = {
     # (original, modified, description)
     # Using #if EDOG_DEVMODE preprocessor directive to disable - avoids StyleCop issues and is reversible
+    "auth_engine_ltc": (
+        "    [AuthenticationEngine]\n",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n    [AuthenticationEngine]\n#endif\n",
+        "AuthenticationEngine on LiveTableController"
+    ),
+    "auth_engine_ltsrc": (
+        "    [AuthenticationEngine]\n",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n    [AuthenticationEngine]\n#endif\n",
+        "AuthenticationEngine on LiveTableSchedulerRunController"
+    ),
     "permission_filter_getlatestdag": (
         "        [RequiresPermissionFilter(Permissions.ReadAll)]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n        [RequiresPermissionFilter(Permissions.ReadAll)]\n#endif\n",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n        [RequiresPermissionFilter(Permissions.ReadAll)]\n#endif\n",
         "RequiresPermissionFilter on getLatestDag"
     ),
     "permission_filter_rundag": (
         "        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled by edog tool\n        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n#endif\n",
+        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n#endif\n",
         "MwcV2RequirePermissionsFilter on runDAG"
     ),
 }
@@ -738,93 +748,68 @@ def apply_all_changes(token, repo_root):
     print("\n📝 Applying EDOG changes...")
     
     changes_made = []
-    errors = []
     
-    # 1. LiveTableController - RequiresPermissionFilter on getLatestDag
+    # 1. LiveTableController patterns
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
-        new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
-        if changed:
-            if write_file(filepath, new_content):
+        modified = False
+        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
+            orig, mod, desc = PATTERNS[key]
+            new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
+            if changed:
+                content = new_content
+                modified = True
                 changes_made.append(f"✅ {desc}")
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
-        elif already:
-            changes_made.append(f"⏭️  {desc} (already applied)")
-    else:
-        errors.append(f"❌ Could not read LiveTableController.cs")
+            elif already:
+                changes_made.append(f"⏭️  {desc} (already)")
+        if modified:
+            write_file(filepath, content)
     
-    # 2. LiveTableSchedulerRunController - MwcV2RequirePermissionsFilter on runDAG
+    # 2. LiveTableSchedulerRunController patterns
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["permission_filter_rundag"]
-        new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
-        if changed:
-            if write_file(filepath, new_content):
+        modified = False
+        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
+            orig, mod, desc = PATTERNS[key]
+            new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
+            if changed:
+                content = new_content
+                modified = True
                 changes_made.append(f"✅ {desc}")
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
-        elif already:
-            changes_made.append(f"⏭️  {desc} (already applied)")
-    else:
-        errors.append(f"❌ Could not read LiveTableSchedulerRunController.cs")
+            elif already:
+                changes_made.append(f"⏭️  {desc} (already)")
+        if modified:
+            write_file(filepath, content)
     
     # 3. GTSOperationManager - Token
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
     if content:
         new_content, status = apply_gts_operation_manager_change(content, token)
-        desc = "GTSOperationManager token"
-        if status == "applied":
-            if write_file(filepath, new_content):
-                changes_made.append(f"✅ {desc}")
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
-        elif status == "token_updated":
-            if write_file(filepath, new_content):
-                changes_made.append(f"🔄 {desc} (token updated)")
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
+        if status in ["applied", "token_updated"]:
+            write_file(filepath, new_content)
+            changes_made.append(f"✅ GTSOperationManager token")
         elif status == "already_applied":
-            changes_made.append(f"⏭️  {desc} (already applied)")
-        else:
-            errors.append(f"⚠️  {desc} (pattern not found)")
-    else:
-        errors.append(f"❌ Could not read GTSOperationManager.cs")
+            changes_made.append(f"⏭️  GTSOperationManager token (already)")
     
     # 4. GTSBasedSparkClient - Token bypass
     filepath = repo_root / FILES["GTSBasedSparkClient"]
     content = read_file(filepath)
     if content:
         new_content, status = apply_gts_spark_client_change(content, token)
-        desc = "GTSBasedSparkClient token bypass"
-        if status == "applied":
-            if write_file(filepath, new_content):
-                changes_made.append(f"✅ {desc}")
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
-        elif status == "token_updated":
-            if write_file(filepath, new_content):
-                changes_made.append(f"🔄 {desc} (token updated)")
-            else:
-                errors.append(f"❌ Failed to write: {desc}")
+        if status in ["applied", "token_updated"]:
+            write_file(filepath, new_content)
+            changes_made.append(f"✅ GTSBasedSparkClient token bypass")
         elif status == "already_applied":
-            changes_made.append(f"⏭️  {desc} (already applied)")
-        else:
-            errors.append(f"⚠️  {desc} (pattern not found)")
-    else:
-        errors.append(f"❌ Could not read GTSBasedSparkClient.cs")
+            changes_made.append(f"⏭️  GTSBasedSparkClient token bypass (already)")
     
     # Print summary
     for msg in changes_made:
         print(f"   {msg}")
-    for msg in errors:
-        print(f"   {msg}")
     
-    return len(errors) == 0
+    return True
 
 
 def revert_all_changes(repo_root):
@@ -832,31 +817,36 @@ def revert_all_changes(repo_root):
     print("\n🔄 Reverting EDOG changes...")
     
     changes_made = []
-    errors = []
     
     # 1. LiveTableController
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
-        new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
-        if reverted:
-            if write_file(filepath, new_content):
+        modified = False
+        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
+            orig, mod, desc = PATTERNS[key]
+            new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
+            if reverted:
+                content = new_content
+                modified = True
                 changes_made.append(f"✅ Reverted: {desc}")
-            else:
-                errors.append(f"❌ Failed to write LiveTableController.cs")
+        if modified:
+            write_file(filepath, content)
     
     # 2. LiveTableSchedulerRunController
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["permission_filter_rundag"]
-        new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
-        if reverted:
-            if write_file(filepath, new_content):
+        modified = False
+        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
+            orig, mod, desc = PATTERNS[key]
+            new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
+            if reverted:
+                content = new_content
+                modified = True
                 changes_made.append(f"✅ Reverted: {desc}")
-            else:
-                errors.append(f"❌ Failed to write LiveTableSchedulerRunController.cs")
+        if modified:
+            write_file(filepath, content)
     
     # 3. GTSOperationManager
     filepath = repo_root / FILES["GTSOperationManager"]
@@ -864,10 +854,8 @@ def revert_all_changes(repo_root):
     if content:
         new_content, reverted = revert_gts_operation_manager_change(content)
         if reverted:
-            if write_file(filepath, new_content):
-                changes_made.append(f"✅ Reverted: GTSOperationManager token")
-            else:
-                errors.append(f"❌ Failed to write GTSOperationManager.cs")
+            write_file(filepath, new_content)
+            changes_made.append(f"✅ Reverted: GTSOperationManager token")
     
     # 4. GTSBasedSparkClient
     filepath = repo_root / FILES["GTSBasedSparkClient"]
@@ -875,20 +863,16 @@ def revert_all_changes(repo_root):
     if content:
         new_content, reverted = revert_gts_spark_client_change(content)
         if reverted:
-            if write_file(filepath, new_content):
-                changes_made.append(f"✅ Reverted: GTSBasedSparkClient token bypass")
-            else:
-                errors.append(f"❌ Failed to write GTSBasedSparkClient.cs")
+            write_file(filepath, new_content)
+            changes_made.append(f"✅ Reverted: GTSBasedSparkClient token bypass")
     
-    if not changes_made and not errors:
+    if not changes_made:
         print("   ℹ️  No EDOG changes found to revert")
     else:
         for msg in changes_made:
             print(f"   {msg}")
-        for msg in errors:
-            print(f"   {msg}")
     
-    return len(errors) == 0
+    return True
 
 
 def check_status(repo_root):
@@ -901,23 +885,33 @@ def check_status(repo_root):
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["permission_filter_getlatestdag"]
-        status.append((desc, mod in content))
+        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
+            orig, mod, desc = PATTERNS[key]
+            if mod in content:
+                status.append((desc, True))
+            elif orig in content:
+                status.append((desc, False))
+            # else: pattern not in file, skip
     
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
-        orig, mod, desc = PATTERNS["permission_filter_rundag"]
-        status.append((desc, mod in content))
+        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
+            orig, mod, desc = PATTERNS[key]
+            if mod in content:
+                status.append((desc, True))
+            elif orig in content:
+                status.append((desc, False))
     
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
     if content:
-        # Check for EDOG marker OR manual hardcoded token
         has_edog_marker = "// EDOG DevMode - hardcoded by edog tool" in content
         has_manual_hardcode = re.search(r'var mwcV1TokenWithHeader = "MwcToken [^"]+";', content) is not None
-        applied = has_edog_marker or has_manual_hardcode
-        status.append(("GTSOperationManager token", applied))
+        if has_edog_marker or has_manual_hardcode:
+            status.append(("GTSOperationManager token", True))
+        else:
+            status.append(("GTSOperationManager token", False))
     
     filepath = repo_root / FILES["GTSBasedSparkClient"]
     content = read_file(filepath)
