@@ -566,11 +566,54 @@ def revert_gts_spark_client_change(content):
             };
         }'''
     
-    # Find and replace the bypass method
-    bypass_pattern = r'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync\(CancellationToken ct\)\s*\{\s*// EDOG DevMode[^}]+\}'
+    # Use same brace-counting logic as apply function
+    method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
     
-    new_content = re.sub(bypass_pattern, original_method, content, flags=re.DOTALL)
-    return new_content, new_content != content
+    if method_sig not in content:
+        return content, False
+    
+    # Find the method start
+    sig_start = content.find(method_sig)
+    if sig_start == -1:
+        return content, False
+    
+    # Find the opening brace after signature
+    brace_start = content.find('{', sig_start)
+    if brace_start == -1:
+        return content, False
+    
+    # Find matching closing brace (count braces)
+    brace_count = 1
+    pos = brace_start + 1
+    while pos < len(content) and brace_count > 0:
+        if content[pos] == '{':
+            brace_count += 1
+        elif content[pos] == '}':
+            brace_count -= 1
+        pos += 1
+    
+    if brace_count != 0:
+        return content, False
+    
+    method_end = pos
+    
+    # Find the attribute and comment before the method
+    search_start = max(0, sig_start - 200)
+    attr_marker = '// Extracted so as to mock in Test'
+    attr_pos = content.rfind(attr_marker, search_start, sig_start)
+    if attr_pos != -1:
+        line_start = content.rfind('\n', 0, attr_pos) + 1
+        method_start = line_start
+    else:
+        method_start = sig_start
+    
+    # Build full original method with comment and attribute
+    full_original = '''        // Extracted so as to mock in Test
+        [ExcludeFromCodeCoverage]
+''' + original_method
+    
+    new_content = content[:method_start] + full_original + content[method_end:]
+    return new_content, True
 
 
 def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
