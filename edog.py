@@ -350,6 +350,15 @@ def write_file(filepath, content):
 # ============================================================================
 def apply_simple_pattern(content, original, modified, description):
     """Apply a simple pattern replacement. Returns (new_content, was_changed, was_already_applied)."""
+    # Handle deletion case (modified is empty) - check if original is missing
+    if modified == "":
+        if original not in content:
+            return content, False, True  # Already applied (line was deleted)
+        if original in content:
+            return content.replace(original, modified, 1), True, False  # Delete now
+        return content, False, False  # Pattern not found
+    
+    # Normal replacement case
     if modified in content:
         return content, False, True  # Already applied
     if original in content:
@@ -359,6 +368,12 @@ def apply_simple_pattern(content, original, modified, description):
 
 def revert_simple_pattern(content, original, modified, description):
     """Revert a simple pattern replacement. Returns (new_content, was_reverted)."""
+    # Handle deletion case (modified is empty) - we need to add back the original
+    if modified == "":
+        # Can't easily revert a deletion without knowing where to put it back
+        # For now, just return False - user should use git checkout
+        return content, False
+    
     if modified in content:
         return content.replace(modified, original, 1), True
     return content, False
