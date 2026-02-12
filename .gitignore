@@ -12,6 +12,9 @@ edog-config.json
 # Token cache (sensitive)
 .edog-token-cache
 
+# EDOG changes patch file
+.edog-changes.patch
+
 # VS Code extension build
 extensions/vscode/node_modules/
 extensions/vscode/out/

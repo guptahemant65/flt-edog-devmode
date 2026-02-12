@@ -792,6 +792,164 @@ def uninstall_git_hook(repo_root):
 
 
 # ============================================================================
+# Patch-based change management
+# ============================================================================
+def get_patch_file_path():
+    """Get path to EDOG changes patch file."""
+    return Path(__file__).parent / ".edog-changes.patch"
+
+
+def generate_patch(original_contents, modified_contents, repo_root):
+    """
+    Generate a unified diff patch file for all EDOG changes.
+    
+    Args:
+        original_contents: dict of {relative_path: original_content}
+        modified_contents: dict of {relative_path: modified_content}
+        repo_root: Path to the FLT repository root
+    
+    Returns:
+        True if patch was generated, False otherwise
+    """
+    import difflib
+    
+    patch_lines = []
+    
+    for rel_path in original_contents:
+        if rel_path not in modified_contents:
+            continue
+        
+        original = original_contents[rel_path]
+        modified = modified_contents[rel_path]
+        
+        if original == modified:
+            continue  # No changes for this file
+        
+        # Generate unified diff
+        original_lines = original.splitlines(keepends=True)
+        modified_lines = modified.splitlines(keepends=True)
+        
+        # Ensure last line has newline for proper patch format
+        if original_lines and not original_lines[-1].endswith('\n'):
+            original_lines[-1] += '\n'
+        if modified_lines and not modified_lines[-1].endswith('\n'):
+            modified_lines[-1] += '\n'
+        
+        # Use forward slashes for git compatibility
+        git_path = str(rel_path).replace('\\', '/')
+        
+        diff = difflib.unified_diff(
+            original_lines,
+            modified_lines,
+            fromfile=f"a/{git_path}",
+            tofile=f"b/{git_path}",
+            lineterm='\n'
+        )
+        
+        patch_lines.extend(diff)
+    
+    if not patch_lines:
+        return False
+    
+    # Write patch file
+    patch_path = get_patch_file_path()
+    try:
+        patch_content = ''.join(patch_lines)
+        patch_path.write_text(patch_content, encoding='utf-8')
+        return True
+    except Exception as e:
+        print(f"❌ Failed to write patch file: {e}")
+        return False
+
+
+def apply_patch_reverse(repo_root):
+    """
+    Revert EDOG changes by applying the patch in reverse.
+    Handles edge case where user edited files after applying EDOG changes.
+    
+    Returns:
+        (success: bool, message: str)
+    """
+    patch_path = get_patch_file_path()
+    
+    if not patch_path.exists():
+        return False, "No patch file found - EDOG changes may not have been applied or were already reverted"
+    
+    try:
+        # First, check if patch applies cleanly
+        check_result = subprocess.run(
+            ['git', 'apply', '-R', '--check', '--whitespace=nowarn', str(patch_path)],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if check_result.returncode == 0:
+            # Patch applies cleanly - go ahead
+            result = subprocess.run(
+                ['git', 'apply', '-R', '--whitespace=nowarn', str(patch_path)],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                patch_path.unlink()
+                return True, "Successfully reverted all EDOG changes"
+            else:
+                return False, f"Failed to apply patch: {result.stderr.strip()}"
+        
+        else:
+            # Patch doesn't apply cleanly - files were modified
+            print("\n   ⚠️  Files were modified after EDOG changes were applied.")
+            print("   Attempting 3-way merge to preserve your changes...")
+            
+            # Try with --3way to do a 3-way merge
+            result = subprocess.run(
+                ['git', 'apply', '-R', '--3way', '--whitespace=nowarn', str(patch_path)],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                patch_path.unlink()
+                return True, "Successfully reverted EDOG changes (merged with your edits)"
+            
+            # 3-way merge failed - check for conflicts
+            if "conflict" in result.stderr.lower() or "conflict" in result.stdout.lower():
+                return False, (
+                    "Merge conflicts detected. Your edits conflict with EDOG changes.\n"
+                    "      Options:\n"
+                    "        1. Resolve conflicts manually in the affected files\n"
+                    "        2. Run 'git checkout -- <file>' to discard ALL changes (including yours)\n"
+                    f"        3. Delete patch file manually: {patch_path}"
+                )
+            
+            # Check if changes are already reverted
+            if "patch does not apply" in check_result.stderr.lower():
+                patch_path.unlink()
+                return True, "EDOG changes already reverted (or files were manually restored)"
+            
+            return False, f"Failed to revert: {result.stderr.strip() or check_result.stderr.strip()}"
+    
+    except subprocess.TimeoutExpired:
+        return False, "Git apply timed out"
+    except FileNotFoundError:
+        return False, "Git not found - please ensure git is installed and in PATH"
+    except Exception as e:
+        return False, f"Error applying patch: {e}"
+
+
+def has_pending_edog_changes():
+    """Check if there are unapplied EDOG changes (patch file exists)."""
+    return get_patch_file_path().exists()
+
+
+# ============================================================================
 # Token caching
 # ============================================================================
 def get_token_cache_path():
@@ -1388,16 +1546,20 @@ async def get_bearer_token(username):
 # Main EDOG operations
 # ============================================================================
 def apply_all_changes(token, repo_root):
-    """Apply all EDOG changes to codebase using smart pattern matching."""
+    """Apply all EDOG changes to codebase and generate a patch file for clean revert."""
     print("\n📝 Applying EDOG changes...")
     
     changes_made = []
     warnings = []
+    original_contents = {}  # Store originals for patch generation
+    modified_contents = {}  # Store modified for patch generation
     
     # 1. LiveTableController patterns (smart matching)
-    filepath = repo_root / FILES["LiveTableController"]
+    rel_path = FILES["LiveTableController"]
+    filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
+        original_contents[rel_path] = content
         modified = False
         for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
             pattern_config = SMART_PATTERNS[key]
@@ -1415,13 +1577,16 @@ def apply_all_changes(token, repo_root):
             elif status == "context_mismatch":
                 warnings.append(f"⚠️  {desc}: found anchor but wrong location")
         
+        modified_contents[rel_path] = content
         if modified:
             write_file(filepath, content)
     
     # 2. LiveTableSchedulerRunController patterns (smart matching)
-    filepath = repo_root / FILES["LiveTableSchedulerRunController"]
+    rel_path = FILES["LiveTableSchedulerRunController"]
+    filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
+        original_contents[rel_path] = content
         modified = False
         for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
             pattern_config = SMART_PATTERNS[key]
@@ -1439,34 +1604,50 @@ def apply_all_changes(token, repo_root):
             elif status == "context_mismatch":
                 warnings.append(f"⚠️  {desc}: found anchor but wrong location")
         
+        modified_contents[rel_path] = content
         if modified:
             write_file(filepath, content)
     
     # 3. GTSOperationManager - Token
-    filepath = repo_root / FILES["GTSOperationManager"]
+    rel_path = FILES["GTSOperationManager"]
+    filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
+        original_contents[rel_path] = content
         new_content, status = apply_gts_operation_manager_change(content, token, repo_root)
         if status in ["applied", "token_updated", "applied_with_git_original"]:
             write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSOperationManager token")
         elif status == "already_applied":
+            modified_contents[rel_path] = content
             changes_made.append(f"⏭️  GTSOperationManager token (already)")
         elif status == "pattern_not_found":
+            modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSOperationManager token: pattern not found")
     
     # 4. GTSBasedSparkClient - Token bypass
-    filepath = repo_root / FILES["GTSBasedSparkClient"]
+    rel_path = FILES["GTSBasedSparkClient"]
+    filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
+        original_contents[rel_path] = content
         new_content, status = apply_gts_spark_client_change(content, token, repo_root)
         if status in ["applied", "token_updated", "applied_with_git_original"]:
             write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSBasedSparkClient token bypass")
         elif status == "already_applied":
+            modified_contents[rel_path] = content
             changes_made.append(f"⏭️  GTSBasedSparkClient token bypass (already)")
         elif status == "pattern_not_found":
+            modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
+    
+    # Generate patch file for clean revert
+    if generate_patch(original_contents, modified_contents, repo_root):
+        print(f"\n   📄 Patch file saved: {get_patch_file_path().name}")
+        print(f"      Use 'edog --revert' to cleanly undo all changes")
     
     # Print summary
     for msg in changes_made:
@@ -1482,66 +1663,17 @@ def apply_all_changes(token, repo_root):
 
 
 def revert_all_changes(repo_root):
-    """Revert all EDOG changes using smart pattern matching."""
+    """Revert all EDOG changes using the saved patch file."""
     print("\n🔄 Reverting EDOG changes...")
     
-    changes_made = []
+    success, message = apply_patch_reverse(repo_root)
     
-    # 1. LiveTableController (smart matching)
-    filepath = repo_root / FILES["LiveTableController"]
-    content = read_file(filepath)
-    if content:
-        modified = False
-        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            pattern_config = SMART_PATTERNS[key]
-            new_content, reverted = revert_smart_pattern(content, pattern_config)
-            if reverted:
-                content = new_content
-                modified = True
-                changes_made.append(f"✅ Reverted: {pattern_config['description']}")
-        if modified:
-            write_file(filepath, content)
-    
-    # 2. LiveTableSchedulerRunController (smart matching)
-    filepath = repo_root / FILES["LiveTableSchedulerRunController"]
-    content = read_file(filepath)
-    if content:
-        modified = False
-        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            pattern_config = SMART_PATTERNS[key]
-            new_content, reverted = revert_smart_pattern(content, pattern_config)
-            if reverted:
-                content = new_content
-                modified = True
-                changes_made.append(f"✅ Reverted: {pattern_config['description']}")
-        if modified:
-            write_file(filepath, content)
-    
-    # 3. GTSOperationManager
-    filepath = repo_root / FILES["GTSOperationManager"]
-    content = read_file(filepath)
-    if content:
-        new_content, reverted = revert_gts_operation_manager_change(content, repo_root)
-        if reverted:
-            write_file(filepath, new_content)
-            changes_made.append(f"✅ Reverted: GTSOperationManager token")
-    
-    # 4. GTSBasedSparkClient
-    filepath = repo_root / FILES["GTSBasedSparkClient"]
-    content = read_file(filepath)
-    if content:
-        new_content, reverted = revert_gts_spark_client_change(content, repo_root)
-        if reverted:
-            write_file(filepath, new_content)
-            changes_made.append(f"✅ Reverted: GTSBasedSparkClient token bypass")
-    
-    if not changes_made:
-        print("   ℹ️  No EDOG changes found to revert")
+    if success:
+        print(f"   ✅ {message}")
     else:
-        for msg in changes_made:
-            print(f"   {msg}")
+        print(f"   ❌ {message}")
     
-    return True
+    return success
 
 
 def check_status(repo_root):
@@ -1623,6 +1755,12 @@ def check_status(repo_root):
         print("   ⚠️  Some EDOG changes are applied (partial state)")
     else:
         print("   ❌ No EDOG changes are applied")
+    
+    # Check for patch file
+    patch_path = get_patch_file_path()
+    if patch_path.exists():
+        print(f"\n   📄 Patch file exists: {patch_path.name}")
+        print(f"      Run 'edog --revert' to cleanly undo changes")
     
     # Git safety warning
     if any_applied:

@@ -86,8 +86,8 @@ Install `extensions/vscode/flt-edog-devmode-1.0.0.vsix`
 
 - Requires Microsoft OAuth login - only Microsoft employees can authenticate
 - Tokens are short-lived (1 hour) and auto-refreshed
-- All code changes marked with `// EDOG DevMode` comments
-- Run `edog --revert` to clean up before committing
+- All code changes tracked via git patch file (`.edog-changes.patch`)
+- Run `edog --revert` to cleanly undo all changes using `git apply -R`
 
 ## Configuration
 
