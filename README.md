@@ -11,8 +11,19 @@ edog-setup
 # Configure your IDs
 edog --config -w WORKSPACE_ID -l LAKEHOUSE_ID -c CAPACITY_ID
 
-# Start DevMode
+# Start DevMode (from FLT repo directory)
 edog
+```
+
+## Run From Anywhere
+
+The setup script automatically:
+- **Auto-detects** the FabricLiveTable repo (searches `newrepo`, `repos`, etc.)
+- **Adds edog to PATH** so you can run it from any terminal
+
+If auto-detection fails, set the path manually:
+```bash
+edog --config -r C:\path\to\workload-fabriclivetable
 ```
 
 ## What It Does
@@ -30,6 +41,7 @@ edog
 | `edog --revert` | Revert all code changes |
 | `edog --status` | Check current status |
 | `edog --config` | View/update configuration |
+| `edog --config -r <path>` | Set FLT repo path (enables global usage) |
 
 ## Requirements
 
@@ -84,7 +96,8 @@ Config file: `~/.edog-config.json`
   "workspace_id": "your-workspace-id",
   "lakehouse_id": "your-lakehouse-id",
   "capacity_id": "your-capacity-id",
-  "email": "you@microsoft.com"
+  "email": "you@microsoft.com",
+  "flt_repo_path": "C:\\path\\to\\workload-fabriclivetable"
 }
 ```
 

@@ -55,7 +55,6 @@ POWER_BI_URL = "https://powerbi-df.analysis-df.windows.net/"
 MWC_TOKEN_ENDPOINT = "https://biazure-int-edog-redirect.analysis-df.windows.net/metadata/v201606/generatemwctoken"
 
 DEFAULT_USERNAME = "Admin1CBA@FabricFMLV07PPE.ccsctp.net"
-CERT_SUBJECT = "Admin1CBA.FabricFMLV07PPE.ccsctp.net"
 
 CONFIG_FILE = "edog-config.json"
 
@@ -137,7 +136,7 @@ def prompt_for_config():
     }
 
 
-def update_config(username=None, workspace_id=None, artifact_id=None, capacity_id=None):
+def update_config(username=None, workspace_id=None, artifact_id=None, capacity_id=None, flt_repo_path=None):
     """Update specific config values."""
     config = load_config()
     
@@ -149,6 +148,15 @@ def update_config(username=None, workspace_id=None, artifact_id=None, capacity_i
         config["artifact_id"] = artifact_id
     if capacity_id:
         config["capacity_id"] = capacity_id
+    if flt_repo_path:
+        # Validate the path
+        repo_path = Path(flt_repo_path).resolve()
+        if (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
+            config["flt_repo_path"] = str(repo_path)
+        else:
+            print(f"❌ Invalid FLT repo path: {repo_path}")
+            print("   Expected to find: Service/Microsoft.LiveTable.Service")
+            return False
     
     if save_config(config):
         print("\n✅ Config updated:")
@@ -156,6 +164,7 @@ def update_config(username=None, workspace_id=None, artifact_id=None, capacity_i
         print(f"   Workspace: {config.get('workspace_id', 'not set')}")
         print(f"   Artifact:  {config.get('artifact_id', 'not set')}")
         print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
+        print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect')}")
         return True
     return False
 
@@ -184,12 +193,178 @@ def show_config():
         print(f"   Workspace: {config.get('workspace_id', 'not set')}")
         print(f"   Artifact:  {config.get('artifact_id', 'not set')}")
         print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
+        print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect (current directory)')}")
         print(f"\n   Config file: {get_config_path()}")
     else:
-        print("   No config found. Run 'edog.cmd' to set up.")
+        print("   No config found. Run 'edog' to set up.")
 
 # ============================================================================
-# Patterns for applying/reverting changes
+# Smart Pattern Matching (Anchor-Based Fuzzy Matching)
+# ============================================================================
+
+SMART_PATTERNS = {
+    # Each pattern has:
+    #   anchor: The key identifier to find (whitespace-flexible)
+    #   context: Nearby text that must exist to validate location
+    #   context_distance: Max lines between anchor and context
+    #   action: "wrap_ifdef" or "replace_line"
+    #   description: Human-readable description
+    
+    "auth_engine_ltc": {
+        "anchor": "[AuthenticationEngine]",
+        "context": "class LiveTableController",
+        "context_distance": 20,  # Class definition may be several lines after attributes
+        "action": "wrap_ifdef",
+        "description": "AuthenticationEngine on LiveTableController"
+    },
+    "auth_engine_ltsrc": {
+        "anchor": "[AuthenticationEngine]",
+        "context": "class LiveTableSchedulerRunController",
+        "context_distance": 20,
+        "action": "wrap_ifdef",
+        "description": "AuthenticationEngine on LiveTableSchedulerRunController"
+    },
+    "permission_filter_getlatestdag": {
+        "anchor": "[RequiresPermissionFilter(Permissions.ReadAll)]",
+        "context": "getLatestDag",
+        "context_distance": 5,
+        "action": "wrap_ifdef",
+        "description": "RequiresPermissionFilter on getLatestDag"
+    },
+    "permission_filter_rundag": {
+        "anchor": "[MwcV2RequirePermissionsFilter(",
+        "context": "runDAG",
+        "context_distance": 5,
+        "action": "wrap_ifdef",
+        "description": "MwcV2RequirePermissionsFilter on runDAG"
+    },
+}
+
+def normalize_whitespace(text):
+    """Normalize whitespace for flexible matching."""
+    return ' '.join(text.split())
+
+def find_anchor_line(lines, anchor):
+    """Find line number containing the anchor (whitespace-flexible)."""
+    normalized_anchor = normalize_whitespace(anchor)
+    for i, line in enumerate(lines):
+        if normalized_anchor in normalize_whitespace(line):
+            return i
+    return -1
+
+def validate_context(lines, anchor_line, context, max_distance):
+    """Check if context exists within max_distance lines of anchor."""
+    normalized_context = normalize_whitespace(context).lower()
+    start = max(0, anchor_line - max_distance)
+    end = min(len(lines), anchor_line + max_distance + 1)
+    
+    for i in range(start, end):
+        if normalized_context in normalize_whitespace(lines[i]).lower():
+            return True
+    return False
+
+def is_already_wrapped(lines, anchor_line):
+    """Check if the anchor line is already wrapped with #if EDOG_DEVMODE."""
+    if anchor_line <= 0:
+        return False
+    prev_line = lines[anchor_line - 1].strip()
+    return prev_line.startswith("#if EDOG_DEVMODE")
+
+def apply_smart_pattern(content, pattern_config):
+    """
+    Apply pattern using smart anchor-based matching.
+    Returns (new_content, status) where status is:
+      - "applied": Successfully applied
+      - "already_applied": Already wrapped
+      - "anchor_not_found": Anchor text not found
+      - "context_mismatch": Anchor found but context validation failed
+    """
+    lines = content.split('\n')
+    anchor = pattern_config["anchor"]
+    context = pattern_config["context"]
+    max_distance = pattern_config["context_distance"]
+    
+    # Find anchor
+    anchor_line = find_anchor_line(lines, anchor)
+    if anchor_line == -1:
+        return content, "anchor_not_found"
+    
+    # Validate context
+    if not validate_context(lines, anchor_line, context, max_distance):
+        return content, "context_mismatch"
+    
+    # Check if already applied
+    if is_already_wrapped(lines, anchor_line):
+        return content, "already_applied"
+    
+    # Apply wrap_ifdef
+    original_line = lines[anchor_line]
+    indent = len(original_line) - len(original_line.lstrip())
+    indent_str = original_line[:indent]
+    
+    wrapped = f"#if EDOG_DEVMODE  // EDOG DevMode - disabled\n{original_line}\n{indent_str}#endif"
+    lines[anchor_line] = wrapped
+    
+    return '\n'.join(lines), "applied"
+
+def revert_smart_pattern(content, pattern_config):
+    """
+    Revert a smart pattern by removing #if EDOG_DEVMODE wrapper.
+    Returns (new_content, was_reverted)
+    """
+    lines = content.split('\n')
+    anchor = pattern_config["anchor"]
+    
+    # Find anchor
+    anchor_line = find_anchor_line(lines, anchor)
+    if anchor_line == -1:
+        return content, False
+    
+    # Check if wrapped
+    if not is_already_wrapped(lines, anchor_line):
+        return content, False
+    
+    # Find #endif after anchor
+    endif_line = -1
+    for i in range(anchor_line + 1, min(len(lines), anchor_line + 3)):
+        if lines[i].strip().startswith("#endif"):
+            endif_line = i
+            break
+    
+    if endif_line == -1:
+        return content, False
+    
+    # Remove the wrapper lines
+    del lines[endif_line]  # Remove #endif first (so indices don't shift)
+    del lines[anchor_line - 1]  # Remove #if EDOG_DEVMODE
+    
+    return '\n'.join(lines), True
+
+def check_smart_pattern_status(content, pattern_config):
+    """
+    Check if a smart pattern is applied.
+    Returns: "applied", "not_applied", "anchor_not_found", or "context_mismatch"
+    """
+    lines = content.split('\n')
+    anchor = pattern_config["anchor"]
+    context = pattern_config["context"]
+    max_distance = pattern_config["context_distance"]
+    
+    anchor_line = find_anchor_line(lines, anchor)
+    if anchor_line == -1:
+        return "anchor_not_found"
+    
+    if not validate_context(lines, anchor_line, context, max_distance):
+        return "context_mismatch"
+    
+    if is_already_wrapped(lines, anchor_line):
+        return "applied"
+    
+    return "not_applied"
+
+
+# ============================================================================
+# Legacy Patterns (keeping for token replacement which needs exact matching)
 # ============================================================================
 PATTERNS = {
     # (original, modified, description)
@@ -217,9 +392,17 @@ PATTERNS = {
 }
 
 
-def handle_certificate_dialog():
+# ============================================================================
+# EDOG change management
+# ============================================================================
+
+
+def handle_certificate_dialog(username):
     """Background thread to handle the Windows certificate selection dialog."""
     print("   🔍 Watching for certificate dialog...")
+    
+    # Derive cert subject from username
+    cert_subject = username.replace("@", ".") if username else ""
     
     for attempt in range(30):  # Try for 30 seconds
         time.sleep(1)
@@ -245,10 +428,12 @@ def handle_certificate_dialog():
                     items = list_ctrl.children()
                     for item in items:
                         item_text = item.window_text()
-                        if CERT_SUBJECT.lower() in item_text.lower() or "Admin1CBA" in item_text:
+                        # Match cert based on configured username
+                        if cert_subject and cert_subject.lower() in item_text.lower():
                             print(f"   ✅ Selecting certificate: {item_text[:50]}...")
                             item.click_input()
                             time.sleep(0.5)
+                            break
                             break
             except Exception as e:
                 print(f"   ⚠️ Could not find cert in list: {e}")
@@ -314,9 +499,86 @@ def format_timedelta(td):
 # ============================================================================
 # File modification utilities
 # ============================================================================
+def find_flt_repo():
+    """Search for FabricLiveTable repo by looking for its unique folder structure."""
+    home = Path.home()
+    
+    # Signature: repo must contain Service/Microsoft.LiveTable.Service
+    def is_flt_repo(path):
+        try:
+            return (path / "Service" / "Microsoft.LiveTable.Service").exists()
+        except (PermissionError, OSError):
+            return False
+    
+    # Search home directory with depth limit (avoids searching forever)
+    max_depth = 4
+    skip_dirs = {'.git', '.vs', '.vscode', 'node_modules', '__pycache__', 'bin', 'obj', 
+                 'packages', 'AppData', '.nuget', '.dotnet', '.azure', 'OneDrive'}
+    
+    def search_dir(start_path, current_depth=0):
+        if current_depth > max_depth:
+            return None
+        try:
+            for entry in start_path.iterdir():
+                try:
+                    if not entry.is_dir():
+                        continue
+                except (PermissionError, OSError):
+                    continue
+                # Skip hidden folders and known non-repo dirs
+                if entry.name.startswith('.') or entry.name in skip_dirs:
+                    continue
+                # Check if this is the FLT repo
+                if is_flt_repo(entry):
+                    return entry
+                # Recurse into subdirectory
+                found = search_dir(entry, current_depth + 1)
+                if found:
+                    return found
+        except (PermissionError, OSError):
+            pass
+        return None
+    
+    return search_dir(home)
+
+
 def get_repo_root():
-    """Get repository root directory."""
-    return Path(__file__).parent
+    """Get FLT repository root directory from config or auto-detect."""
+    config = load_config()
+    
+    # First, check config for explicit repo path
+    if config.get("flt_repo_path"):
+        repo_path = Path(config["flt_repo_path"])
+        if repo_path.exists() and (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
+            return repo_path
+        else:
+            print(f"⚠️ Configured FLT repo path no longer valid: {repo_path}")
+            print(f"   → Update with: edog --config -r <new_path>")
+    
+    # Try current working directory
+    cwd = Path.cwd()
+    if (cwd / "Service" / "Microsoft.LiveTable.Service").exists():
+        return cwd
+    
+    # Try parent directories (in case running from subdirectory)
+    for parent in cwd.parents:
+        if (parent / "Service" / "Microsoft.LiveTable.Service").exists():
+            return parent
+    
+    # Auto-search common locations
+    found = find_flt_repo()
+    if found:
+        # Save it to config for future use
+        config["flt_repo_path"] = str(found)
+        save_config(config)
+        print(f"✅ Auto-detected FLT repo: {found}")
+        return found
+    
+    # Not found
+    print("❌ FabricLiveTable repo not found")
+    print("   → Set the repo path: edog --config -r C:\\path\\to\\workload-fabriclivetable")
+    print("   → Or run from inside the FLT repo directory")
+    return None
 
 
 def read_file(filepath):
@@ -325,10 +587,16 @@ def read_file(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     except PermissionError:
-        print(f"❌ File is locked (close it in VS): {filepath}")
+        print(f"❌ File is locked: {filepath.name}")
+        print(f"   → Close the file in Visual Studio/VS Code and retry")
+        return None
+    except FileNotFoundError:
+        print(f"❌ File not found: {filepath}")
+        print(f"   → Check if FLT repo path is correct: edog --config")
+        print(f"   → The codebase structure may have changed")
         return None
     except Exception as e:
-        print(f"❌ Error reading {filepath}: {e}")
+        print(f"❌ Error reading {filepath.name}: {e}")
         return None
 
 
@@ -339,11 +607,255 @@ def write_file(filepath, content):
             f.write(content)
         return True
     except PermissionError:
-        print(f"❌ File is locked (close it in VS): {filepath}")
+        print(f"❌ File is locked: {filepath.name}")
+        print(f"   → Close the file in Visual Studio/VS Code and retry")
         return False
     except Exception as e:
-        print(f"❌ Error writing {filepath}: {e}")
+        print(f"❌ Error writing {filepath.name}: {e}")
         return False
+
+
+# ============================================================================
+# Git safety checks
+# ============================================================================
+def check_git_status(repo_root):
+    """Check if EDOG-modified files have uncommitted changes. Returns list of dirty files."""
+    import subprocess
+    
+    dirty_files = []
+    
+    try:
+        # Get list of modified/staged files
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            return []  # Git not available or not a repo, skip check
+        
+        # Check if any EDOG-managed files are in the dirty list
+        edog_files = [str(f).replace("\\", "/") for f in FILES.values()]
+        
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            # Git status format: "XY filename" where X=staged, Y=unstaged
+            file_path = line[3:].strip().replace("\\", "/")
+            for edog_file in edog_files:
+                if file_path.endswith(edog_file) or edog_file.endswith(file_path):
+                    dirty_files.append(file_path)
+                    break
+    
+    except Exception:
+        pass  # If git check fails, don't block the user
+    
+    return dirty_files
+
+
+def warn_uncommitted_edog_changes(repo_root):
+    """Print warning if EDOG changes are uncommitted."""
+    dirty_files = check_git_status(repo_root)
+    
+    if dirty_files:
+        print()
+        print("⚠️  WARNING: EDOG-modified files have uncommitted changes!")
+        print("   Don't commit these files with EDOG changes.")
+        print("   Run 'edog --revert' before committing.")
+        print()
+        for f in dirty_files:
+            print(f"   • {f}")
+        print()
+        return True
+    return False
+
+
+def install_git_hook(repo_root):
+    """Install a pre-commit hook that blocks commits with EDOG changes."""
+    hooks_dir = repo_root / ".git" / "hooks"
+    hook_file = hooks_dir / "pre-commit"
+    
+    if not hooks_dir.exists():
+        print(f"❌ Git hooks directory not found: {hooks_dir}")
+        return False
+    
+    # Hook script content
+    hook_script = '''#!/bin/sh
+# EDOG DevMode pre-commit hook
+# Prevents accidental commits of EDOG-modified files
+
+# Files that EDOG modifies
+EDOG_FILES="LiveTableController.cs LiveTableSchedulerRunController.cs GTSOperationManager.cs GTSBasedSparkClient.cs"
+
+# Check if any EDOG files are staged
+for file in $EDOG_FILES; do
+    if git diff --cached --name-only | grep -q "$file"; then
+        # Check if file contains EDOG markers
+        if git diff --cached -- "*$file" | grep -q "EDOG DevMode"; then
+            echo ""
+            echo "COMMIT BLOCKED: EDOG DevMode changes detected!"
+            echo ""
+            echo "   File: $file contains EDOG modifications."
+            echo "   Run 'edog --revert' before committing."
+            echo ""
+            exit 1
+        fi
+    fi
+done
+
+exit 0
+'''
+    
+    # Check if hook already exists
+    if hook_file.exists():
+        existing = hook_file.read_text(encoding='utf-8', errors='ignore')
+        if "EDOG DevMode pre-commit hook" in existing:
+            print("✅ EDOG pre-commit hook already installed")
+            return True
+        else:
+            # Backup existing hook
+            backup = hook_file.with_suffix(".pre-edog-backup")
+            hook_file.rename(backup)
+            print(f"   Backed up existing hook to: {backup.name}")
+    
+    try:
+        hook_file.write_text(hook_script, encoding='utf-8')
+        # Make executable (on Unix)
+        import stat
+        hook_file.chmod(hook_file.stat().st_mode | stat.S_IEXEC)
+        print(f"✅ Installed EDOG pre-commit hook")
+        print(f"   Location: {hook_file}")
+        print(f"   Commits with EDOG changes will now be blocked.")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to install hook: {e}")
+        return False
+
+
+def uninstall_git_hook(repo_root):
+    """Remove the EDOG pre-commit hook."""
+    hook_file = repo_root / ".git" / "hooks" / "pre-commit"
+    
+    if not hook_file.exists():
+        print("   No pre-commit hook found")
+        return True
+    
+    content = hook_file.read_text()
+    if "EDOG DevMode pre-commit hook" not in content:
+        print("   Pre-commit hook exists but is not EDOG's hook")
+        return False
+    
+    try:
+        hook_file.unlink()
+        print("✅ Removed EDOG pre-commit hook")
+        
+        # Restore backup if exists
+        backup = hook_file.with_suffix(".pre-edog-backup")
+        if backup.exists():
+            backup.rename(hook_file)
+            print(f"   Restored previous hook from backup")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Failed to remove hook: {e}")
+        return False
+
+
+# ============================================================================
+# Token caching
+# ============================================================================
+def get_token_cache_path():
+    """Get path to cached token file."""
+    return Path(__file__).parent / ".edog-token-cache"
+
+
+def cache_token(token, expiry_timestamp):
+    """Save token to cache file (simple obfuscation, not encryption)."""
+    import base64
+    
+    cache_path = get_token_cache_path()
+    try:
+        # Simple obfuscation (base64) - not secure, just prevents casual viewing
+        data = f"{expiry_timestamp}|{token}"
+        encoded = base64.b64encode(data.encode()).decode()
+        cache_path.write_text(encoded)
+        return True
+    except Exception:
+        return False
+
+
+def load_cached_token():
+    """Load token from cache if still valid. Returns (token, expiry) or (None, None)."""
+    import base64
+    
+    cache_path = get_token_cache_path()
+    if not cache_path.exists():
+        return None, None
+    
+    try:
+        encoded = cache_path.read_text()
+        data = base64.b64decode(encoded.encode()).decode()
+        expiry_str, token = data.split("|", 1)
+        expiry_timestamp = float(expiry_str)
+        
+        # Check if token is still valid (with 5 min buffer)
+        if time.time() < expiry_timestamp - 300:
+            expiry = datetime.fromtimestamp(expiry_timestamp)
+            return token, expiry
+        else:
+            # Token expired, delete cache
+            cache_path.unlink()
+            return None, None
+    except Exception:
+        # Corrupted cache, delete it
+        try:
+            cache_path.unlink()
+        except:
+            pass
+        return None, None
+
+
+def clear_token_cache():
+    """Delete cached token."""
+    cache_path = get_token_cache_path()
+    if cache_path.exists():
+        cache_path.unlink()
+
+
+# ============================================================================
+# Desktop notifications
+# ============================================================================
+def show_notification(title, message):
+    """Show a Windows toast notification."""
+    try:
+        from win10toast import ToastNotifier
+        toaster = ToastNotifier()
+        toaster.show_toast(title, message, duration=5, threaded=True)
+        return True
+    except ImportError:
+        # win10toast not installed, try PowerShell fallback
+        try:
+            import subprocess
+            ps_script = f'''
+            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+            [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+            $template = "<toast><visual><binding template='ToastText02'><text id='1'>{title}</text><text id='2'>{message}</text></binding></visual></toast>"
+            $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+            $xml.LoadXml($template)
+            $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("EDOG DevMode").Show($toast)
+            '''
+            subprocess.run(["powershell", "-Command", ps_script], 
+                         capture_output=True, timeout=5)
+            return True
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
 
 
 # ============================================================================
@@ -664,25 +1176,26 @@ def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
         return None
 
 
-async def get_bearer_token(username=None):
+async def get_bearer_token(username):
     """Launch Edge, capture Bearer token."""
     
     if not username:
-        username = DEFAULT_USERNAME
+        print("❌ Username is required")
+        return None
     
     print("🚀 Starting browser...")
     bearer_token = None
     
-    cert_policies = [
-        '{"pattern":"*","filter":{"SUBJECT":{"CN":"Admin1CBA.FabricFMLV07PPE.ccsctp.net"}}}',
-    ]
+    # Extract cert subject from username (e.g., Admin1CBA@domain.net -> Admin1CBA.domain.net)
+    cert_subject = username.replace("@", ".")
+    cert_policy = f'{{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             channel="msedge",
             headless=False,
             args=[
-                f'--auto-select-certificate-for-urls={cert_policies[0]}',
+                f'--auto-select-certificate-for-urls={cert_policy}',
                 '--ignore-certificate-errors',
             ]
         )
@@ -744,42 +1257,57 @@ async def get_bearer_token(username=None):
 # Main EDOG operations
 # ============================================================================
 def apply_all_changes(token, repo_root):
-    """Apply all EDOG changes to codebase."""
+    """Apply all EDOG changes to codebase using smart pattern matching."""
     print("\n📝 Applying EDOG changes...")
     
     changes_made = []
+    warnings = []
     
-    # 1. LiveTableController patterns
+    # 1. LiveTableController patterns (smart matching)
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
         modified = False
         for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            orig, mod, desc = PATTERNS[key]
-            new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
-            if changed:
+            pattern_config = SMART_PATTERNS[key]
+            new_content, status = apply_smart_pattern(content, pattern_config)
+            desc = pattern_config["description"]
+            
+            if status == "applied":
                 content = new_content
                 modified = True
                 changes_made.append(f"✅ {desc}")
-            elif already:
+            elif status == "already_applied":
                 changes_made.append(f"⏭️  {desc} (already)")
+            elif status == "anchor_not_found":
+                warnings.append(f"⚠️  {desc}: anchor not found (code may have changed)")
+            elif status == "context_mismatch":
+                warnings.append(f"⚠️  {desc}: found anchor but wrong location")
+        
         if modified:
             write_file(filepath, content)
     
-    # 2. LiveTableSchedulerRunController patterns
+    # 2. LiveTableSchedulerRunController patterns (smart matching)
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
         modified = False
         for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            orig, mod, desc = PATTERNS[key]
-            new_content, changed, already = apply_simple_pattern(content, orig, mod, desc)
-            if changed:
+            pattern_config = SMART_PATTERNS[key]
+            new_content, status = apply_smart_pattern(content, pattern_config)
+            desc = pattern_config["description"]
+            
+            if status == "applied":
                 content = new_content
                 modified = True
                 changes_made.append(f"✅ {desc}")
-            elif already:
+            elif status == "already_applied":
                 changes_made.append(f"⏭️  {desc} (already)")
+            elif status == "anchor_not_found":
+                warnings.append(f"⚠️  {desc}: anchor not found (code may have changed)")
+            elif status == "context_mismatch":
+                warnings.append(f"⚠️  {desc}: found anchor but wrong location")
+        
         if modified:
             write_file(filepath, content)
     
@@ -793,6 +1321,8 @@ def apply_all_changes(token, repo_root):
             changes_made.append(f"✅ GTSOperationManager token")
         elif status == "already_applied":
             changes_made.append(f"⏭️  GTSOperationManager token (already)")
+        elif status == "pattern_not_found":
+            warnings.append(f"⚠️  GTSOperationManager token: pattern not found")
     
     # 4. GTSBasedSparkClient - Token bypass
     filepath = repo_root / FILES["GTSBasedSparkClient"]
@@ -804,47 +1334,55 @@ def apply_all_changes(token, repo_root):
             changes_made.append(f"✅ GTSBasedSparkClient token bypass")
         elif status == "already_applied":
             changes_made.append(f"⏭️  GTSBasedSparkClient token bypass (already)")
+        elif status == "pattern_not_found":
+            warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
     
     # Print summary
     for msg in changes_made:
         print(f"   {msg}")
     
-    return True
+    # Print warnings
+    if warnings:
+        print()
+        for msg in warnings:
+            print(f"   {msg}")
+    
+    return len(warnings) == 0
 
 
 def revert_all_changes(repo_root):
-    """Revert all EDOG changes."""
+    """Revert all EDOG changes using smart pattern matching."""
     print("\n🔄 Reverting EDOG changes...")
     
     changes_made = []
     
-    # 1. LiveTableController
+    # 1. LiveTableController (smart matching)
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
         modified = False
         for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            orig, mod, desc = PATTERNS[key]
-            new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
+            pattern_config = SMART_PATTERNS[key]
+            new_content, reverted = revert_smart_pattern(content, pattern_config)
             if reverted:
                 content = new_content
                 modified = True
-                changes_made.append(f"✅ Reverted: {desc}")
+                changes_made.append(f"✅ Reverted: {pattern_config['description']}")
         if modified:
             write_file(filepath, content)
     
-    # 2. LiveTableSchedulerRunController
+    # 2. LiveTableSchedulerRunController (smart matching)
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
         modified = False
         for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            orig, mod, desc = PATTERNS[key]
-            new_content, reverted = revert_simple_pattern(content, orig, mod, desc)
+            pattern_config = SMART_PATTERNS[key]
+            new_content, reverted = revert_smart_pattern(content, pattern_config)
             if reverted:
                 content = new_content
                 modified = True
-                changes_made.append(f"✅ Reverted: {desc}")
+                changes_made.append(f"✅ Reverted: {pattern_config['description']}")
         if modified:
             write_file(filepath, content)
     
@@ -876,33 +1414,49 @@ def revert_all_changes(repo_root):
 
 
 def check_status(repo_root):
-    """Check if EDOG changes are applied."""
+    """Check if EDOG changes are applied using smart pattern matching."""
     print("\n🔍 Checking EDOG status...")
     
     status = []
+    warnings = []
     
-    # Check each file
+    # Check LiveTableController (smart matching)
     filepath = repo_root / FILES["LiveTableController"]
     content = read_file(filepath)
     if content:
         for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            orig, mod, desc = PATTERNS[key]
-            if mod in content:
+            pattern_config = SMART_PATTERNS[key]
+            result = check_smart_pattern_status(content, pattern_config)
+            desc = pattern_config["description"]
+            
+            if result == "applied":
                 status.append((desc, True))
-            elif orig in content:
+            elif result == "not_applied":
                 status.append((desc, False))
-            # else: pattern not in file, skip
+            elif result == "anchor_not_found":
+                warnings.append(f"⚠️  {desc}: anchor not found (code may have changed)")
+            elif result == "context_mismatch":
+                warnings.append(f"⚠️  {desc}: anchor found but wrong location")
     
+    # Check LiveTableSchedulerRunController (smart matching)
     filepath = repo_root / FILES["LiveTableSchedulerRunController"]
     content = read_file(filepath)
     if content:
         for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            orig, mod, desc = PATTERNS[key]
-            if mod in content:
+            pattern_config = SMART_PATTERNS[key]
+            result = check_smart_pattern_status(content, pattern_config)
+            desc = pattern_config["description"]
+            
+            if result == "applied":
                 status.append((desc, True))
-            elif orig in content:
+            elif result == "not_applied":
                 status.append((desc, False))
+            elif result == "anchor_not_found":
+                warnings.append(f"⚠️  {desc}: anchor not found")
+            elif result == "context_mismatch":
+                warnings.append(f"⚠️  {desc}: anchor found but wrong location")
     
+    # Check GTSOperationManager (legacy - exact match)
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
     if content:
@@ -913,18 +1467,23 @@ def check_status(repo_root):
         else:
             status.append(("GTSOperationManager token", False))
     
+    # Check GTSBasedSparkClient (legacy - exact match)
     filepath = repo_root / FILES["GTSBasedSparkClient"]
     content = read_file(filepath)
     if content:
         applied = "// EDOG DevMode - bypassing OBO token exchange" in content
         status.append(("GTSBasedSparkClient token bypass", applied))
     
-    all_applied = all(s[1] for s in status)
-    any_applied = any(s[1] for s in status)
+    all_applied = all(s[1] for s in status) if status else False
+    any_applied = any(s[1] for s in status) if status else False
     
     for desc, applied in status:
         icon = "✅" if applied else "❌"
         print(f"   {icon} {desc}")
+    
+    # Print warnings
+    for msg in warnings:
+        print(f"   {msg}")
     
     print()
     if all_applied:
@@ -933,6 +1492,10 @@ def check_status(repo_root):
         print("   ⚠️  Some EDOG changes are applied (partial state)")
     else:
         print("   ❌ No EDOG changes are applied")
+    
+    # Git safety warning
+    if any_applied:
+        warn_uncommitted_edog_changes(repo_root)
     
     return all_applied
 
@@ -971,14 +1534,25 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
     print(f"Capacity:  {capacity_id}")
     print("=" * 70)
     
-    # Initial token fetch
-    mwc_token = fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id)
-    if not mwc_token:
-        print("\n❌ Failed to fetch initial token after all retries")
-        return 1
-    
-    token_expiry = parse_jwt_expiry(mwc_token)
-    print(f"\n✅ Token acquired (expires: {token_expiry.strftime('%H:%M:%S') if token_expiry else 'unknown'})")
+    # Check for cached token first
+    cached_token, cached_expiry = load_cached_token()
+    if cached_token:
+        print(f"\n✅ Using cached token (expires: {cached_expiry.strftime('%H:%M:%S')})")
+        mwc_token = cached_token
+        token_expiry = cached_expiry
+    else:
+        # Initial token fetch
+        mwc_token = fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id)
+        if not mwc_token:
+            print("\n❌ Failed to fetch initial token after all retries")
+            return 1
+        
+        token_expiry = parse_jwt_expiry(mwc_token)
+        print(f"\n✅ Token acquired (expires: {token_expiry.strftime('%H:%M:%S') if token_expiry else 'unknown'})")
+        
+        # Cache the token
+        if token_expiry:
+            cache_token(mwc_token, token_expiry.timestamp())
     
     # Apply changes
     if not apply_all_changes(mwc_token, repo_root):
@@ -1002,6 +1576,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
             # Check if refresh needed
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
                 print(f"\n🔄 Token expiring soon, refreshing...")
+                show_notification("EDOG DevMode", "Token expiring, refreshing...")
+                
                 new_token = fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id)
                 
                 if new_token:
@@ -1009,10 +1585,16 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
                     token_expiry = parse_jwt_expiry(mwc_token)
                     print(f"✅ Token refreshed (expires: {token_expiry.strftime('%H:%M:%S') if token_expiry else 'unknown'})")
                     
+                    # Cache the new token
+                    if token_expiry:
+                        cache_token(mwc_token, token_expiry.timestamp())
+                    
                     # Update tokens in codebase
                     apply_all_changes(mwc_token, repo_root)
+                    show_notification("EDOG DevMode", f"Token refreshed! Expires {token_expiry.strftime('%H:%M')}")
                 else:
                     print("❌ Failed to refresh token - continuing with old token")
+                    show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
             
             # Wait for next check
             print(f"   Next check in {CHECK_INTERVAL_MINS} mins...")
@@ -1020,7 +1602,9 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
             
     except KeyboardInterrupt:
         print("\n\n👋 Shutting down...")
-        print("   Run 'edog.cmd --revert' to revert changes when done testing")
+        clear_token_cache()  # Clear cache on exit
+        warn_uncommitted_edog_changes(repo_root)
+        print("   Run 'edog --revert' to revert changes before committing code")
         return 0
     
     return 0
@@ -1035,39 +1619,55 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  edog.cmd                              Start daemon (fetches token, applies changes, auto-refresh)
-  edog.cmd --revert                     Revert all EDOG changes  
-  edog.cmd --status                     Check if changes are applied
-  edog.cmd --config                     Show current config
-  edog.cmd --config -u <email>          Update username/email
-  edog.cmd --config -w <id> -a <id>     Update workspace and artifact IDs
+  edog                              Start daemon (fetches token, applies changes, auto-refresh)
+  edog --revert                     Revert all EDOG changes  
+  edog --status                     Check if changes are applied
+  edog --config                     Show current config
+  edog --config -u <email>          Update username/email
+  edog --config -w <id> -a <id>     Update workspace and artifact IDs
+  edog --config -r C:\\path\\to\\FLT  Set FLT repo path (enables running from anywhere)
+  edog --install-hook               Install git pre-commit hook (blocks commits with EDOG changes)
+  edog --uninstall-hook             Remove git pre-commit hook
         """
     )
     
     parser.add_argument("--revert", action="store_true", help="Revert all EDOG changes")
     parser.add_argument("--status", action="store_true", help="Check if EDOG changes are applied")
     parser.add_argument("--config", action="store_true", help="Show or update config")
+    parser.add_argument("--install-hook", action="store_true", help="Install git pre-commit hook")
+    parser.add_argument("--uninstall-hook", action="store_true", help="Remove git pre-commit hook")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
     parser.add_argument("-c", "--capacity", help="Capacity ID")
+    parser.add_argument("-r", "--repo", help="FabricLiveTable repo path")
     
     args = parser.parse_args()
     
-    repo_root = get_repo_root()
+    # Config command doesn't need repo_root
+    if args.config:
+        if args.username or args.workspace or args.artifact or args.capacity or args.repo:
+            update_config(args.username, args.workspace, args.artifact, args.capacity, args.repo)
+        else:
+            show_config()
+        sys.exit(0)
     
-    if args.revert:
+    # All other commands need repo_root
+    repo_root = get_repo_root()
+    if not repo_root:
+        sys.exit(1)
+    
+    if args.install_hook:
+        install_git_hook(repo_root)
+        sys.exit(0)
+    elif args.uninstall_hook:
+        uninstall_git_hook(repo_root)
+        sys.exit(0)
+    elif args.revert:
         revert_all_changes(repo_root)
         sys.exit(0)
     elif args.status:
         check_status(repo_root)
-        sys.exit(0)
-    elif args.config:
-        # If any values provided, update them
-        if args.username or args.workspace or args.artifact or args.capacity:
-            update_config(args.username, args.workspace, args.artifact, args.capacity)
-        else:
-            show_config()
         sys.exit(0)
     else:
         # Run daemon mode - get config first
