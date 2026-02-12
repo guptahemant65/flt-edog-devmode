@@ -1921,6 +1921,7 @@ Examples:
     parser.add_argument("--revert", action="store_true", help="Revert all EDOG changes")
     parser.add_argument("--status", action="store_true", help="Check if EDOG changes are applied")
     parser.add_argument("--config", action="store_true", help="Show or update config")
+    parser.add_argument("--clear-token", action="store_true", help="Clear cached authentication token")
     parser.add_argument("--install-hook", action="store_true", help="Install git pre-commit hook")
     parser.add_argument("--uninstall-hook", action="store_true", help="Remove git pre-commit hook")
     parser.add_argument("-u", "--username", help="Username/Email for login")
@@ -1937,6 +1938,12 @@ Examples:
             update_config(args.username, args.workspace, args.artifact, args.capacity, args.repo)
         else:
             show_config()
+        sys.exit(0)
+    
+    # Clear token command doesn't need repo_root
+    if args.clear_token:
+        clear_token_cache()
+        print("✅ Token cache cleared")
         sys.exit(0)
     
     # All other commands need repo_root
