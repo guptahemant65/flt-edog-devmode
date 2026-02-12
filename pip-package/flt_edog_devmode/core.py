@@ -461,66 +461,63 @@ def revert_gts_operation_manager_change(content):
 
 
 def revert_gts_spark_client_change(content):
-    """Revert GTSBasedSparkClient bypass - restore original method."""
+    """Revert GTSBasedSparkClient bypass - restore original method from stored backup."""
     edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
+    original_marker_start = '// EDOG_ORIGINAL_START:'
+    original_marker_end = '// EDOG_ORIGINAL_END'
+    
     if edog_marker not in content:
         return content, False
     
-    # Original method (simplified - will need the actual original)
-    original_method = '''        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
-        {
-            var mwcToken = await tokenProvider.GetTokenAsync(ct);
-            var tjsAppId = this.parametersProvider.GetHostParameter<string>("TJSFirstPartyApplicationId");
-
-            AADTokenInfo userTJSToken = await HttpTokenUtils.GetOboTokenAsync(
-                this.workloadAppAuthProvider, tjsAppId, this.tenantId, mwcToken);
-
-            Tracer.LogSanitizedWarning($"[CDF-GTSClient-userTJSToken] AADTokenInfo.ExpiresOn value: {userTJSToken.ExpiresOn}");
-
-            DateTimeOffset tokenExpiry;
-
-            if (userTJSToken.ExpiresOn != DateTimeOffset.MinValue &&
-                userTJSToken.ExpiresOn != default(DateTimeOffset))
-            {
-                tokenExpiry = userTJSToken.ExpiresOn;
-                Tracer.LogSanitizedMessage($"[CDF-GTSClient] Using ExpiresOn from AADTokenInfo: {tokenExpiry:yyyy-MM-dd HH:mm:ss.fff} UTC");
-            }
-            else if (HttpTokenUtils.TryGetExpiryFromJwtToken(userTJSToken.AccessToken, out DateTime extractedExpiry))
-            {
-                tokenExpiry = new DateTimeOffset(extractedExpiry);
-                Tracer.LogSanitizedWarning($"[CDF-GTSClient] ExpiresOn was MinValue/default. Extracted expiry from JWT 'exp' claim: {tokenExpiry:yyyy-MM-dd HH:mm:ss.fff} UTC");
-            }
-            else
-            {
-                tokenExpiry = DateTimeOffset.UtcNow.AddHours(1);
-                Tracer.LogSanitizedWarning($"[CDF-GTSClient] ExpiresOn was MinValue AND JWT parsing failed. Using 1-hour fallback: {tokenExpiry:yyyy-MM-dd HH:mm:ss.fff} UTC");
-            }
-
-            var capacityContext = CustomerCapacityAsyncLocalContext.Value;
-
-            var mwcV1Token = await HttpTokenUtils.GenerateMwcV1TokenAsync(
-                this.mwcTokenHandler,
-                this.workloadContext.ArtifactStoreServiceProvider.GetArtifactStoreServiceAsync(),
-                userTJSToken.AccessToken,
-                capacityContext,
-                this.workspaceId,
-                this.artifactId,
-                Constants.LakehouseArtifactType,
-                Constants.LakehouseTokenPermissions,
-                tokenExpiry);
-
-            return new Token
-            {
-                Value = mwcV1Token,
-                Expiry = tokenExpiry,
-            };
-        }'''
+    # Check if we have stored original content (new format with base64-encoded original)
+    if original_marker_start in content and original_marker_end in content:
+        # Extract the base64-encoded original
+        start_idx = content.find(original_marker_start) + len(original_marker_start)
+        end_idx = content.find(original_marker_end)
+        
+        if start_idx < end_idx:
+            encoded_original = content[start_idx:end_idx]
+            try:
+                original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
+                
+                # Find the start of the EDOG marker line
+                marker_pos = content.find(original_marker_start)
+                marker_line_start = content.rfind('\n', 0, marker_pos) + 1
+                
+                # Find the method end (closing brace) by searching from the method signature
+                method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
+                sig_start = content.find(method_sig, marker_line_start)
+                if sig_start == -1:
+                    return content, False
+                
+                brace_start = content.find('{', sig_start)
+                if brace_start == -1:
+                    return content, False
+                
+                brace_count = 1
+                pos = brace_start + 1
+                while pos < len(content) and brace_count > 0:
+                    if content[pos] == '{':
+                        brace_count += 1
+                    elif content[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                
+                if brace_count != 0:
+                    return content, False
+                
+                method_end = pos
+                
+                # Replace the entire bypass block with original
+                new_content = content[:marker_line_start] + original_content + content[method_end:]
+                return new_content, True
+                
+            except Exception as e:
+                print(f"⚠️ Failed to decode stored original: {e}")
     
-    # Find and replace the bypass method
-    bypass_pattern = r'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync\(CancellationToken ct\)\s*\{\s*// EDOG DevMode[^}]+\}'
-    
-    new_content = re.sub(bypass_pattern, original_method, content, flags=re.DOTALL)
-    return new_content, new_content != content
+    # Legacy fallback: no stored original found
+    print("⚠️ No stored original found. Please use 'git restore' to revert the file.")
+    return content, False
 
 
 def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):

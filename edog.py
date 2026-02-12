@@ -1195,12 +1195,16 @@ def revert_gts_spark_client_change(content, repo_root=None):
             try:
                 original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
                 
-                # Find the start of the EDOG marker line (this is where original method would start)
-                marker_line_start = content.rfind('\n', 0, content.find(original_marker_start)) + 1
+                # Find the start of the EDOG marker line
+                marker_pos = content.find(original_marker_start)
+                marker_line_start = content.rfind('\n', 0, marker_pos) + 1
                 
-                # Find the method end (closing brace) by searching from the method signature
+                # The bypass block starts at marker_line_start and includes:
+                # 1. The EDOG_ORIGINAL marker line
+                # 2. The method signature and body
+                # We need to find the method end (closing brace)
                 method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
-                sig_start = content.find(method_sig)
+                sig_start = content.find(method_sig, marker_line_start)
                 if sig_start == -1:
                     return content, False
                 
@@ -1223,7 +1227,8 @@ def revert_gts_spark_client_change(content, repo_root=None):
                 method_end = pos
                 
                 # Replace the entire bypass block (from marker line to method end) with original
-                # The marker_line_start is where the EDOG comment starts, which is where original method began
+                # The original_content already includes the method signature, body, and any preceding comments
+                # that were captured during apply - just restore it directly
                 new_content = content[:marker_line_start] + original_content + content[method_end:]
                 return new_content, True
                 
