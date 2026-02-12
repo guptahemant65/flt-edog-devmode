@@ -19,6 +19,7 @@ import sys
 import os
 import re
 import base64
+import subprocess
 import urllib.request
 import urllib.error
 import uuid
@@ -443,7 +444,6 @@ def handle_certificate_dialog(username):
                             item.click_input()
                             time.sleep(0.5)
                             break
-                            break
             except Exception as e:
                 print(f"   ⚠️ Could not find cert in list: {e}")
             
@@ -649,8 +649,6 @@ def write_file(filepath, content):
 # ============================================================================
 def check_git_status(repo_root):
     """Check if EDOG-modified files have uncommitted changes. Returns list of dirty files."""
-    import subprocess
-    
     dirty_files = []
     
     try:

@@ -9,6 +9,9 @@ build/
 # Config (contains user-specific IDs)
 edog-config.json
 
+# Token cache (sensitive)
+.edog-token-cache
+
 # VS Code extension build
 extensions/vscode/node_modules/
 extensions/vscode/out/

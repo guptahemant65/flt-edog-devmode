@@ -9,7 +9,7 @@ One-click MWC token management for FabricLiveTable EDOG development.
 edog-setup
 
 # Configure your IDs
-edog --config -w WORKSPACE_ID -l LAKEHOUSE_ID -c CAPACITY_ID
+edog --config -w WORKSPACE_ID -a ARTIFACT_ID -c CAPACITY_ID
 
 # Start DevMode (from FLT repo directory)
 edog
@@ -42,6 +42,7 @@ edog --config -r C:\path\to\workload-fabriclivetable
 | `edog --status` | Check current status |
 | `edog --config` | View/update configuration |
 | `edog --config -r <path>` | Set FLT repo path (enables global usage) |
+| `edog --install-hook` | Install git pre-commit hook |
 
 ## Requirements
 
@@ -56,6 +57,7 @@ flt-edog-devmode/
 ├── edog.py              # Core Python script
 ├── edog.cmd             # Windows command wrapper
 ├── edog-setup.cmd       # One-time setup script
+├── edog-config.json     # Local config (gitignored)
 ├── extensions/
 │   ├── vscode/          # VS Code extension
 │   └── vs2022/          # Visual Studio 2022 extension
@@ -89,14 +91,14 @@ Install `extensions/vscode/flt-edog-devmode-1.0.0.vsix`
 
 ## Configuration
 
-Config file: `~/.edog-config.json`
+Config file location: `<edog-install-dir>/edog-config.json`
 
 ```json
 {
+  "username": "you@microsoft.com",
   "workspace_id": "your-workspace-id",
-  "lakehouse_id": "your-lakehouse-id",
+  "artifact_id": "your-artifact-id",
   "capacity_id": "your-capacity-id",
-  "email": "you@microsoft.com",
   "flt_repo_path": "C:\\path\\to\\workload-fabriclivetable"
 }
 ```
