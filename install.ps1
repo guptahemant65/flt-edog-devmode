@@ -42,8 +42,8 @@ Write-Host "       Location: $InstallDir" -ForegroundColor Green
 Write-Host "[3/5] Getting EDOG files..." -ForegroundColor Yellow
 
 # Check if running from repo (local install)
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (Test-Path "$ScriptDir\edog.py") {
+$ScriptDir = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { $null }
+if ($ScriptDir -and (Test-Path "$ScriptDir\edog.py")) {
     Write-Host "       Copying from local repo..." -ForegroundColor Gray
     Copy-Item "$ScriptDir\edog.py" "$InstallDir\" -Force
     Copy-Item "$ScriptDir\edog.cmd" "$InstallDir\" -Force
