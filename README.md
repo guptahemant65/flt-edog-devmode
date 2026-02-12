@@ -93,11 +93,9 @@ cd flt-edog-devmode
 # Step 1: Run setup (first time only)
 edog-setup
 
-# Step 2: Configure your environment
-edog --config -w <WORKSPACE_ID> -a <ARTIFACT_ID> -c <CAPACITY_ID>
-
-# Step 3: Start DevMode
+# Step 2: Start DevMode
 edog
+# On first run, you'll be prompted to enter your Workspace ID, Artifact ID, and Capacity ID
 ```
 
 <br/>
