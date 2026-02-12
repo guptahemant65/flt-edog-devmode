@@ -583,11 +583,31 @@ def get_repo_root():
         print(f"✅ Auto-detected FLT repo: {found}")
         return found
     
-    # Not found
-    print("❌ FabricLiveTable repo not found")
-    print("   → Set the repo path: edog --config -r C:\\path\\to\\workload-fabriclivetable")
-    print("   → Or run from inside the FLT repo directory")
-    return None
+    # Not found - prompt user for path
+    print("\n⚠️ FabricLiveTable repo not found automatically.")
+    print("   Please enter the path to your workload-fabriclivetable repo.\n")
+    
+    while True:
+        repo_input = input("   FLT Repo Path (or 'q' to quit): ").strip()
+        if repo_input.lower() == 'q':
+            return None
+        if not repo_input:
+            print("   ❌ Path is required")
+            continue
+        
+        repo_path = Path(repo_input).resolve()
+        if not repo_path.exists():
+            print(f"   ❌ Path does not exist: {repo_path}")
+            continue
+        if not (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
+            print(f"   ❌ Not a valid FLT repo (missing Service/Microsoft.LiveTable.Service)")
+            continue
+        
+        # Valid path - save to config
+        config["flt_repo_path"] = str(repo_path)
+        save_config(config)
+        print(f"   ✅ Saved FLT repo path: {repo_path}")
+        return repo_path
 
 
 def read_file(filepath):
