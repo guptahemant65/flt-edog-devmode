@@ -1056,9 +1056,8 @@ def revert_gts_spark_client_change(content):
     if edog_marker not in content:
         return content, False
     
-    # Original method (simplified - will need the actual original)
-    original_method = '''        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
-        {
+    # Original method body (without the leading comment/attribute - those are added below)
+    original_method_body = '''        {
             var mwcToken = await tokenProvider.GetTokenAsync(ct);
             var tjsAppId = this.parametersProvider.GetHostParameter<string>("TJSFirstPartyApplicationId");
 
@@ -1137,20 +1136,34 @@ def revert_gts_spark_client_change(content):
     
     method_end = pos
     
-    # Find the attribute and comment before the method
+    # Find the comment and attribute before the method
+    # Look for "// Extracted so as to mock in Test" which should be 2 lines before the method signature
     search_start = max(0, sig_start - 200)
-    attr_marker = '// Extracted so as to mock in Test'
-    attr_pos = content.rfind(attr_marker, search_start, sig_start)
-    if attr_pos != -1:
-        line_start = content.rfind('\n', 0, attr_pos) + 1
+    comment_marker = '// Extracted so as to mock in Test'
+    attr_marker = '[ExcludeFromCodeCoverage]'
+    
+    comment_pos = content.rfind(comment_marker, search_start, sig_start)
+    
+    if comment_pos != -1:
+        # Found the comment - start replacement from the beginning of that line
+        line_start = content.rfind('\n', 0, comment_pos) + 1
         method_start = line_start
     else:
-        method_start = sig_start
+        # Comment not found - check for attribute only
+        attr_pos = content.rfind(attr_marker, search_start, sig_start)
+        if attr_pos != -1:
+            line_start = content.rfind('\n', 0, attr_pos) + 1
+            method_start = line_start
+        else:
+            # Neither found - start from method signature, but we need to find the line start
+            line_start = content.rfind('\n', 0, sig_start) + 1
+            method_start = line_start
     
     # Build full original method with comment and attribute
     full_original = '''        // Extracted so as to mock in Test
         [ExcludeFromCodeCoverage]
-''' + original_method
+        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
+''' + original_method_body
     
     new_content = content[:method_start] + full_original + content[method_end:]
     return new_content, True
