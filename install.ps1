@@ -76,8 +76,13 @@ Write-Host "       Done." -ForegroundColor Green
 # Step 5: Add to PATH
 Write-Host "[5/5] Adding to PATH..." -ForegroundColor Yellow
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($UserPath -notlike "*$InstallDir*") {
-    [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
+if (-not $UserPath -or $UserPath -notlike "*$InstallDir*") {
+    if ($UserPath) {
+        $NewPath = "$UserPath;$InstallDir"
+    } else {
+        $NewPath = $InstallDir
+    }
+    [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
     Write-Host "       Added to PATH. Restart terminal to use 'edog' globally." -ForegroundColor Green
 } else {
     Write-Host "       Already in PATH." -ForegroundColor Green

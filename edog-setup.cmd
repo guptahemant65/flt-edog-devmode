@@ -80,18 +80,11 @@ echo %PATH% | findstr /i /c:"%EDOG_DIR%" >nul
 if %errorlevel%==0 (
     echo        Already in PATH.
 ) else (
-    REM Add to user PATH
-    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "USERPATH=%%b"
-    if defined USERPATH (
-        setx PATH "%USERPATH%;%EDOG_DIR%" >nul 2>&1
-    ) else (
-        setx PATH "%EDOG_DIR%" >nul 2>&1
-    )
+    REM Use PowerShell to safely append to PATH without corrupting it
+    powershell -NoProfile -Command "$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if (-not $userPath -or $userPath -notlike '*%EDOG_DIR%*') { $newPath = if ($userPath) { \"$userPath;%EDOG_DIR%\" } else { '%EDOG_DIR%' }; [Environment]::SetEnvironmentVariable('Path', $newPath, 'User'); Write-Host '       Added to PATH. Restart terminal to use edog globally.' } else { Write-Host '       Already in PATH.' }"
     if errorlevel 1 (
         echo        Could not add to PATH automatically.
-        echo        Run manually: setx PATH "%%PATH%%;%EDOG_DIR%"
-    ) else (
-        echo        Added to PATH. Restart terminal to use 'edog' globally.
+        echo        Add this directory to your PATH manually: %EDOG_DIR%
     )
 )
 
