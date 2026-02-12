@@ -1,29 +1,85 @@
+<div align="center">
+
 # EDOG DevMode
 
-Automated MWC token management for FabricLiveTable development.
+**Automated MWC Token Management for FabricLiveTable Development**
+
+[![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![Microsoft](https://img.shields.io/badge/Microsoft-Internal-E74C3C?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.com)
+
+<br/>
+
+[Quick Start](#-quick-start) · [Commands](#-command-reference) · [Configuration](#-configuration) · [Troubleshooting](#-troubleshooting)
+
+<br/>
+
+<img src="https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Dog/3D/dog_3d.png" width="120" alt="EDOG"/>
+
+</div>
+
+<br/>
 
 ## Overview
 
 EDOG DevMode streamlines the developer experience by automating authentication and token management for FabricLiveTable EDOG environments. It eliminates manual token handling, allowing developers to focus on building features.
 
-### Key Features
+<br/>
 
-- **Automated Authentication** — Browser-based Microsoft OAuth login
-- **Token Management** — Automatic refresh every 45 minutes
-- **Code Injection** — Seamless bypass configuration for local development
-- **Repository Detection** — Automatic FabricLiveTable repo discovery
-- **Change Tracking** — Git-based patch system for clean rollbacks
+<table>
+<tr>
+<td width="25%" align="center">
+<br/>
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Locked%20with%20Key.png" width="60"/>
+<br/><br/>
+<b>Automated Auth</b>
+<br/>
+Browser-based Microsoft OAuth
+<br/><br/>
+</td>
+<td width="25%" align="center">
+<br/>
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png" width="60"/>
+<br/><br/>
+<b>Token Management</b>
+<br/>
+Auto-refresh every 45 min
+<br/><br/>
+</td>
+<td width="25%" align="center">
+<br/>
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Gear.png" width="60"/>
+<br/><br/>
+<b>Code Injection</b>
+<br/>
+Seamless bypass config
+<br/><br/>
+</td>
+<td width="25%" align="center">
+<br/>
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Magnifying%20Glass%20Tilted%20Left.png" width="60"/>
+<br/><br/>
+<b>Auto-Detection</b>
+<br/>
+Finds your FLT repo
+<br/><br/>
+</td>
+</tr>
+</table>
 
-## Requirements
+<br/>
 
-- Windows 10/11
-- Python 3.8 or later
-- FabricLiveTable repository (cloned locally)
-- Microsoft corporate account with EDOG access
+---
 
-## Installation
+<br/>
 
-### Option 1: Git Clone (Recommended)
+## 📥 Installation
+
+<table>
+<tr>
+<td>
+
+### Option 1: Git Clone &nbsp;`Recommended`
 
 ```powershell
 git clone https://github.com/guptahemant65/flt-edog-devmode.git
@@ -31,83 +87,183 @@ cd flt-edog-devmode
 .\edog-setup.cmd
 ```
 
+</td>
+<td>
+
 ### Option 2: pip Install
 
 ```powershell
-pip install flt-edog-devmode --index-url https://pkgs.dev.azure.com/msazure/_packaging/FabricLiveTable/pypi/simple/
+pip install flt-edog-devmode \
+  --index-url https://pkgs.dev.azure.com/msazure/_packaging/FabricLiveTable/pypi/simple/
 ```
 
-## Quick Start
+</td>
+</tr>
+</table>
+
+<br/>
+
+---
+
+<br/>
+
+## 🚀 Quick Start
 
 ```powershell
-# 1. Run setup (first time only)
+# Step 1: Run setup (first time only)
 edog-setup
 
-# 2. Configure your environment
+# Step 2: Configure your environment
 edog --config -w <WORKSPACE_ID> -a <ARTIFACT_ID> -c <CAPACITY_ID>
 
-# 3. Start DevMode
+# Step 3: Start DevMode
 edog
 ```
 
-## How It Works
+<br/>
+
+---
+
+<br/>
+
+## ⚙️ How It Works
+
+<br/>
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            EDOG DevMode Flow                             │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│    ┌─────────────┐      ┌─────────────┐      ┌─────────────────────┐    │
-│    │   Browser   │ ──── │  EDOG Auth  │ ──── │  Token Acquisition  │    │
-│    │   Login     │      │   Portal    │      │                     │    │
-│    └─────────────┘      └─────────────┘      └──────────┬──────────┘    │
-│                                                         │               │
-│                                                         ▼               │
-│    ┌─────────────┐      ┌─────────────┐      ┌─────────────────────┐    │
-│    │   Active    │ ◄─── │   Apply     │ ◄─── │   Configure FLT     │    │
-│    │   DevMode   │      │   Changes   │      │   Codebase          │    │
-│    └──────┬──────┘      └─────────────┘      └─────────────────────┘    │
-│           │                                                             │
-│           └──────────── Auto-refresh every 45 minutes ──────────────┘   │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+                                    EDOG DevMode Pipeline
+    ┌─────────────────────────────────────────────────────────────────────────────────────┐
+    │                                                                                     │
+    │                                                                                     │
+    │      ┌───────────────┐       ┌───────────────┐       ┌───────────────────────┐     │
+    │      │               │       │               │       │                       │     │
+    │      │    Browser    │ ───── │   EDOG Auth   │ ───── │   Token Acquisition   │     │
+    │      │    Login      │       │    Portal     │       │                       │     │
+    │      │               │       │               │       │                       │     │
+    │      └───────────────┘       └───────────────┘       └───────────┬───────────┘     │
+    │                                                                  │                 │
+    │                                                                  │                 │
+    │                                                                  ▼                 │
+    │      ┌───────────────┐       ┌───────────────┐       ┌───────────────────────┐     │
+    │      │               │       │               │       │                       │     │
+    │      │    Active     │ ◄──── │    Apply      │ ◄──── │    Configure FLT      │     │
+    │      │   DevMode     │       │   Changes     │       │      Codebase         │     │
+    │      │               │       │               │       │                       │     │
+    │      └───────┬───────┘       └───────────────┘       └───────────────────────┘     │
+    │              │                                                                     │
+    │              │                                                                     │
+    │              └─────────────── Auto-refresh Token Every 45 Minutes ─────────────┘   │
+    │                                                                                     │
+    └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Command Reference
+<br/>
+
+---
+
+<br/>
+
+## 📖 Command Reference
+
+<br/>
 
 ### Core Operations
 
-| Command | Description |
-|---------|-------------|
-| `edog` | Start DevMode daemon with automatic token refresh |
-| `edog --revert` | Revert all EDOG modifications to the codebase |
-| `edog --status` | Display current DevMode status and applied changes |
+<table>
+<tr>
+<th width="300">Command</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>edog</code></td>
+<td>Start DevMode daemon with automatic token refresh</td>
+</tr>
+<tr>
+<td><code>edog --revert</code></td>
+<td>Revert all EDOG modifications to the codebase</td>
+</tr>
+<tr>
+<td><code>edog --status</code></td>
+<td>Display current DevMode status and applied changes</td>
+</tr>
+</table>
+
+<br/>
 
 ### Configuration
 
-| Command | Description |
-|---------|-------------|
-| `edog --config` | Display current configuration |
-| `edog --config -u <email>` | Set Microsoft account email |
-| `edog --config -w <guid>` | Set Fabric workspace ID |
-| `edog --config -a <guid>` | Set artifact ID |
-| `edog --config -c <guid>` | Set capacity ID |
-| `edog --config -r <path>` | Set FabricLiveTable repository path |
+<table>
+<tr>
+<th width="300">Command</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>edog --config</code></td>
+<td>Display current configuration</td>
+</tr>
+<tr>
+<td><code>edog --config -u &lt;email&gt;</code></td>
+<td>Set Microsoft account email</td>
+</tr>
+<tr>
+<td><code>edog --config -w &lt;guid&gt;</code></td>
+<td>Set Fabric workspace ID</td>
+</tr>
+<tr>
+<td><code>edog --config -a &lt;guid&gt;</code></td>
+<td>Set artifact ID</td>
+</tr>
+<tr>
+<td><code>edog --config -c &lt;guid&gt;</code></td>
+<td>Set capacity ID</td>
+</tr>
+<tr>
+<td><code>edog --config -r &lt;path&gt;</code></td>
+<td>Set FabricLiveTable repository path</td>
+</tr>
+</table>
+
+<br/>
 
 ### Git Integration
 
-| Command | Description |
-|---------|-------------|
-| `edog --install-hook` | Install pre-commit hook to prevent accidental commits |
-| `edog --uninstall-hook` | Remove pre-commit hook |
+<table>
+<tr>
+<th width="300">Command</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>edog --install-hook</code></td>
+<td>Install pre-commit hook to prevent accidental commits</td>
+</tr>
+<tr>
+<td><code>edog --uninstall-hook</code></td>
+<td>Remove pre-commit hook</td>
+</tr>
+</table>
+
+<br/>
 
 ### Maintenance
 
-| Command | Description |
-|---------|-------------|
-| `edog --clear-token` | Clear cached authentication token |
+<table>
+<tr>
+<th width="300">Command</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>edog --clear-token</code></td>
+<td>Clear cached authentication token</td>
+</tr>
+</table>
 
-## Configuration
+<br/>
+
+---
+
+<br/>
+
+## 🔧 Configuration
 
 Configuration is stored in `edog-config.json`:
 
@@ -121,85 +277,227 @@ Configuration is stored in `edog-config.json`:
 }
 ```
 
+<br/>
+
 ### Finding Your IDs
 
-| Parameter | Location |
-|-----------|----------|
-| Workspace ID | Fabric Portal URL: `app.fabric.microsoft.com/groups/{workspace_id}/...` |
-| Artifact ID | Fabric Portal URL: `.../{artifact_id}?experience=...` |
-| Capacity ID | Fabric Admin Portal → Capacities → Select capacity → Copy ID from URL |
+<table>
+<tr>
+<th width="150">Parameter</th>
+<th>Where to Find</th>
+</tr>
+<tr>
+<td><b>Workspace ID</b></td>
+<td>Fabric Portal URL → <code>app.fabric.microsoft.com/groups/<b>{workspace_id}</b>/...</code></td>
+</tr>
+<tr>
+<td><b>Artifact ID</b></td>
+<td>Fabric Portal URL → <code>.../<b>{artifact_id}</b>?experience=...</code></td>
+</tr>
+<tr>
+<td><b>Capacity ID</b></td>
+<td>Fabric Admin Portal → Capacities → Select capacity → Copy from URL</td>
+</tr>
+</table>
 
-## Repository Detection
+<br/>
 
-EDOG automatically locates your FabricLiveTable repository using a multi-stage detection strategy:
+---
 
-1. **Configured Path** — Checks `flt_repo_path` in configuration
-2. **Current Directory** — Scans current working directory
-3. **Parent Directories** — Traverses up from current location
-4. **Home Directory Search** — Searches up to 8 levels deep from user home
+<br/>
 
-To manually specify the repository location:
+## 🔍 Repository Detection
 
+EDOG automatically locates your FabricLiveTable repository:
+
+<br/>
+
+```
+    Detection Priority
+    ─────────────────────────────────────────────────────────────
+
+    1. ▶ Configured Path      Checks flt_repo_path in config
+                                        │
+                                        ▼ not found
+    2. ▶ Current Directory    Scans current working directory
+                                        │
+                                        ▼ not found
+    3. ▶ Parent Directories   Traverses up from current location
+                                        │
+                                        ▼ not found
+    4. ▶ Home Directory       Searches up to 8 levels deep
+
+    ─────────────────────────────────────────────────────────────
+```
+
+<br/>
+
+To manually specify:
 ```powershell
 edog --config -r C:\path\to\workload-fabriclivetable
 ```
 
-## Security
-
-| Aspect | Implementation |
-|--------|----------------|
-| Authentication | Microsoft OAuth 2.0 via corporate identity |
-| Token Lifetime | 1 hour with automatic 45-minute refresh cycle |
-| Change Tracking | All modifications recorded in `.edog-changes.patch` |
-| Rollback | Clean revert using `git apply -R` |
-| Commit Protection | Optional pre-commit hook prevents accidental check-ins |
-
-## Troubleshooting
-
-| Issue | Resolution |
-|-------|------------|
-| Python not found | Install Python 3.8+ and ensure it's added to PATH |
-| Playwright not found | Re-run `edog-setup` to install dependencies |
-| Pattern not found | Codebase structure may have changed; run `edog --status` |
-| Token invalid | Run `edog --clear-token` followed by `edog` |
-| Repository not found | Manually configure: `edog --config -r <path>` |
-| Permission denied | Run terminal as Administrator |
-
-## Typical Workflow
-
-```powershell
-# Start development session
-edog
-# Output: DevMode active. Token refreshes automatically.
-
-# Develop normally...
-
-# Before committing, revert EDOG changes
-edog --revert
-
-# Commit your work
-git add .
-git commit -m "feat: implement new feature"
-```
-
-## Project Structure
-
-```
-flt-edog-devmode/
-├── edog.py                 # Core application logic
-├── edog.cmd                # Windows command wrapper
-├── edog-setup.cmd          # Installation script
-├── edog-config.json        # User configuration (gitignored)
-├── install.ps1             # PowerShell installer
-├── pip-package/            # PyPI distribution package
-└── extensions/
-    └── vs2022/             # Visual Studio 2022 extension
-```
-
-## Support
-
-For issues or feature requests, contact the FabricLiveTable team.
+<br/>
 
 ---
 
-*Microsoft Internal Use Only*
+<br/>
+
+## 🔒 Security
+
+<table>
+<tr>
+<th width="200">Aspect</th>
+<th>Implementation</th>
+</tr>
+<tr>
+<td><b>Authentication</b></td>
+<td>Microsoft OAuth 2.0 via corporate identity</td>
+</tr>
+<tr>
+<td><b>Token Lifetime</b></td>
+<td>1 hour with automatic 45-minute refresh cycle</td>
+</tr>
+<tr>
+<td><b>Change Tracking</b></td>
+<td>All modifications recorded in <code>.edog-changes.patch</code></td>
+</tr>
+<tr>
+<td><b>Rollback</b></td>
+<td>Clean revert using <code>git apply -R</code></td>
+</tr>
+<tr>
+<td><b>Commit Protection</b></td>
+<td>Optional pre-commit hook prevents accidental check-ins</td>
+</tr>
+</table>
+
+<br/>
+
+---
+
+<br/>
+
+## ❓ Troubleshooting
+
+<table>
+<tr>
+<th width="250">Issue</th>
+<th>Resolution</th>
+</tr>
+<tr>
+<td>Python not found</td>
+<td>Install Python 3.8+ and ensure it's in PATH</td>
+</tr>
+<tr>
+<td>Playwright not found</td>
+<td>Re-run <code>edog-setup</code></td>
+</tr>
+<tr>
+<td>Pattern not found</td>
+<td>Codebase may have changed; run <code>edog --status</code></td>
+</tr>
+<tr>
+<td>Token invalid</td>
+<td>Run <code>edog --clear-token</code> then <code>edog</code></td>
+</tr>
+<tr>
+<td>Repository not found</td>
+<td>Configure manually: <code>edog --config -r &lt;path&gt;</code></td>
+</tr>
+<tr>
+<td>Permission denied</td>
+<td>Run terminal as Administrator</td>
+</tr>
+</table>
+
+<br/>
+
+---
+
+<br/>
+
+## 💼 Typical Workflow
+
+```powershell
+# ┌─────────────────────────────────────────────────────────┐
+# │  Morning: Start Development Session                     │
+# └─────────────────────────────────────────────────────────┘
+
+PS C:\> edog
+✓ DevMode active. Token refreshes automatically.
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  During the Day: Develop Normally                       │
+# └─────────────────────────────────────────────────────────┘
+
+#   ... write code, debug, test ...
+
+# ┌─────────────────────────────────────────────────────────┐
+# │  Before Commit: Clean Up EDOG Changes                   │
+# └─────────────────────────────────────────────────────────┘
+
+PS C:\> edog --revert
+✓ All EDOG changes reverted
+
+PS C:\> git add .
+PS C:\> git commit -m "feat: implement new feature"
+```
+
+<br/>
+
+---
+
+<br/>
+
+## 📁 Project Structure
+
+```
+flt-edog-devmode/
+│
+├── edog.py                 Core application logic
+├── edog.cmd                Windows command wrapper
+├── edog-setup.cmd          Installation script
+├── edog-config.json        User configuration (gitignored)
+├── install.ps1             PowerShell installer
+│
+├── pip-package/            PyPI distribution package
+│
+└── extensions/
+    └── vs2022/             Visual Studio 2022 extension
+```
+
+<br/>
+
+---
+
+<br/>
+
+## 📋 Requirements
+
+| Requirement | Version |
+|------------|---------|
+| Windows | 10 / 11 |
+| Python | 3.8+ |
+| FabricLiveTable Repo | Cloned locally |
+| Microsoft Account | Corporate with EDOG access |
+
+<br/>
+
+---
+
+<br/>
+
+<div align="center">
+
+### Support
+
+For issues or feature requests, contact the **FabricLiveTable** team.
+
+<br/>
+
+---
+
+<sub>Microsoft Internal Use Only</sub>
+
+</div>
