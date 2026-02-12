@@ -261,24 +261,27 @@ Configuration is stored in `edog-config.json`:
 
 ### Finding Your IDs
 
-<table>
-<tr>
-<th width="150">Parameter</th>
-<th>Where to Find</th>
-</tr>
-<tr>
-<td><b>Workspace ID</b></td>
-<td>Fabric Portal URL → <code>app.fabric.microsoft.com/groups/<b>{workspace_id}</b>/...</code></td>
-</tr>
-<tr>
-<td><b>Artifact ID</b></td>
-<td>Fabric Portal URL → <code>.../<b>{artifact_id}</b>?experience=...</code></td>
-</tr>
-<tr>
-<td><b>Capacity ID</b></td>
-<td>Fabric Admin Portal → Capacities → Select capacity → Copy from URL</td>
-</tr>
-</table>
+All three IDs can be found in your EDOG API URL:
+
+```
+https://{capacity_id}.pbidedicated.windows-int.net/.../capacities/{capacity_id}/.../workspaces/{workspace_id}/artifacts/.../{artifact_id}/...
+         ├─────────────────┘                        └─────────────────┘              └──────────────────┘                 └────────────┘
+         │                                                   │                                │                                  │
+         │                                                   │                                │                                  │
+         ▼                                                   ▼                                ▼                                  ▼
+    CAPACITY_ID                                        CAPACITY_ID                      WORKSPACE_ID                       ARTIFACT_ID
+```
+
+**Example URL:**
+```
+https://040ec9ea384642ada0dfc2b34a10c194.pbidedicated.windows-int.net/webapi/capacities/040ec9ea-3846-42ad-a0df-c2b34a10c194/workloads/.../workspaces/1a2ad450-f698-4389-b75b-4a5b21324586/artifacts/.../0d102c74-2b1d-4a33-9784-edabe1f6a6bd/...
+```
+
+| Parameter | Value from Example |
+|-----------|-------------------|
+| Capacity ID | `040ec9ea-3846-42ad-a0df-c2b34a10c194` |
+| Workspace ID | `1a2ad450-f698-4389-b75b-4a5b21324586` |
+| Artifact ID | `0d102c74-2b1d-4a33-9784-edabe1f6a6bd` |
 
 <br/>
 
