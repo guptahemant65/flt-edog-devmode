@@ -104,6 +104,26 @@ def save_config(config):
         return False
 
 
+def validate_guid(value):
+    """Validate GUID format. Returns True if valid."""
+    guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    return bool(re.match(guid_pattern, value))
+
+
+def prompt_guid(prompt_text, field_name):
+    """Prompt for a GUID with validation and retry."""
+    while True:
+        value = input(prompt_text).strip()
+        if not value:
+            print(f"   ❌ {field_name} is required")
+            continue
+        if validate_guid(value):
+            return value
+        print(f"   ❌ Invalid format: {value}")
+        print(f"      Expected: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars, got {len(value)})")
+        print(f"      Please try again.\n")
+
+
 def prompt_for_config():
     """Prompt user to enter config values."""
     print("\n📝 First-time setup - please enter your EDOG environment details:")
@@ -113,21 +133,9 @@ def prompt_for_config():
     if not username:
         username = DEFAULT_USERNAME
     
-    workspace_id = input("   Workspace ID: ").strip()
-    artifact_id = input("   Artifact ID (Lakehouse): ").strip()
-    capacity_id = input("   Capacity ID: ").strip()
-    
-    if not workspace_id or not artifact_id or not capacity_id:
-        print("\n❌ All three IDs are required")
-        return None
-    
-    # Validate GUID format
-    guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-    for name, value in [("Workspace", workspace_id), ("Artifact", artifact_id), ("Capacity", capacity_id)]:
-        if not re.match(guid_pattern, value):
-            print(f"\n❌ Invalid {name} ID format: {value}")
-            print(f"   Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars, got {len(value)})")
-            return None
+    workspace_id = prompt_guid("   Workspace ID: ", "Workspace ID")
+    artifact_id = prompt_guid("   Artifact ID (Lakehouse): ", "Artifact ID")
+    capacity_id = prompt_guid("   Capacity ID: ", "Capacity ID")
     
     return {
         "username": username,
