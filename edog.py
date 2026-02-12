@@ -929,18 +929,20 @@ def get_gts_spark_client_bypass(token):
 
 def apply_gts_operation_manager_change(content, token):
     """Apply GTSOperationManager token change. Returns (new_content, status)."""
-    original, modified = get_gts_operation_manager_token_pattern(token)
+    edog_marker = '// EDOG DevMode - hardcoded by edog tool'
+    original_marker_start = '// EDOG_GTS_OP_ORIGINAL:'
+    original_marker_end = ':END_EDOG_GTS_OP'
     
     # Check if bypass is already there with same token
-    if modified in content:
+    modified_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
+    if modified_line in content:
         return content, "already_applied"
     
     # Check if bypass is there with different token (with EDOG marker) - update it
-    edog_marker = '// EDOG DevMode - hardcoded by edog tool'
     if edog_marker in content:
-        # Find and replace the line
+        # Find and replace the token in existing bypass (preserving the original marker if present)
         pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool'
-        new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  // EDOG DevMode - hardcoded by edog tool'
+        new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
         new_content = re.sub(pattern, new_line, content)
         if new_content != content:
             return new_content, "token_updated"
@@ -948,14 +950,23 @@ def apply_gts_operation_manager_change(content, token):
     # Check if there's a hardcoded token WITHOUT the EDOG marker (manual edit) - update it
     manual_hardcode_pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";'
     if re.search(manual_hardcode_pattern, content) and edog_marker not in content:
-        new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  // EDOG DevMode - hardcoded by edog tool'
+        new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
         new_content = re.sub(manual_hardcode_pattern, new_line, content)
         if new_content != content:
             return new_content, "token_updated"
     
-    # Apply fresh bypass
-    if original in content:
-        return content.replace(original, modified, 1), "applied"
+    # Apply fresh bypass - find the original line and store it
+    original_pattern = r'var mwcV1TokenWithHeader = await HttpTokenUtils\.GenerateMwcV1TokenHeaderAsync\([^;]+\);'
+    match = re.search(original_pattern, content)
+    
+    if match:
+        original_line = match.group(0)
+        # Base64 encode the original for safe storage
+        original_encoded = base64.b64encode(original_line.encode('utf-8')).decode('ascii')
+        # Build replacement with stored original
+        replacement = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}  {original_marker_start}{original_encoded}{original_marker_end}'
+        new_content = content[:match.start()] + replacement + content[match.end():]
+        return new_content, "applied"
     
     return content, "pattern_not_found"
 
@@ -1052,16 +1063,37 @@ def apply_gts_spark_client_change(content, token):
 
 
 def revert_gts_operation_manager_change(content):
-    """Revert GTSOperationManager token change."""
+    """Revert GTSOperationManager token change - restore original from stored backup."""
     edog_marker = '// EDOG DevMode - hardcoded by edog tool'
+    original_marker_start = '// EDOG_GTS_OP_ORIGINAL:'
+    original_marker_end = ':END_EDOG_GTS_OP'
+    
     if edog_marker not in content:
         return content, False
     
-    original = 'var mwcV1TokenWithHeader = await HttpTokenUtils.GenerateMwcV1TokenHeaderAsync(mwcTokenHandler, workloadContext.ArtifactStoreServiceProvider.GetArtifactStoreServiceAsync(), userTJSToken, capacityContext, workspaceId, artifactId, Constants.LakehouseArtifactType, Constants.LakehouseTokenPermissions, default);'
-    pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool'
+    # Check if we have stored original content
+    if original_marker_start in content and original_marker_end in content:
+        # Extract the base64-encoded original
+        start_idx = content.find(original_marker_start) + len(original_marker_start)
+        end_idx = content.find(original_marker_end)
+        
+        if start_idx < end_idx:
+            encoded_original = content[start_idx:end_idx]
+            try:
+                original_line = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
+                
+                # Find and replace the entire modified line (including markers)
+                pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool  // EDOG_GTS_OP_ORIGINAL:[^:]+:END_EDOG_GTS_OP'
+                new_content = re.sub(pattern, original_line, content)
+                return new_content, new_content != content
+                
+            except Exception as e:
+                print(f"⚠️ Failed to decode stored original for GTSOperationManager: {e}")
     
-    new_content = re.sub(pattern, original, content)
-    return new_content, new_content != content
+    # Legacy fallback: no stored original, print warning
+    print("⚠️ No stored original found for GTSOperationManager. The bypass may have been applied with an older version.")
+    print("   Please manually revert GTSOperationManager.cs using git checkout or restore from source control.")
+    return content, False
 
 
 def revert_gts_spark_client_change(content):
