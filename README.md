@@ -471,33 +471,6 @@ flt-edog-devmode/
 
 ---
 
-<br/>
-
-## 📋 Requirements
-
-| Requirement | Version |
-|------------|---------|
-| Windows | 10 / 11 |
-| Python | 3.8+ |
-| FabricLiveTable Repo | Cloned locally |
-| Microsoft Account | Corporate with EDOG access |
-
-<br/>
-
----
-
-<br/>
-
 <div align="center">
-
-### Support
-
-For issues or feature requests, contact the **FabricLiveTable** team.
-
-<br/>
-
----
-
 <sub>Microsoft Internal Use Only</sub>
-
 </div>
