@@ -514,7 +514,11 @@ def format_timedelta(td):
 # File modification utilities
 # ============================================================================
 def find_flt_repo():
-    """Search for FabricLiveTable repo by looking for its unique folder structure."""
+    """Search for FabricLiveTable repo by looking for its unique folder structure.
+    
+    Uses a fallback strategy: first searches up to depth 4 (fast ~0.3s), 
+    then falls back to depth 8 if not found (slower but more thorough).
+    """
     home = Path.home()
     
     # Signature: repo must contain Service/Microsoft.LiveTable.Service
@@ -524,12 +528,10 @@ def find_flt_repo():
         except (PermissionError, OSError):
             return False
     
-    # Search home directory with depth limit (avoids searching forever)
-    max_depth = 4
     skip_dirs = {'.git', '.vs', '.vscode', 'node_modules', '__pycache__', 'bin', 'obj', 
                  'packages', 'AppData', '.nuget', '.dotnet', '.azure', 'OneDrive'}
     
-    def search_dir(start_path, current_depth=0):
+    def search_dir(start_path, max_depth, current_depth=0):
         if current_depth > max_depth:
             return None
         try:
@@ -546,14 +548,21 @@ def find_flt_repo():
                 if is_flt_repo(entry):
                     return entry
                 # Recurse into subdirectory
-                found = search_dir(entry, current_depth + 1)
+                found = search_dir(entry, max_depth, current_depth + 1)
                 if found:
                     return found
         except (PermissionError, OSError):
             pass
         return None
     
-    return search_dir(home)
+    # Fallback strategy: try shallow search first (fast), then deeper search if needed
+    result = search_dir(home, max_depth=4)
+    if result:
+        return result
+    
+    # Not found at depth 4, try deeper search
+    print("   Searching deeper for FLT repo...")
+    return search_dir(home, max_depth=8)
 
 
 def get_repo_root():
