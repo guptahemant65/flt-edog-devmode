@@ -28,6 +28,11 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# Fix Windows console encoding for emoji/unicode characters
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 try:
     from playwright.async_api import async_playwright
 except ImportError:
@@ -1264,7 +1269,8 @@ def apply_gts_spark_client_change(content, token, repo_root=None):
     original_encoded = base64.b64encode(original_content.encode('utf-8')).decode('ascii')
     
     # Build the bypass code with the original content stored as a comment
-    bypass_code = f'''        {original_marker_start}{original_encoded}{original_marker_end}
+    bypass_code = f'''
+        // EDOG_ORIGINAL_START:{original_encoded}
         protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
         {{
             // EDOG DevMode - bypassing OBO token exchange (hardcoded by edog tool)
@@ -1349,7 +1355,7 @@ def revert_gts_spark_client_change(content, repo_root=None):
         end_idx = content.find(original_marker_end)
         
         if start_idx < end_idx:
-            encoded_original = content[start_idx:end_idx]
+            encoded_original = content[start_idx:end_idx].strip()  # strip newlines/whitespace
             try:
                 original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
                 
