@@ -75,31 +75,11 @@ Finds your FLT repo
 
 ## 📥 Installation
 
-<table>
-<tr>
-<td>
-
-### Option 1: Git Clone &nbsp;`Recommended`
-
 ```powershell
 git clone https://github.com/guptahemant65/flt-edog-devmode.git
 cd flt-edog-devmode
 .\edog-setup.cmd
 ```
-
-</td>
-<td>
-
-### Option 2: pip Install
-
-```powershell
-pip install flt-edog-devmode \
-  --index-url https://pkgs.dev.azure.com/msazure/_packaging/FabricLiveTable/pypi/simple/
-```
-
-</td>
-</tr>
-</table>
 
 <br/>
 
@@ -459,12 +439,7 @@ flt-edog-devmode/
 ├── edog.cmd                Windows command wrapper
 ├── edog-setup.cmd          Installation script
 ├── edog-config.json        User configuration (gitignored)
-├── install.ps1             PowerShell installer
-│
-├── pip-package/            PyPI distribution package
-│
-└── extensions/
-    └── vs2022/             Visual Studio 2022 extension
+└── install.ps1             PowerShell installer
 ```
 
 <br/>
