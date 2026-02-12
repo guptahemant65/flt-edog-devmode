@@ -65,12 +65,10 @@ echo        Done.
 REM Step 4: Auto-detect FLT repo and configure
 echo.
 echo [4/5] Auto-detecting FabricLiveTable repo...
-python edog.py --status >nul 2>&1
+python -c "from edog import find_flt_repo, load_config, save_config; repo = find_flt_repo(); config = load_config(); config['flt_repo_path'] = str(repo) if repo else ''; save_config(config) if repo else None; print(f'       Found: {repo}' if repo else '       Could not auto-detect.')"
 if errorlevel 1 (
     echo        Could not auto-detect. You can set it later with:
     echo          edog --config -r C:\path\to\workload-fabriclivetable
-) else (
-    echo        Found! Run 'edog --config' to verify.
 )
 
 REM Step 5: Add to PATH
