@@ -99,11 +99,15 @@ def load_config():
 
 
 def save_config(config):
-    """Save config to file."""
+    """Save config to file. Also clears token cache since config changes may invalidate it."""
     config_path = get_config_path()
     try:
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
+        # Clear token cache since config changes may invalidate the cached token
+        token_cache = Path(__file__).parent / ".edog-token-cache"
+        if token_cache.exists():
+            token_cache.unlink()
         return True
     except Exception as e:
         print(f"❌ Could not save config: {e}")
