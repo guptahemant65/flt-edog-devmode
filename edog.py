@@ -1871,9 +1871,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
             
     except KeyboardInterrupt:
         print("\n\n👋 Shutting down...")
-        clear_token_cache()  # Clear cache on exit
-        warn_uncommitted_edog_changes(repo_root)
-        print("   Run 'edog --revert' to revert changes before committing code")
+        print("🔄 Auto-reverting EDOG changes...")
+        revert_all_changes(repo_root)
         return 0
     
     return 0
