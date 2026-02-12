@@ -927,7 +927,7 @@ def get_gts_spark_client_bypass(token):
     return bypass_code
 
 
-def apply_gts_operation_manager_change(content, token):
+def apply_gts_operation_manager_change(content, token, repo_root=None):
     """Apply GTSOperationManager token change. Returns (new_content, status)."""
     edog_marker = '// EDOG DevMode - hardcoded by edog tool'
     original_marker_start = '// EDOG_GTS_OP_ORIGINAL:'
@@ -938,9 +938,39 @@ def apply_gts_operation_manager_change(content, token):
     if modified_line in content:
         return content, "already_applied"
     
-    # Check if bypass is there with different token (with EDOG marker) - update it
+    # Check if bypass is there with different token (with EDOG marker)
     if edog_marker in content:
-        # Find and replace the token in existing bypass (preserving the original marker if present)
+        # Check if we have stored original
+        has_original = original_marker_start in content and original_marker_end in content
+        
+        if has_original:
+            # Just update the token, preserving the stored original
+            pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool'
+            new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
+            new_content = re.sub(pattern, new_line, content)
+            if new_content != content:
+                return new_content, "token_updated"
+        
+        # No stored original - try to fetch from git and reapply properly
+        if repo_root:
+            try:
+                file_rel_path = str(FILES["GTSOperationManager"]).replace('\\', '/')
+                result = subprocess.run(
+                    ['git', 'show', f'HEAD:{file_rel_path}'],
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    git_content = result.stdout
+                    # Recursively call to apply fresh bypass using git content as base
+                    new_content, status = apply_gts_operation_manager_change(git_content, token, None)
+                    if status == "applied":
+                        return new_content, "applied_with_git_original"
+            except Exception as e:
+                print(f"⚠️ Could not fetch GTSOperationManager original from git: {e}")
+        
+        # Fallback: just update the token (no original will be stored)
         pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool'
         new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
         new_content = re.sub(pattern, new_line, content)
@@ -971,7 +1001,7 @@ def apply_gts_operation_manager_change(content, token):
     return content, "pattern_not_found"
 
 
-def apply_gts_spark_client_change(content, token):
+def apply_gts_spark_client_change(content, token, repo_root=None):
     """Apply GTSBasedSparkClient bypass. Returns (new_content, status)."""
     edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
     original_marker_start = '// EDOG_ORIGINAL_START:'
@@ -979,10 +1009,41 @@ def apply_gts_spark_client_change(content, token):
     
     # Check if bypass exists
     if edog_marker in content:
+        # Check if we have the original stored
+        has_original = original_marker_start in content and original_marker_end in content
+        
         # Check if token is the same
         if f'var hardcodedToken = "{token}"' in content:
             return content, "already_applied"
-        # Update token in existing bypass
+        
+        # If we have the original stored, just update the token
+        if has_original:
+            pattern = r'var hardcodedToken = "[^"]+";'
+            new_content = re.sub(pattern, f'var hardcodedToken = "{token}";', content)
+            if new_content != content:
+                return new_content, "token_updated"
+        
+        # No original stored - need to fetch from git and rebuild the bypass with original
+        if repo_root:
+            try:
+                file_rel_path = FILES["GTSBasedSparkClient"]
+                result = subprocess.run(
+                    ['git', 'show', f'HEAD:{file_rel_path}'],
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    git_content = result.stdout
+                    # Recursively call to apply fresh bypass using git content as base
+                    # This will capture the original properly
+                    new_content, status = apply_gts_spark_client_change(git_content, token, None)
+                    if status == "applied":
+                        return new_content, "applied_with_git_original"
+            except Exception as e:
+                print(f"⚠️ Could not fetch original from git: {e}")
+        
+        # Fallback: just update the token (no original will be stored)
         pattern = r'var hardcodedToken = "[^"]+";'
         new_content = re.sub(pattern, f'var hardcodedToken = "{token}";', content)
         if new_content != content:
@@ -1062,8 +1123,8 @@ def apply_gts_spark_client_change(content, token):
     return new_content, "applied"
 
 
-def revert_gts_operation_manager_change(content):
-    """Revert GTSOperationManager token change - restore original from stored backup."""
+def revert_gts_operation_manager_change(content, repo_root=None):
+    """Revert GTSOperationManager token change - restore original from stored backup or git."""
     edog_marker = '// EDOG DevMode - hardcoded by edog tool'
     original_marker_start = '// EDOG_GTS_OP_ORIGINAL:'
     original_marker_end = ':END_EDOG_GTS_OP'
@@ -1090,14 +1151,32 @@ def revert_gts_operation_manager_change(content):
             except Exception as e:
                 print(f"⚠️ Failed to decode stored original for GTSOperationManager: {e}")
     
+    # No stored original - try to restore from git
+    if repo_root:
+        try:
+            file_rel_path = str(FILES["GTSOperationManager"]).replace('\\', '/')
+            result = subprocess.run(
+                ['git', 'show', f'HEAD:{file_rel_path}'],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                print("   ℹ️  Restored GTSOperationManager from git HEAD (no stored original found)")
+                return result.stdout, True
+            else:
+                print(f"⚠️ Git show failed for GTSOperationManager: {result.stderr.strip()}")
+        except Exception as e:
+            print(f"⚠️ Could not restore GTSOperationManager from git: {e}")
+    
     # Legacy fallback: no stored original, print warning
     print("⚠️ No stored original found for GTSOperationManager. The bypass may have been applied with an older version.")
     print("   Please manually revert GTSOperationManager.cs using git checkout or restore from source control.")
     return content, False
 
 
-def revert_gts_spark_client_change(content):
-    """Revert GTSBasedSparkClient bypass - restore original method from stored backup."""
+def revert_gts_spark_client_change(content, repo_root=None):
+    """Revert GTSBasedSparkClient bypass - restore original method from stored backup or git."""
     edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
     original_marker_start = '// EDOG_ORIGINAL_START:'
     original_marker_end = '// EDOG_ORIGINAL_END'
@@ -1116,10 +1195,10 @@ def revert_gts_spark_client_change(content):
             try:
                 original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
                 
-                # Find the bypass block to replace (from the marker line to end of method)
+                # Find the start of the EDOG marker line (this is where original method would start)
                 marker_line_start = content.rfind('\n', 0, content.find(original_marker_start)) + 1
                 
-                # Find the method end (closing brace)
+                # Find the method end (closing brace) by searching from the method signature
                 method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
                 sig_start = content.find(method_sig)
                 if sig_start == -1:
@@ -1143,13 +1222,32 @@ def revert_gts_spark_client_change(content):
                 
                 method_end = pos
                 
-                # Replace bypass with original
+                # Replace the entire bypass block (from marker line to method end) with original
+                # The marker_line_start is where the EDOG comment starts, which is where original method began
                 new_content = content[:marker_line_start] + original_content + content[method_end:]
                 return new_content, True
                 
             except Exception as e:
                 print(f"⚠️ Failed to decode stored original: {e}")
-                # Fall through to legacy handling
+                # Fall through to git-based restore
+    
+    # No stored original - try to restore from git
+    if repo_root:
+        try:
+            file_rel_path = str(FILES["GTSBasedSparkClient"]).replace('\\', '/')
+            result = subprocess.run(
+                ['git', 'show', f'HEAD:{file_rel_path}'],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                print("   ℹ️  Restored from git HEAD (no stored original found)")
+                return result.stdout, True
+            else:
+                print(f"⚠️ Git show failed: {result.stderr.strip()}")
+        except Exception as e:
+            print(f"⚠️ Could not restore from git: {e}")
     
     # Legacy fallback: no stored original found, cannot revert safely
     print("⚠️ No stored original found. The bypass may have been applied with an older version.")
@@ -1343,8 +1441,8 @@ def apply_all_changes(token, repo_root):
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
     if content:
-        new_content, status = apply_gts_operation_manager_change(content, token)
-        if status in ["applied", "token_updated"]:
+        new_content, status = apply_gts_operation_manager_change(content, token, repo_root)
+        if status in ["applied", "token_updated", "applied_with_git_original"]:
             write_file(filepath, new_content)
             changes_made.append(f"✅ GTSOperationManager token")
         elif status == "already_applied":
@@ -1356,8 +1454,8 @@ def apply_all_changes(token, repo_root):
     filepath = repo_root / FILES["GTSBasedSparkClient"]
     content = read_file(filepath)
     if content:
-        new_content, status = apply_gts_spark_client_change(content, token)
-        if status in ["applied", "token_updated"]:
+        new_content, status = apply_gts_spark_client_change(content, token, repo_root)
+        if status in ["applied", "token_updated", "applied_with_git_original"]:
             write_file(filepath, new_content)
             changes_made.append(f"✅ GTSBasedSparkClient token bypass")
         elif status == "already_applied":
@@ -1418,7 +1516,7 @@ def revert_all_changes(repo_root):
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
     if content:
-        new_content, reverted = revert_gts_operation_manager_change(content)
+        new_content, reverted = revert_gts_operation_manager_change(content, repo_root)
         if reverted:
             write_file(filepath, new_content)
             changes_made.append(f"✅ Reverted: GTSOperationManager token")
@@ -1427,7 +1525,7 @@ def revert_all_changes(repo_root):
     filepath = repo_root / FILES["GTSBasedSparkClient"]
     content = read_file(filepath)
     if content:
-        new_content, reverted = revert_gts_spark_client_change(content)
+        new_content, reverted = revert_gts_spark_client_change(content, repo_root)
         if reverted:
             write_file(filepath, new_content)
             changes_made.append(f"✅ Reverted: GTSBasedSparkClient token bypass")
