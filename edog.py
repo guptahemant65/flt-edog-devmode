@@ -125,7 +125,8 @@ def prompt_for_config():
     guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
     for name, value in [("Workspace", workspace_id), ("Artifact", artifact_id), ("Capacity", capacity_id)]:
         if not re.match(guid_pattern, value):
-            print(f"\n❌ Invalid {name} ID format (expected GUID)")
+            print(f"\n❌ Invalid {name} ID format: {value}")
+            print(f"   Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars, got {len(value)})")
             return None
     
     return {
