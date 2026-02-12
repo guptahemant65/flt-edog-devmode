@@ -963,6 +963,8 @@ def apply_gts_operation_manager_change(content, token):
 def apply_gts_spark_client_change(content, token):
     """Apply GTSBasedSparkClient bypass. Returns (new_content, status)."""
     edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
+    original_marker_start = '// EDOG_ORIGINAL_START:'
+    original_marker_end = '// EDOG_ORIGINAL_END'
     
     # Check if bypass exists
     if edog_marker in content:
@@ -1006,21 +1008,33 @@ def apply_gts_spark_client_change(content, token):
     
     method_end = pos
     
-    # Find the attribute and comment before the method (go back to find [ExcludeFromCodeCoverage])
-    search_start = max(0, sig_start - 200)
-    attr_marker = '// Extracted so as to mock in Test'
-    attr_pos = content.rfind(attr_marker, search_start, sig_start)
-    if attr_pos != -1:
-        # Find start of the line with the comment
-        line_start = content.rfind('\n', 0, attr_pos) + 1
-        method_start = line_start
-    else:
-        # Just use signature start
-        method_start = sig_start
+    # Find the start of the method block (including any comments/attributes before the signature)
+    # Go back line by line until we hit a line that's not a comment, attribute, or whitespace
+    line_start = content.rfind('\n', 0, sig_start) + 1
+    method_start = line_start
     
-    # Build the bypass code with proper indentation
-    bypass_code = f'''        // Extracted so as to mock in Test
-        [ExcludeFromCodeCoverage]
+    # Keep going back to include comments and attributes
+    while method_start > 0:
+        prev_line_end = method_start - 1
+        if prev_line_end < 0:
+            break
+        prev_line_start = content.rfind('\n', 0, prev_line_end) + 1
+        prev_line = content[prev_line_start:prev_line_end].strip()
+        
+        # Include lines that are comments, attributes, or empty
+        if prev_line.startswith('//') or prev_line.startswith('/*') or prev_line.startswith('*') or prev_line.startswith('[') or prev_line == '':
+            method_start = prev_line_start
+        else:
+            break
+    
+    # Capture the original content (everything from method_start to method_end)
+    original_content = content[method_start:method_end]
+    
+    # Base64 encode the original content for safe storage
+    original_encoded = base64.b64encode(original_content.encode('utf-8')).decode('ascii')
+    
+    # Build the bypass code with the original content stored as a comment
+    bypass_code = f'''        {original_marker_start}{original_encoded}{original_marker_end}
         protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
         {{
             // EDOG DevMode - bypassing OBO token exchange (hardcoded by edog tool)
@@ -1051,122 +1065,64 @@ def revert_gts_operation_manager_change(content):
 
 
 def revert_gts_spark_client_change(content):
-    """Revert GTSBasedSparkClient bypass - restore original method."""
+    """Revert GTSBasedSparkClient bypass - restore original method from stored backup."""
     edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
+    original_marker_start = '// EDOG_ORIGINAL_START:'
+    original_marker_end = '// EDOG_ORIGINAL_END'
+    
     if edog_marker not in content:
         return content, False
     
-    # Original method body (without the leading comment/attribute - those are added below)
-    original_method_body = '''        {
-            var mwcToken = await tokenProvider.GetTokenAsync(ct);
-            var tjsAppId = this.parametersProvider.GetHostParameter<string>("TJSFirstPartyApplicationId");
-
-            AADTokenInfo userTJSToken = await HttpTokenUtils.GetOboTokenAsync(
-                this.workloadAppAuthProvider, tjsAppId, this.tenantId, mwcToken);
-
-            Tracer.LogSanitizedWarning($"[CDF-GTSClient-userTJSToken] AADTokenInfo.ExpiresOn value: {userTJSToken.ExpiresOn}");
-
-            DateTimeOffset tokenExpiry;
-
-            if (userTJSToken.ExpiresOn != DateTimeOffset.MinValue &&
-                userTJSToken.ExpiresOn != default(DateTimeOffset))
-            {
-                tokenExpiry = userTJSToken.ExpiresOn;
-                Tracer.LogSanitizedMessage($"[CDF-GTSClient] Using ExpiresOn from AADTokenInfo: {tokenExpiry:yyyy-MM-dd HH:mm:ss.fff} UTC");
-            }
-            else if (HttpTokenUtils.TryGetExpiryFromJwtToken(userTJSToken.AccessToken, out DateTime extractedExpiry))
-            {
-                tokenExpiry = new DateTimeOffset(extractedExpiry);
-                Tracer.LogSanitizedWarning($"[CDF-GTSClient] ExpiresOn was MinValue/default. Extracted expiry from JWT 'exp' claim: {tokenExpiry:yyyy-MM-dd HH:mm:ss.fff} UTC");
-            }
-            else
-            {
-                tokenExpiry = DateTimeOffset.UtcNow.AddHours(1);
-                Tracer.LogSanitizedWarning($"[CDF-GTSClient] ExpiresOn was MinValue AND JWT parsing failed. Using 1-hour fallback: {tokenExpiry:yyyy-MM-dd HH:mm:ss.fff} UTC");
-            }
-
-            var capacityContext = CustomerCapacityAsyncLocalContext.Value;
-
-            var mwcV1Token = await HttpTokenUtils.GenerateMwcV1TokenAsync(
-                this.mwcTokenHandler,
-                this.workloadContext.ArtifactStoreServiceProvider.GetArtifactStoreServiceAsync(),
-                userTJSToken.AccessToken,
-                capacityContext,
-                this.workspaceId,
-                this.artifactId,
-                Constants.LakehouseArtifactType,
-                Constants.LakehouseTokenPermissions,
-                tokenExpiry);
-
-            return new Token
-            {
-                Value = mwcV1Token,
-                Expiry = tokenExpiry,
-            };
-        }'''
+    # Check if we have stored original content
+    if original_marker_start in content and original_marker_end in content:
+        # Extract the base64-encoded original
+        start_idx = content.find(original_marker_start) + len(original_marker_start)
+        end_idx = content.find(original_marker_end)
+        
+        if start_idx < end_idx:
+            encoded_original = content[start_idx:end_idx]
+            try:
+                original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
+                
+                # Find the bypass block to replace (from the marker line to end of method)
+                marker_line_start = content.rfind('\n', 0, content.find(original_marker_start)) + 1
+                
+                # Find the method end (closing brace)
+                method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
+                sig_start = content.find(method_sig)
+                if sig_start == -1:
+                    return content, False
+                
+                brace_start = content.find('{', sig_start)
+                if brace_start == -1:
+                    return content, False
+                
+                brace_count = 1
+                pos = brace_start + 1
+                while pos < len(content) and brace_count > 0:
+                    if content[pos] == '{':
+                        brace_count += 1
+                    elif content[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                
+                if brace_count != 0:
+                    return content, False
+                
+                method_end = pos
+                
+                # Replace bypass with original
+                new_content = content[:marker_line_start] + original_content + content[method_end:]
+                return new_content, True
+                
+            except Exception as e:
+                print(f"⚠️ Failed to decode stored original: {e}")
+                # Fall through to legacy handling
     
-    # Use same brace-counting logic as apply function
-    method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
-    
-    if method_sig not in content:
-        return content, False
-    
-    # Find the method start
-    sig_start = content.find(method_sig)
-    if sig_start == -1:
-        return content, False
-    
-    # Find the opening brace after signature
-    brace_start = content.find('{', sig_start)
-    if brace_start == -1:
-        return content, False
-    
-    # Find matching closing brace (count braces)
-    brace_count = 1
-    pos = brace_start + 1
-    while pos < len(content) and brace_count > 0:
-        if content[pos] == '{':
-            brace_count += 1
-        elif content[pos] == '}':
-            brace_count -= 1
-        pos += 1
-    
-    if brace_count != 0:
-        return content, False
-    
-    method_end = pos
-    
-    # Find the comment and attribute before the method
-    # Look for "// Extracted so as to mock in Test" which should be 2 lines before the method signature
-    search_start = max(0, sig_start - 200)
-    comment_marker = '// Extracted so as to mock in Test'
-    attr_marker = '[ExcludeFromCodeCoverage]'
-    
-    comment_pos = content.rfind(comment_marker, search_start, sig_start)
-    
-    if comment_pos != -1:
-        # Found the comment - start replacement from the beginning of that line
-        line_start = content.rfind('\n', 0, comment_pos) + 1
-        method_start = line_start
-    else:
-        # Comment not found - check for attribute only
-        attr_pos = content.rfind(attr_marker, search_start, sig_start)
-        if attr_pos != -1:
-            line_start = content.rfind('\n', 0, attr_pos) + 1
-            method_start = line_start
-        else:
-            # Neither found - start from method signature, but we need to find the line start
-            line_start = content.rfind('\n', 0, sig_start) + 1
-            method_start = line_start
-    
-    # Build full original method with comment and attribute
-    full_original = '''        // Extracted so as to mock in Test
-        [ExcludeFromCodeCoverage]
-        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
-''' + original_method_body
-    
-    new_content = content[:method_start] + full_original + content[method_end:]
-    return new_content, True
+    # Legacy fallback: no stored original found, cannot revert safely
+    print("⚠️ No stored original found. The bypass may have been applied with an older version.")
+    print("   Please manually revert GTSBasedSparkClient.cs using git checkout or restore from source control.")
+    return content, False
 
 
 def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
