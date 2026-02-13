@@ -8,11 +8,18 @@ Features:
 - Filtering by log level, activity, component
 - Search functionality
 - Export capabilities
+
+Usage:
+  edog-logs --demo                     Run with simulated data (test the UI)
+  edog-logs --watch <directory>        Watch FLT service output directory
+  edog-logs --file <path>              Tail a specific log file
+  dotnet run 2>&1 | edog-logs          Pipe service output directly
 """
 
 import json
 import re
 import sys
+import os
 import time
 import threading
 import queue
@@ -97,6 +104,7 @@ class LogStore:
         self.lock = threading.Lock()
         self.log_queue = queue.Queue()
         self.telemetry_queue = queue.Queue()
+        self.source_info = "Waiting for input..."
         
         # Stats
         self.stats = {
@@ -137,17 +145,24 @@ class LogStore:
     def get_recent_telemetry(self, count: int = 20) -> List[TelemetryEvent]:
         with self.lock:
             return self.telemetry[-count:]
+    
+    def clear(self):
+        with self.lock:
+            self.logs.clear()
+            self.telemetry.clear()
+            for key in self.stats:
+                self.stats[key] = 0
 
 # ============================================================================
 # UI Components
 # ============================================================================
-def create_header() -> Panel:
+def create_header(store: LogStore) -> Panel:
     """Create the header panel."""
     header_text = Text()
     header_text.append("🐕 ", style="bold")
     header_text.append("EDOG Log Viewer", style="bold cyan")
     header_text.append("  │  ", style="dim")
-    header_text.append("FabricLiveTable DevMode", style="italic dim")
+    header_text.append(store.source_info, style="italic dim green")
     
     return Panel(
         Align.center(header_text),
@@ -312,29 +327,6 @@ def create_activity_panel(store: LogStore) -> Panel:
         box=ROUNDED
     )
 
-def create_help_panel() -> Panel:
-    """Create help panel."""
-    help_text = """
-[bold cyan]Keyboard Shortcuts:[/]
-  [yellow]q[/] - Quit
-  [yellow]c[/] - Clear logs
-  [yellow]f[/] - Filter logs
-  [yellow]e[/] - Export logs
-  [yellow]t[/] - Toggle telemetry view
-  [yellow]?[/] - Show help
-
-[bold cyan]Log Sources:[/]
-  • Console output from FLT service
-  • Telemetry events (SSR)
-  • MonitoredScope traces
-"""
-    return Panel(
-        Markdown(help_text),
-        title="[bold]Help[/]",
-        border_style="dim",
-        box=ROUNDED
-    )
-
 def create_layout(store: LogStore) -> Layout:
     """Create the main layout."""
     layout = Layout()
@@ -361,7 +353,7 @@ def create_layout(store: LogStore) -> Layout:
     )
     
     # Populate layout
-    layout["header"].update(create_header())
+    layout["header"].update(create_header(store))
     layout["logs"].update(create_logs_panel(store))
     layout["telemetry"].update(create_telemetry_panel(store))
     layout["stats"].update(create_stats_panel(store))
@@ -369,12 +361,8 @@ def create_layout(store: LogStore) -> Layout:
     
     footer_text = Text()
     footer_text.append(" Press ", style="dim")
-    footer_text.append("q", style="bold yellow")
-    footer_text.append(" to quit │ ", style="dim")
-    footer_text.append("c", style="bold yellow")
-    footer_text.append(" to clear │ ", style="dim")
-    footer_text.append("?", style="bold yellow")
-    footer_text.append(" for help", style="dim")
+    footer_text.append("Ctrl+C", style="bold yellow")
+    footer_text.append(" to quit", style="dim")
     layout["footer"].update(Panel(Align.center(footer_text), box=box.SIMPLE))
     
     return layout
@@ -412,6 +400,19 @@ class LogParser:
         re.IGNORECASE
     )
     
+    # FLT-specific patterns
+    FLT_PATTERNS = [
+        re.compile(r'LiveTable[:\s-](?P<message>.*)', re.IGNORECASE),
+        re.compile(r'DAG\s*(execution|Exec)', re.IGNORECASE),
+        re.compile(r'GTS[:\s-](?P<message>.*)', re.IGNORECASE),
+        re.compile(r'Node\s*(execution|submit)', re.IGNORECASE),
+        re.compile(r'Catalog[:\s-]', re.IGNORECASE),
+        re.compile(r'OneLake[:\s-]', re.IGNORECASE),
+        re.compile(r'Token[:\s-]', re.IGNORECASE),
+        re.compile(r'MWC[:\s-]', re.IGNORECASE),
+        re.compile(r'Workload[:\s-]', re.IGNORECASE),
+    ]
+    
     MONITORED_SCOPE_PATTERN = re.compile(
         r'LiveTable[- ](?P<scope>[A-Za-z\-]+)',
         re.IGNORECASE
@@ -422,6 +423,10 @@ class LogParser:
         """Parse a log line into a LogEntry."""
         line = line.strip()
         if not line:
+            return None
+        
+        # Skip empty or very short lines
+        if len(line) < 5:
             return None
         
         # Try tracer pattern
@@ -447,17 +452,42 @@ class LogParser:
                 message=match.group("message")
             )
         
-        # Check for specific FLT patterns
-        if "LiveTable" in line or "FLT" in line or "DAG" in line.upper():
+        # Check for FLT-specific patterns
+        for pattern in cls.FLT_PATTERNS:
+            if pattern.search(line):
+                level = LogLevel.INFO
+                if "error" in line.lower() or "exception" in line.lower() or "fail" in line.lower():
+                    level = LogLevel.ERROR
+                elif "warn" in line.lower():
+                    level = LogLevel.WARN
+                
+                # Extract component from MonitoredScope if present
+                scope_match = cls.MONITORED_SCOPE_PATTERN.search(line)
+                component = scope_match.group("scope") if scope_match else "FLT"
+                
+                return LogEntry(
+                    timestamp=datetime.now(),
+                    level=level,
+                    component=component,
+                    message=line[:200]
+                )
+        
+        # Check for standard .NET/ASP.NET Core log patterns
+        if any(keyword in line for keyword in ["Microsoft.", "System.", "Hosting", "Application", "Request", "dbug:", "info:", "warn:", "fail:", "crit:"]):
             level = LogLevel.INFO
-            if "error" in line.lower() or "exception" in line.lower():
+            if "fail:" in line.lower() or "crit:" in line.lower() or "error" in line.lower():
                 level = LogLevel.ERROR
-            elif "warn" in line.lower():
+            elif "warn:" in line.lower():
                 level = LogLevel.WARN
+            elif "dbug:" in line.lower():
+                level = LogLevel.DEBUG
             
-            # Extract component from MonitoredScope if present
-            scope_match = cls.MONITORED_SCOPE_PATTERN.search(line)
-            component = scope_match.group("scope") if scope_match else "FLT"
+            # Extract component
+            component = "ASP.NET"
+            if "Microsoft." in line:
+                comp_match = re.search(r'Microsoft\.(\w+)', line)
+                if comp_match:
+                    component = comp_match.group(1)
             
             return LogEntry(
                 timestamp=datetime.now(),
@@ -466,10 +496,10 @@ class LogParser:
                 message=line[:200]
             )
         
-        # Generic fallback
+        # Generic fallback for any substantial line
         if len(line) > 10:
             level = LogLevel.INFO
-            if "error" in line.lower():
+            if "error" in line.lower() or "exception" in line.lower() or "fail" in line.lower():
                 level = LogLevel.ERROR
             elif "warn" in line.lower():
                 level = LogLevel.WARN
@@ -499,7 +529,7 @@ class LogParser:
         return None
 
 # ============================================================================
-# Log Watcher
+# Log Watchers
 # ============================================================================
 class StdinWatcher(threading.Thread):
     """Watch stdin for log lines."""
@@ -508,6 +538,7 @@ class StdinWatcher(threading.Thread):
         super().__init__(daemon=True)
         self.store = store
         self.running = True
+        self.store.source_info = "Reading from stdin (pipe your service output)"
     
     def run(self):
         while self.running:
@@ -532,6 +563,99 @@ class StdinWatcher(threading.Thread):
     
     def stop(self):
         self.running = False
+
+
+class FileWatcher(threading.Thread):
+    """Watch a file for new lines (tail -f style)."""
+    
+    def __init__(self, store: LogStore, file_path: str):
+        super().__init__(daemon=True)
+        self.store = store
+        self.file_path = Path(file_path)
+        self.running = True
+        self.store.source_info = f"Watching: {self.file_path.name}"
+    
+    def run(self):
+        if not self.file_path.exists():
+            self.store.add_log(LogEntry(
+                timestamp=datetime.now(),
+                level=LogLevel.ERROR,
+                component="FileWatcher",
+                message=f"File not found: {self.file_path}"
+            ))
+            return
+        
+        with open(self.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            # Go to end of file
+            f.seek(0, 2)
+            
+            while self.running:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.1)
+                    continue
+                
+                telemetry = LogParser.parse_telemetry(line)
+                if telemetry:
+                    self.store.add_telemetry(telemetry)
+                    continue
+                
+                log = LogParser.parse_line(line)
+                if log:
+                    self.store.add_log(log)
+    
+    def stop(self):
+        self.running = False
+
+
+class DirectoryWatcher(threading.Thread):
+    """Watch a directory for log files and tail them."""
+    
+    def __init__(self, store: LogStore, directory: str):
+        super().__init__(daemon=True)
+        self.store = store
+        self.directory = Path(directory)
+        self.running = True
+        self.file_watchers = []
+        self.store.source_info = f"Watching: {self.directory}"
+    
+    def run(self):
+        if not self.directory.exists():
+            self.store.add_log(LogEntry(
+                timestamp=datetime.now(),
+                level=LogLevel.ERROR,
+                component="DirWatcher",
+                message=f"Directory not found: {self.directory}"
+            ))
+            return
+        
+        # Find log files
+        log_patterns = ["*.log", "*.txt", "*output*"]
+        log_files = []
+        for pattern in log_patterns:
+            log_files.extend(self.directory.glob(pattern))
+        
+        if not log_files:
+            self.store.add_log(LogEntry(
+                timestamp=datetime.now(),
+                level=LogLevel.WARN,
+                component="DirWatcher",
+                message=f"No log files found in {self.directory}"
+            ))
+        
+        for log_file in log_files[:5]:  # Watch max 5 files
+            watcher = FileWatcher(self.store, str(log_file))
+            watcher.start()
+            self.file_watchers.append(watcher)
+        
+        while self.running:
+            time.sleep(1)
+    
+    def stop(self):
+        self.running = False
+        for watcher in self.file_watchers:
+            watcher.stop()
+
 
 # ============================================================================
 # Demo Data Generator
@@ -558,6 +682,7 @@ class DemoDataGenerator(threading.Thread):
         super().__init__(daemon=True)
         self.store = store
         self.running = True
+        self.store.source_info = "Demo Mode (simulated data)"
     
     def run(self):
         import random
@@ -607,19 +732,9 @@ class DemoDataGenerator(threading.Thread):
 # ============================================================================
 # Main Application
 # ============================================================================
-def run_viewer(demo_mode: bool = False):
-    """Run the log viewer."""
-    store = LogStore()
-    
-    # Start appropriate data source
-    if demo_mode:
-        console.print("[yellow]Running in demo mode with simulated data[/]")
-        data_source = DemoDataGenerator(store)
-    else:
-        console.print("[cyan]Waiting for log input from stdin...[/]")
-        console.print("[dim]Pipe your FLT service output: dotnet run 2>&1 | python edog-logs.py[/]")
-        data_source = StdinWatcher(store)
-    
+def run_viewer(data_source):
+    """Run the log viewer with the given data source."""
+    store = data_source.store
     data_source.start()
     
     try:
@@ -659,21 +774,52 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  edog-logs --demo                    Run with simulated data
-  dotnet run 2>&1 | edog-logs         Pipe FLT service output
-  edog-logs < service.log             Read from log file
+  edog-logs --demo                    Run with simulated data (test the UI)
+  edog-logs --file service.log        Tail a specific log file
+  edog-logs --watch ./logs            Watch a directory for log files
+  
+  # Pipe service output from FLT repo:
+  cd C:\\path\\to\\workload-fabriclivetable\\Service\\Microsoft.LiveTable.Service.EntryPoint
+  dotnet run 2>&1 | edog-logs
         """
     )
     parser.add_argument("--demo", action="store_true", help="Run with demo/simulated data")
+    parser.add_argument("--file", "-f", type=str, help="Tail a specific log file")
+    parser.add_argument("--watch", "-w", type=str, help="Watch a directory for log files")
     parser.add_argument("--no-splash", action="store_true", help="Skip splash screen")
     
     args = parser.parse_args()
     
     if not args.no_splash:
         show_splash()
-        time.sleep(1)
+        time.sleep(0.5)
     
-    run_viewer(demo_mode=args.demo)
+    store = LogStore()
+    
+    # Choose data source
+    if args.demo:
+        console.print("[yellow]Running in demo mode with simulated data[/]")
+        data_source = DemoDataGenerator(store)
+    elif args.file:
+        console.print(f"[cyan]Tailing file: {args.file}[/]")
+        data_source = FileWatcher(store, args.file)
+    elif args.watch:
+        console.print(f"[cyan]Watching directory: {args.watch}[/]")
+        data_source = DirectoryWatcher(store, args.watch)
+    else:
+        # Check if stdin has data (piped input)
+        if not sys.stdin.isatty():
+            console.print("[cyan]Reading from piped input...[/]")
+            data_source = StdinWatcher(store)
+        else:
+            console.print("[yellow]No input source specified. Running in demo mode.[/]")
+            console.print("[dim]Use --help to see usage options[/]\n")
+            time.sleep(1)
+            data_source = DemoDataGenerator(store)
+    
+    time.sleep(0.5)
+    run_viewer(data_source)
 
 if __name__ == "__main__":
     main()
+
