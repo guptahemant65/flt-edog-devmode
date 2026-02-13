@@ -421,7 +421,98 @@ flt-edog-devmode/
 ├── edog.cmd                Windows command wrapper
 ├── edog-setup.cmd          Installation script
 ├── edog-config.json        User configuration (gitignored)
+├── edog-logs.py            Log & telemetry viewer
+├── edog-logs.cmd           Log viewer launcher
 └── install.ps1             PowerShell installer
+```
+
+<br/>
+
+---
+
+<br/>
+
+## 📊 Log Viewer
+
+A beautiful real-time log and telemetry viewer for monitoring your FLT DevMode session.
+
+<br/>
+
+### Features
+
+<table>
+<tr>
+<td width="25%" align="center">
+<br/>
+<b>📋 Live Logs</b>
+<br/>
+Real-time log streaming with color-coded levels
+<br/><br/>
+</td>
+<td width="25%" align="center">
+<br/>
+<b>📡 Telemetry</b>
+<br/>
+Visualize SSR events with status and duration
+<br/><br/>
+</td>
+<td width="25%" align="center">
+<br/>
+<b>📊 Statistics</b>
+<br/>
+Track success rates and error counts
+<br/><br/>
+</td>
+<td width="25%" align="center">
+<br/>
+<b>🎯 Activity</b>
+<br/>
+Breakdown by operation type
+<br/><br/>
+</td>
+</tr>
+</table>
+
+<br/>
+
+### Usage
+
+```powershell
+# Run with demo data (to test the UI)
+edog-logs --demo
+
+# Pipe FLT service output
+dotnet run 2>&1 | edog-logs
+
+# Read from log file
+edog-logs < service.log
+```
+
+<br/>
+
+### Screenshot
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        🐕 EDOG Log Viewer  │  FabricLiveTable DevMode        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ┌─────────────── 📋 Live Logs ───────────────┐  ┌────── Statistics ────────┐ │
+│ │ Time       │Level│ Component     │ Message │  │ 📊 Total Logs    1,247   │ │
+│ │ 10:23:45   │INFO │ DagHandler    │ Start.. │  │ ℹ️  Info           892   │ │
+│ │ 10:23:46   │INFO │ GTSClient     │ Submit. │  │ ⚠️  Warnings       312   │ │
+│ │ 10:23:47   │WARN │ TokenManager  │ Expiry. │  │ ❌ Errors          43   │ │
+│ │ 10:23:48   │INFO │ NodeExecutor  │ Node 3. │  │                          │ │
+│ │ 10:23:49   │ERROR│ CatalogHandler│ Failed. │  │ 📡 Telemetry       156   │ │
+│ └────────────────────────────────────────────┘  │ ✅ Succeeded       142   │ │
+│ ┌──────────── 📡 Telemetry Events ───────────┐  │ ❌ Failed           14   │ │
+│ │ Time    │ Activity      │ Status  │Duration│  └──────────────────────────┘ │
+│ │ 10:23   │ RunDag        │ ✓ Pass  │ 1,234ms│  ┌── Activity Breakdown ────┐ │
+│ │ 10:22   │ GetLatestDag  │ ✓ Pass  │   456ms│  │ RunDag          45  98%  │ │
+│ │ 10:21   │ NodeExecution │ ✗ Fail  │ 2,100ms│  │ GetLatestDag    32 100%  │ │
+│ └────────────────────────────────────────────┘  │ NodeExecution   79  95%  │ │
+├──────────────────────────────────────────────────────────────────────────────┤
+│              Press q to quit │ c to clear │ ? for help                       │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 <br/>
