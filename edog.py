@@ -75,6 +75,7 @@ FILES = {
     "LiveTableSchedulerRunController": SERVICE_PATH / "Controllers/LiveTableSchedulerRunController.cs",
     "GTSOperationManager": SERVICE_PATH / "Managers/GTSOperationManager.cs",
     "GTSBasedSparkClient": SERVICE_PATH / "SparkHttp/GTSBasedSparkClient.cs",
+    "TelemetryReporter": SERVICE_PATH / "Telemetry/CustomLiveTableTelemetryReporter.cs",
 }
 
 
@@ -1438,6 +1439,38 @@ def revert_gts_spark_client_change(content, repo_root=None):
 
 
 # ============================================================================
+# Telemetry Console Output (included in patch for easy revert)
+# ============================================================================
+TELEMETRY_CONSOLE_CODE = '''
+            // EDOG DevMode - Console telemetry output
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine($"[TELEMETRY] Activity: {activityName} | Status: {activityStatus} | Duration: {durationMs}ms | Result: {resultCode ?? "OK"}");
+            if (activityAttributes != null && activityAttributes.Count > 0)
+            {
+                Console.WriteLine($"            Attributes: {JsonConvert.SerializeObject(activityAttributes, Formatting.None)}");
+            }
+
+            Console.ResetColor();
+'''
+
+def apply_telemetry_console_output(content):
+    """Add console output to telemetry reporter. Revert handled by patch."""
+    marker = '// EDOG DevMode - Console telemetry output'
+    if marker in content:
+        return content, "already_applied"
+    
+    target = 'Check.Assert(durationMs >= 0, nameof(durationMs));'
+    if target not in content:
+        return content, "pattern_not_found"
+    
+    # Insert after target line
+    idx = content.find(target)
+    line_end = content.find('\n', idx) + 1
+    
+    return content[:line_end] + TELEMETRY_CONSOLE_CODE + content[line_end:], "applied"
+
+
+# ============================================================================
 # Tracer Console Output (for actual logs via Tracer.LogSanitizedMessage etc.)
 # ============================================================================
 
@@ -1805,8 +1838,25 @@ def apply_all_changes(token, repo_root):
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
     
-    # 5. Tracer wrapper - Console output for logs (Tracer.LogSanitizedMessage etc.)
-    # Creates new files, no patching needed
+    # 5. TelemetryReporter - Console output (included in patch)
+    rel_path = FILES["TelemetryReporter"]
+    filepath = repo_root / rel_path
+    content = read_file(filepath)
+    if content:
+        original_contents[rel_path] = content
+        new_content, status = apply_telemetry_console_output(content)
+        if status == "applied":
+            write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
+            changes_made.append(f"✅ Telemetry console output (SSR events)")
+        elif status == "already_applied":
+            modified_contents[rel_path] = content
+            changes_made.append(f"⏭️  Telemetry console output (already)")
+        elif status == "pattern_not_found":
+            modified_contents[rel_path] = content
+            warnings.append(f"⚠️  Telemetry console output: pattern not found")
+    
+    # 6. Tracer wrapper - Console output for logs (creates new files)
     status, files = apply_tracer_console_output(repo_root)
     if status == "applied":
         changes_made.append(f"✅ Tracer console output (application logs)")
@@ -1910,6 +1960,13 @@ def check_status(repo_root):
     if content:
         applied = "// EDOG DevMode - bypassing OBO token exchange" in content
         status.append(("GTSBasedSparkClient token bypass", applied))
+    
+    # Check TelemetryReporter (console output)
+    filepath = repo_root / FILES["TelemetryReporter"]
+    content = read_file(filepath)
+    if content:
+        applied = "// EDOG DevMode - Console telemetry output" in content
+        status.append(("Telemetry console output (SSR)", applied))
     
     # Check Tracer console output (DevMode tracer files)
     tracer_applied = check_tracer_console_output(repo_root)
