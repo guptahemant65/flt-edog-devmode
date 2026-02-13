@@ -374,6 +374,15 @@ class LogParser:
     """Parse log lines from FLT service output."""
     
     # Patterns for different log formats
+    
+    # EDOG DevMode Tracer format: [HH:mm:ss.fff] [LEVEL] message
+    EDOG_TRACER_PATTERN = re.compile(
+        r'\[(?P<timestamp>\d{2}:\d{2}:\d{2}\.\d{3})\]\s*'
+        r'\[(?P<level>DEBUG|INFO|WARN|WARNING|ERROR)\s*\]\s*'
+        r'(?P<message>.*)',
+        re.IGNORECASE
+    )
+    
     TRACER_PATTERN = re.compile(
         r'\[(?P<timestamp>[\d\-T:\.]+)\]\s*'
         r'(?P<level>DEBUG|INFO|WARN|WARNING|ERROR)\s*'
@@ -428,6 +437,16 @@ class LogParser:
         # Skip empty or very short lines
         if len(line) < 5:
             return None
+        
+        # Try EDOG tracer pattern first (highest priority)
+        match = cls.EDOG_TRACER_PATTERN.match(line)
+        if match:
+            return LogEntry(
+                timestamp=datetime.now(),
+                level=LogLevel[match.group("level").upper().replace("WARNING", "WARN")],
+                component="FLT",
+                message=match.group("message")
+            )
         
         # Try tracer pattern
         match = cls.TRACER_PATTERN.match(line)
