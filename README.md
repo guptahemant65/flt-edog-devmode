@@ -475,6 +475,19 @@ Breakdown by operation type
 
 <br/>
 
+### How It Works
+
+EDOG automatically injects console output into the FLT telemetry reporter. When you run `edog`, it modifies `CustomLiveTableTelemetryReporter.cs` to output telemetry events to the console in magenta color:
+
+```
+[TELEMETRY] Activity: RunDag | Status: Succeeded | Duration: 1234ms | Result: OK
+            Attributes: {"nodeCount":"5","dagVersion":"v2"}
+```
+
+This allows the log viewer to capture and display real FLT telemetry events during your DevMode session.
+
+<br/>
+
 ### Usage
 
 ```powershell
