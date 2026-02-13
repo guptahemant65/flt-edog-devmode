@@ -75,6 +75,7 @@ FILES = {
     "LiveTableSchedulerRunController": SERVICE_PATH / "Controllers/LiveTableSchedulerRunController.cs",
     "GTSOperationManager": SERVICE_PATH / "Managers/GTSOperationManager.cs",
     "GTSBasedSparkClient": SERVICE_PATH / "SparkHttp/GTSBasedSparkClient.cs",
+    "TelemetryReporter": SERVICE_PATH / "Telemetry/CustomLiveTableTelemetryReporter.cs",
 }
 
 
@@ -1437,6 +1438,74 @@ def revert_gts_spark_client_change(content, repo_root=None):
     return content, False
 
 
+# ============================================================================
+# Telemetry Console Output Bypass
+# ============================================================================
+def apply_telemetry_console_output(content):
+    """
+    Add console output to CustomLiveTableTelemetryReporter for local debugging.
+    This allows the EDOG Log Viewer to capture telemetry events.
+    """
+    edog_marker = '// EDOG DevMode - Console telemetry output'
+    
+    # Check if already applied
+    if edog_marker in content:
+        return content, "already_applied"
+    
+    # Find the EmitStandardizedServerReporting method and add console output
+    # Look for the line after the assertions
+    target_line = 'Check.Assert(durationMs >= 0, nameof(durationMs));'
+    
+    if target_line not in content:
+        return content, "pattern_not_found"
+    
+    console_code = f'''
+            {edog_marker}
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine($"[TELEMETRY] Activity: {{activityName}} | Status: {{activityStatus}} | Duration: {{durationMs}}ms | Result: {{resultCode ?? "OK"}}");
+            if (activityAttributes != null && activityAttributes.Count > 0)
+            {{
+                Console.WriteLine($"            Attributes: {{JsonConvert.SerializeObject(activityAttributes, Formatting.None)}}");
+            }}
+            Console.ResetColor();
+'''
+    
+    # Insert after the assertion line
+    idx = content.find(target_line)
+    line_end = content.find('\n', idx) + 1
+    
+    new_content = content[:line_end] + console_code + content[line_end:]
+    
+    return new_content, "applied"
+
+
+def revert_telemetry_console_output(content):
+    """Remove the console telemetry output bypass."""
+    edog_marker = '// EDOG DevMode - Console telemetry output'
+    
+    if edog_marker not in content:
+        return content, False
+    
+    # Find and remove the EDOG block (from marker to Console.ResetColor();)
+    marker_pos = content.find(edog_marker)
+    
+    # Find the start of the line with the marker
+    block_start = content.rfind('\n', 0, marker_pos)
+    
+    # Find the end (Console.ResetColor(); followed by newline)
+    reset_color = 'Console.ResetColor();'
+    reset_pos = content.find(reset_color, marker_pos)
+    if reset_pos == -1:
+        return content, False
+    
+    block_end = content.find('\n', reset_pos) + 1
+    
+    # Remove the block
+    new_content = content[:block_start + 1] + content[block_end:]
+    
+    return new_content, True
+
+
 def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
     """Fetch MWC token using Bearer token."""
     
@@ -1663,6 +1732,24 @@ def apply_all_changes(token, repo_root):
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
     
+    # 5. TelemetryReporter - Console output for local log viewer
+    rel_path = FILES["TelemetryReporter"]
+    filepath = repo_root / rel_path
+    content = read_file(filepath)
+    if content:
+        original_contents[rel_path] = content
+        new_content, status = apply_telemetry_console_output(content)
+        if status == "applied":
+            write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
+            changes_made.append(f"✅ Telemetry console output (for edog-logs)")
+        elif status == "already_applied":
+            modified_contents[rel_path] = content
+            changes_made.append(f"⏭️  Telemetry console output (already)")
+        elif status == "pattern_not_found":
+            modified_contents[rel_path] = content
+            warnings.append(f"⚠️  Telemetry console output: pattern not found")
+    
     # Generate patch file for clean revert
     if generate_patch(original_contents, modified_contents, repo_root):
         print(f"\n   📄 Patch file saved: {get_patch_file_path().name}")
@@ -1755,6 +1842,13 @@ def check_status(repo_root):
     if content:
         applied = "// EDOG DevMode - bypassing OBO token exchange" in content
         status.append(("GTSBasedSparkClient token bypass", applied))
+    
+    # Check TelemetryReporter (console output)
+    filepath = repo_root / FILES["TelemetryReporter"]
+    content = read_file(filepath)
+    if content:
+        applied = "// EDOG DevMode - Console telemetry output" in content
+        status.append(("Telemetry console output", applied))
     
     all_applied = all(s[1] for s in status) if status else False
     any_applied = any(s[1] for s in status) if status else False
