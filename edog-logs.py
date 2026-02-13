@@ -402,10 +402,13 @@ class LogParser:
         re.IGNORECASE
     )
     
+    # Updated pattern to match: [TELEMETRY] Activity: X | Status: Y | Result: Z | Duration: Wms | CorrelationId: ...
     TELEMETRY_PATTERN = re.compile(
-        r'\[TELEMETRY\]\s*Activity:\s*(?P<activity>\w+)\s*\|\s*'
+        r'\[TELEMETRY\]\s*Activity:\s*(?P<activity>[\w\-]+)\s*\|\s*'
         r'Status:\s*(?P<status>\w+)\s*\|\s*'
-        r'Duration:\s*(?P<duration>\d+)ms',
+        r'Result:\s*(?P<result>[^\|]+)\s*\|\s*'
+        r'Duration:\s*(?P<duration>\d+)ms\s*\|\s*'
+        r'CorrelationId:\s*(?P<correlation_id>[\w\-]+)',
         re.IGNORECASE
     )
     
@@ -543,7 +546,9 @@ class LogParser:
                 timestamp=datetime.now(),
                 activity_name=match.group("activity"),
                 status=match.group("status"),
-                duration_ms=int(match.group("duration"))
+                duration_ms=int(match.group("duration")),
+                result_code=match.group("result").strip(),
+                correlation_id=match.group("correlation_id")
             )
         return None
 
