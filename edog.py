@@ -1443,8 +1443,9 @@ def revert_gts_spark_client_change(content, repo_root=None):
 # ============================================================================
 TELEMETRY_CONSOLE_CODE = '''
             // EDOG DevMode - Console telemetry output
+            var edogCorrelationId = string.IsNullOrEmpty(correlationId) ? MonitoredScope.RootActivityId.ToString() : correlationId;
             Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine($"[TELEMETRY] Activity: {activityName} | Status: {activityStatus} | Duration: {durationMs}ms | Result: {resultCode ?? "OK"}");
+            Console.WriteLine($"[TELEMETRY] Activity: {activityName} | Status: {activityStatus} | Result: {resultCode ?? "OK"} | Duration: {durationMs}ms | CorrelationId: {edogCorrelationId}");
             if (activityAttributes != null && activityAttributes.Count > 0)
             {
                 Console.WriteLine($"            Attributes: {JsonConvert.SerializeObject(activityAttributes, Formatting.None)}");
