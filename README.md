@@ -127,6 +127,12 @@ edog
     │      │               │       │               │       │                       │     │
     │      └───────┬───────┘       └───────────────┘       └───────────────────────┘     │
     │              │                                                                     │
+    │              ▼                                                                     │
+    │      ┌───────────────┐                                                             │
+    │      │  Auto-Select  │  (Handles DevMode account picker popup automatically)       │
+    │      │   Account     │                                                             │
+    │      └───────┬───────┘                                                             │
+    │              │                                                                     │
     │              │    ┌─────────────────────────────────────────────────────────┐      │
     │              └───►│  Monitor: Token refresh + Service health + Ctrl+C      │──────┘
     │                   └─────────────────────────────────────────────────────────┘      │
@@ -155,7 +161,7 @@ edog
 </tr>
 <tr>
 <td><code>edog</code></td>
-<td>Start DevMode: fetch token, apply changes, <b>launch FLT service</b>, auto-refresh tokens</td>
+<td>Start DevMode: fetch token, apply changes, <b>launch FLT service</b>, auto-select account, auto-refresh tokens</td>
 </tr>
 <tr>
 <td><code>edog --no-launch</code></td>

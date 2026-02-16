@@ -2106,6 +2106,95 @@ def stream_service_output(process, stop_event):
         pass
 
 
+def handle_devmode_account_picker(username, timeout=30):
+    """
+    Handle the DevMode account picker popup that appears when FLT service starts.
+    Uses pywinauto to find the Edge window and keyboard to select the account.
+    """
+    from pywinauto import Desktop
+    import time as time_module
+    
+    # Extract account name for matching
+    account_name = username.split("@")[0] if "@" in username else username
+    
+    print(f"\n🔍 Watching for DevMode account picker...")
+    print(f"   Target account: {username}")
+    
+    start_time = time_module.time()
+    
+    while (time_module.time() - start_time) < timeout:
+        try:
+            desktop = Desktop(backend="uia")
+            
+            # Find all windows
+            windows = desktop.windows()
+            for win in windows:
+                try:
+                    title = win.window_text().lower()
+                    
+                    # Check if this is a Microsoft login/account picker window
+                    is_login_window = any(keyword in title for keyword in [
+                        "pick an account", "sign in to your account", 
+                        "login.microsoftonline", "sign in -"
+                    ])
+                    
+                    if is_login_window and "edge" in title:
+                        print(f"   📍 Found account picker window")
+                        
+                        try:
+                            # Bring window to foreground
+                            win.set_focus()
+                            time_module.sleep(0.5)
+                            
+                            # Use keyboard to interact with account picker
+                            # The account tiles are typically Tab-able
+                            # Press Tab a few times to reach the account, then Enter
+                            
+                            from pywinauto.keyboard import send_keys
+                            
+                            # First, try clicking in the window area to ensure focus
+                            try:
+                                win.click_input()
+                                time_module.sleep(0.3)
+                            except:
+                                pass
+                            
+                            # Send Tab to navigate to the first account tile
+                            # Then Enter to select it
+                            print(f"   ⌨️ Selecting first account (expected: {username})...")
+                            
+                            # Tab to first account and Enter (Microsoft account picker)
+                            send_keys("{TAB}{TAB}{ENTER}")
+                            time_module.sleep(1)
+                            
+                            print(f"   ✅ Selected account: {username} (first option in picker)")
+                            return True
+                            
+                        except Exception as e:
+                            print(f"   ⚠️ Error with keyboard: {e}")
+                            
+                except Exception:
+                    continue
+                    
+        except Exception as e:
+            pass
+        
+        time_module.sleep(1)
+    
+    # Fallback: notify user to manually select account
+    print(f"\n   ⚠️ Could not auto-select account within {timeout}s")
+    print(f"   👉 Please manually select: {username}")
+    print(f"   (The account picker window may need your attention)")
+    
+    # Show Windows notification
+    try:
+        show_notification("EDOG DevMode", f"Please select account: {username}")
+    except:
+        pass
+    
+    return False
+
+
 def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True):
     """Main daemon loop - fetch token, apply changes, optionally launch service, monitor and refresh."""
     
@@ -2155,6 +2244,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     service_process = None
     stop_event = None
     output_thread = None
+    popup_thread = None
     
     if launch_service:
         print("\n" + "=" * 70)
@@ -2170,6 +2260,14 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 daemon=True
             )
             output_thread.start()
+            
+            # Start background thread to handle DevMode account picker popup
+            popup_thread = threading.Thread(
+                target=handle_devmode_account_picker,
+                args=(username, 30),
+                daemon=True
+            )
+            popup_thread.start()
         else:
             print("\n⚠️  Service failed to start, continuing with token management only")
     
