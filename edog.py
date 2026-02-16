@@ -25,6 +25,7 @@ import urllib.error
 import uuid
 import time
 import argparse
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -114,6 +115,140 @@ def save_config(config):
         return False
 
 
+# ============================================================================
+# Workload dev mode config sync
+# ============================================================================
+def get_workload_dev_mode_path(flt_repo_path=None):
+    """
+    Get path to workload-dev-mode.json by reading launchSettings.json.
+    Returns Path or None if not found.
+    """
+    if not flt_repo_path:
+        config = load_config()
+        flt_repo_path = config.get("flt_repo_path")
+    
+    if not flt_repo_path:
+        return None
+    
+    launch_settings = Path(flt_repo_path) / "Service" / "Microsoft.LiveTable.Service.EntryPoint" / "Properties" / "launchSettings.json"
+    
+    if not launch_settings.exists():
+        return None
+    
+    try:
+        with open(launch_settings, 'r') as f:
+            settings = json.load(f)
+        
+        # Extract path from commandLineArgs: -DevMode:LocalConfigFilePath="C:\...\workload-dev-mode.json"
+        profiles = settings.get("profiles", {})
+        for profile in profiles.values():
+            args = profile.get("commandLineArgs", "")
+            match = re.search(r'-DevMode:LocalConfigFilePath="([^"]+)"', args)
+            if match:
+                return Path(match.group(1))
+    except Exception:
+        pass
+    
+    return None
+
+
+def read_workload_dev_mode_config(flt_repo_path=None):
+    """
+    Read workload-dev-mode.json and return relevant config values.
+    Returns dict with capacity_id (mapped from CapacityGuid) or empty dict.
+    """
+    path = get_workload_dev_mode_path(flt_repo_path)
+    if not path or not path.exists():
+        return {}
+    
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        result = {}
+        if data.get("CapacityGuid"):
+            result["capacity_id"] = data["CapacityGuid"]
+        if data.get("TenantGuid"):
+            result["tenant_id"] = data["TenantGuid"]
+        return result
+    except Exception:
+        return {}
+
+
+def write_workload_dev_mode_config(capacity_id, flt_repo_path=None):
+    """
+    Update CapacityGuid in workload-dev-mode.json.
+    Returns True if successful, False otherwise.
+    """
+    path = get_workload_dev_mode_path(flt_repo_path)
+    if not path or not path.exists():
+        return False
+    
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        data["CapacityGuid"] = capacity_id
+        
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=4)
+        
+        return True
+    except Exception as e:
+        print(f"⚠️ Could not update workload-dev-mode.json: {e}")
+        return False
+
+
+def check_capacity_sync(flt_repo_path=None):
+    """
+    Check if capacity_id is in sync between edog-config.json and workload-dev-mode.json.
+    Returns tuple: (is_synced, edog_value, workload_value, workload_path)
+    """
+    config = load_config()
+    edog_capacity = config.get("capacity_id")
+    
+    workload_config = read_workload_dev_mode_config(flt_repo_path)
+    workload_capacity = workload_config.get("capacity_id")
+    
+    workload_path = get_workload_dev_mode_path(flt_repo_path)
+    
+    if not workload_capacity:
+        return (True, edog_capacity, None, workload_path)  # No workload file, consider synced
+    
+    if not edog_capacity:
+        return (False, None, workload_capacity, workload_path)  # Edog missing, not synced
+    
+    is_synced = edog_capacity.lower() == workload_capacity.lower()
+    return (is_synced, edog_capacity, workload_capacity, workload_path)
+
+
+def sync_capacity_from_workload(flt_repo_path=None, silent=False):
+    """
+    Sync capacity_id from workload-dev-mode.json to edog-config.json.
+    Returns the synced capacity_id or None.
+    """
+    is_synced, edog_val, workload_val, workload_path = check_capacity_sync(flt_repo_path)
+    
+    if is_synced:
+        return edog_val or workload_val
+    
+    if workload_val:
+        config = load_config()
+        old_val = config.get("capacity_id")
+        config["capacity_id"] = workload_val
+        save_config(config)
+        
+        if not silent:
+            print(f"\n🔄 Synced capacity_id from workload-dev-mode.json:")
+            if old_val:
+                print(f"   Old: {old_val}")
+            print(f"   New: {workload_val}")
+        
+        return workload_val
+    
+    return edog_val
+
+
 def validate_guid(value):
     """Validate GUID format. Returns True if valid."""
     guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -134,8 +269,8 @@ def prompt_guid(prompt_text, field_name):
         print(f"      Please try again.\n")
 
 
-def prompt_for_config():
-    """Prompt user to enter config values."""
+def prompt_for_config(flt_repo_path=None):
+    """Prompt user to enter config values. Auto-detects capacity_id from workload-dev-mode.json if available."""
     print("\n📝 First-time setup - please enter your EDOG environment details:")
     print("   (You can find these in Fabric portal URL or workload-dev-mode.json)\n")
     
@@ -145,7 +280,24 @@ def prompt_for_config():
     
     workspace_id = prompt_guid("   Workspace ID: ", "Workspace ID")
     artifact_id = prompt_guid("   Artifact ID (Lakehouse): ", "Artifact ID")
-    capacity_id = prompt_guid("   Capacity ID: ", "Capacity ID")
+    
+    # Try to auto-detect capacity_id from workload-dev-mode.json
+    workload_config = read_workload_dev_mode_config(flt_repo_path)
+    detected_capacity = workload_config.get("capacity_id")
+    
+    if detected_capacity:
+        workload_path = get_workload_dev_mode_path(flt_repo_path)
+        print(f"\n   ✅ Found CapacityGuid in workload-dev-mode.json:")
+        print(f"      Path: {workload_path}")
+        print(f"      Value: {detected_capacity}")
+        use_detected = input(f"   Use this capacity ID? [Y/n]: ").strip().lower()
+        if use_detected != 'n':
+            capacity_id = detected_capacity
+            print(f"   ✅ Using capacity ID from workload-dev-mode.json")
+        else:
+            capacity_id = prompt_guid("   Capacity ID: ", "Capacity ID")
+    else:
+        capacity_id = prompt_guid("   Capacity ID: ", "Capacity ID")
     
     return {
         "username": username,
@@ -156,7 +308,7 @@ def prompt_for_config():
 
 
 def update_config(username=None, workspace_id=None, artifact_id=None, capacity_id=None, flt_repo_path=None):
-    """Update specific config values."""
+    """Update specific config values. Also syncs capacity_id to workload-dev-mode.json."""
     config = load_config()
     
     if username:
@@ -167,6 +319,9 @@ def update_config(username=None, workspace_id=None, artifact_id=None, capacity_i
         config["artifact_id"] = artifact_id
     if capacity_id:
         config["capacity_id"] = capacity_id
+        # Also update workload-dev-mode.json for bidirectional sync
+        if write_workload_dev_mode_config(capacity_id, config.get("flt_repo_path")):
+            print(f"   🔄 Also updated CapacityGuid in workload-dev-mode.json")
     if flt_repo_path:
         # Validate the path
         repo_path = Path(flt_repo_path).resolve()
@@ -189,11 +344,16 @@ def update_config(username=None, workspace_id=None, artifact_id=None, capacity_i
 
 
 def ensure_config():
-    """Ensure config exists, prompt user if not."""
+    """Ensure config exists, prompt user if not. Also syncs capacity_id from workload-dev-mode.json."""
     config = load_config()
     
+    # First, try to sync capacity_id from workload-dev-mode.json if flt_repo_path is set
+    if config.get("flt_repo_path"):
+        sync_capacity_from_workload(config.get("flt_repo_path"), silent=False)
+        config = load_config()  # Reload after potential sync
+    
     if not config.get("workspace_id") or not config.get("artifact_id") or not config.get("capacity_id"):
-        config = prompt_for_config()
+        config = prompt_for_config(config.get("flt_repo_path"))
         if not config:
             return None
         if not save_config(config):
@@ -204,7 +364,7 @@ def ensure_config():
 
 
 def show_config():
-    """Display current config."""
+    """Display current config with sync status."""
     config = load_config()
     print("\n📋 Current EDOG config:")
     if config:
@@ -214,6 +374,18 @@ def show_config():
         print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
         print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect (current directory)')}")
         print(f"\n   Config file: {get_config_path()}")
+        
+        # Check sync status with workload-dev-mode.json
+        is_synced, edog_val, workload_val, workload_path = check_capacity_sync(config.get("flt_repo_path"))
+        if workload_path and workload_path.exists():
+            print(f"\n   📁 workload-dev-mode.json: {workload_path}")
+            if is_synced:
+                print(f"   ✅ Capacity ID is in sync")
+            else:
+                print(f"   ⚠️  Capacity ID OUT OF SYNC:")
+                print(f"      edog-config.json:        {edog_val or 'not set'}")
+                print(f"      workload-dev-mode.json:  {workload_val or 'not set'}")
+                print(f"      Run 'edog' to auto-sync from workload-dev-mode.json")
     else:
         print("   No config found. Run 'edog' to set up.")
 
@@ -1810,8 +1982,138 @@ def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max
     return None
 
 
-def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
-    """Main daemon loop - fetch token, apply changes, monitor and refresh."""
+# ============================================================================
+# FLT Service Management
+# ============================================================================
+FLT_SERVICE_PROCESS = None  # Global reference to the service process
+
+def get_entrypoint_path(repo_root):
+    """Get path to the FLT service EntryPoint project."""
+    return repo_root / "Service" / "Microsoft.LiveTable.Service.EntryPoint"
+
+
+def start_flt_service(repo_root):
+    """
+    Start the FLT service using dotnet run.
+    First builds to ensure code changes are compiled, then runs.
+    Returns the process handle or None on failure.
+    """
+    global FLT_SERVICE_PROCESS
+    
+    entrypoint = get_entrypoint_path(repo_root)
+    if not entrypoint.exists():
+        print(f"❌ EntryPoint not found: {entrypoint}")
+        return None
+    
+    print(f"   Project: {entrypoint}")
+    
+    try:
+        # Step 1: Build first to ensure changes are compiled
+        print(f"   ⏳ Building project (to compile code changes)...")
+        build_result = subprocess.run(
+            ["dotnet", "build", str(entrypoint), "--no-incremental"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root)
+        )
+        
+        if build_result.returncode != 0:
+            print(f"   ❌ Build failed:")
+            for line in build_result.stdout.split('\n')[-20:]:  # Last 20 lines
+                if line.strip():
+                    print(f"      {line}")
+            return None
+        
+        print(f"   ✅ Build successful")
+        
+        # Step 2: Run the service from the EntryPoint directory (required for WorkloadParameters)
+        print(f"   🚀 Launching service...")
+        process = subprocess.Popen(
+            ["dotnet", "run", "--no-build"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=str(entrypoint)  # Run from EntryPoint dir so it finds WorkloadParameters
+        )
+        
+        FLT_SERVICE_PROCESS = process
+        print(f"   ✅ Service started (PID: {process.pid})")
+        return process
+        
+    except FileNotFoundError:
+        print("❌ 'dotnet' not found. Make sure .NET SDK is installed and in PATH.")
+        return None
+    except Exception as e:
+        print(f"❌ Failed to start service: {e}")
+        return None
+
+
+def stop_flt_service(process=None, timeout=10):
+    """
+    Stop the FLT service gracefully.
+    Sends SIGTERM first, then SIGKILL after timeout.
+    Returns True if stopped successfully.
+    """
+    global FLT_SERVICE_PROCESS
+    
+    proc = process or FLT_SERVICE_PROCESS
+    if not proc:
+        return True
+    
+    if proc.poll() is not None:
+        # Already terminated
+        FLT_SERVICE_PROCESS = None
+        return True
+    
+    print(f"\n🛑 Stopping FLT Service (PID: {proc.pid})...")
+    
+    try:
+        # Try graceful termination first
+        proc.terminate()
+        
+        try:
+            proc.wait(timeout=timeout)
+            print(f"   ✅ Service stopped gracefully")
+            FLT_SERVICE_PROCESS = None
+            return True
+        except subprocess.TimeoutExpired:
+            print(f"   ⚠️ Service didn't stop in {timeout}s, forcing kill...")
+            proc.kill()
+            proc.wait(timeout=5)
+            print(f"   ✅ Service killed")
+            FLT_SERVICE_PROCESS = None
+            return True
+            
+    except Exception as e:
+        print(f"   ❌ Error stopping service: {e}")
+        FLT_SERVICE_PROCESS = None
+        return False
+
+
+def stream_service_output(process, stop_event):
+    """
+    Stream service output to console in a background thread.
+    Runs until stop_event is set or process ends.
+    """
+    try:
+        while not stop_event.is_set() and process.poll() is None:
+            line = process.stdout.readline()
+            if line:
+                # Prefix service output to distinguish from edog messages
+                print(f"   [FLT] {line.rstrip()}")
+    except Exception:
+        pass
+
+
+def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True):
+    """Main daemon loop - fetch token, apply changes, optionally launch service, monitor and refresh."""
+    
+    # Check and sync capacity_id from workload-dev-mode.json
+    synced_capacity = sync_capacity_from_workload(str(repo_root), silent=False)
+    if synced_capacity and synced_capacity.lower() != capacity_id.lower():
+        capacity_id = synced_capacity
+        print(f"   Using synced capacity_id: {capacity_id}")
     
     print("=" * 70)
     print("EDOG DevMode Token Manager")
@@ -1820,6 +2122,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
     print(f"Workspace: {workspace_id}")
     print(f"Artifact:  {artifact_id}")
     print(f"Capacity:  {capacity_id}")
+    print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
     print("=" * 70)
     
     # Check for cached token first
@@ -1846,20 +2149,56 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
     if not apply_all_changes(mwc_token, repo_root):
         print("\n⚠️  Some changes could not be applied")
     
+    print("\n✅ Code changes applied successfully")
+    
+    # Start FLT service if requested
+    service_process = None
+    stop_event = None
+    output_thread = None
+    
+    if launch_service:
+        print("\n" + "=" * 70)
+        print("🚀 Starting FLT Service...")
+        print("=" * 70)
+        service_process = start_flt_service(repo_root)
+        if service_process:
+            # Start background thread to stream service output
+            stop_event = threading.Event()
+            output_thread = threading.Thread(
+                target=stream_service_output,
+                args=(service_process, stop_event),
+                daemon=True
+            )
+            output_thread.start()
+        else:
+            print("\n⚠️  Service failed to start, continuing with token management only")
+    
     # Monitor loop
     print("\n" + "=" * 70)
     print("🔄 Monitoring token expiry (Ctrl+C to stop)")
     print(f"   Check interval: {CHECK_INTERVAL_MINS} mins")
     print(f"   Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
+    if service_process:
+        print(f"   FLT Service: Running (PID: {service_process.pid})")
     print("=" * 70)
     
     try:
         while True:
+            # Check if service crashed
+            if service_process and service_process.poll() is not None:
+                exit_code = service_process.returncode
+                print(f"\n⚠️  FLT Service exited (code: {exit_code})")
+                show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
+                service_process = None
+            
             # Calculate time remaining
             remaining = get_token_time_remaining(token_expiry)
             remaining_str = format_timedelta(remaining)
             
-            print(f"\n⏰ [{datetime.now().strftime('%H:%M:%S')}] Token expires in: {remaining_str}")
+            status = f"Token: {remaining_str}"
+            if service_process:
+                status += " | Service: Running"
+            print(f"\n⏰ [{datetime.now().strftime('%H:%M:%S')}] {status}")
             
             # Check if refresh needed
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
@@ -1890,8 +2229,18 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root):
             
     except KeyboardInterrupt:
         print("\n\n👋 Shutting down...")
-        print("🔄 Auto-reverting EDOG changes...")
+        
+        # Step 1: Stop service first (sequential cleanup)
+        if service_process:
+            if stop_event:
+                stop_event.set()  # Signal output thread to stop
+            stop_flt_service(service_process)
+        
+        # Step 2: Revert code changes
+        print("🔄 Reverting EDOG changes...")
         revert_all_changes(repo_root)
+        
+        print("✅ Done. Goodbye!")
         return 0
     
     return 0
@@ -1906,7 +2255,8 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  edog                              Start daemon (fetches token, applies changes, auto-refresh)
+  edog                              Start daemon + auto-launch FLT service
+  edog --no-launch                  Token management only (no service launch)
   edog --revert                     Revert all EDOG changes  
   edog --status                     Check if changes are applied
   edog --config                     Show current config
@@ -1924,6 +2274,7 @@ Examples:
     parser.add_argument("--clear-token", action="store_true", help="Clear cached authentication token")
     parser.add_argument("--install-hook", action="store_true", help="Install git pre-commit hook")
     parser.add_argument("--uninstall-hook", action="store_true", help="Remove git pre-commit hook")
+    parser.add_argument("--no-launch", action="store_true", help="Don't auto-launch FLT service (token management only)")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -1984,4 +2335,4 @@ Examples:
             artifact_id = config["artifact_id"]
             capacity_id = config["capacity_id"]
         
-        sys.exit(run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root))
+        sys.exit(run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=not args.no_launch))

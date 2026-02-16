@@ -112,7 +112,6 @@ edog
                                     EDOG DevMode Pipeline
     ┌─────────────────────────────────────────────────────────────────────────────────────┐
     │                                                                                     │
-    │                                                                                     │
     │      ┌───────────────┐       ┌───────────────┐       ┌───────────────────────┐     │
     │      │               │       │               │       │                       │     │
     │      │    Browser    │ ───── │   EDOG Auth   │ ───── │   Token Acquisition   │     │
@@ -120,19 +119,21 @@ edog
     │      │               │       │               │       │                       │     │
     │      └───────────────┘       └───────────────┘       └───────────┬───────────┘     │
     │                                                                  │                 │
-    │                                                                  │                 │
     │                                                                  ▼                 │
     │      ┌───────────────┐       ┌───────────────┐       ┌───────────────────────┐     │
     │      │               │       │               │       │                       │     │
-    │      │    Active     │ ◄──── │    Apply      │ ◄──── │    Configure FLT      │     │
-    │      │   DevMode     │       │   Changes     │       │      Codebase         │     │
+    │      │  FLT Service  │ ◄──── │    Apply      │ ◄──── │    Configure FLT      │     │
+    │      │  Auto-Launch  │       │   Changes     │       │      Codebase         │     │
     │      │               │       │               │       │                       │     │
     │      └───────┬───────┘       └───────────────┘       └───────────────────────┘     │
     │              │                                                                     │
-    │              │                                                                     │
-    │              └─────────────── Auto-refresh Token Every 45 Minutes ─────────────┘   │
+    │              │    ┌─────────────────────────────────────────────────────────┐      │
+    │              └───►│  Monitor: Token refresh + Service health + Ctrl+C      │──────┘
+    │                   └─────────────────────────────────────────────────────────┘      │
     │                                                                                     │
     └─────────────────────────────────────────────────────────────────────────────────────┘
+
+    On Ctrl+C:  Stop Service (graceful) → Revert Code Changes → Exit
 ```
 
 <br/>
@@ -154,7 +155,11 @@ edog
 </tr>
 <tr>
 <td><code>edog</code></td>
-<td>Start DevMode daemon with automatic token refresh</td>
+<td>Start DevMode: fetch token, apply changes, <b>launch FLT service</b>, auto-refresh tokens</td>
+</tr>
+<tr>
+<td><code>edog --no-launch</code></td>
+<td>Token management only (doesn't start FLT service)</td>
 </tr>
 <tr>
 <td><code>edog --revert</code></td>
@@ -235,6 +240,21 @@ Configuration is stored in `edog-config.json`:
   "flt_repo_path": "C:\\repos\\workload-fabriclivetable"
 }
 ```
+
+<br/>
+
+### Capacity ID Sync
+
+EDOG automatically syncs `capacity_id` with the `CapacityGuid` in `workload-dev-mode.json` (used by the FLT service's dev mode):
+
+| Scenario | Behavior |
+|----------|----------|
+| **First-time setup** | Auto-detects from `workload-dev-mode.json` and prompts for confirmation |
+| **On startup** | Checks for drift and auto-syncs from `workload-dev-mode.json` |
+| **Manual update** | `edog --config -c <guid>` updates both files |
+| **View sync status** | `edog --config` shows sync status with workload-dev-mode.json |
+
+The path to `workload-dev-mode.json` is read from `launchSettings.json` in the FLT repository.
 
 <br/>
 
