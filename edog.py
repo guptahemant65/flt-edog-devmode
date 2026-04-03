@@ -25,6 +25,7 @@ import urllib.error
 import uuid
 import time
 import argparse
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -76,6 +77,16 @@ FILES = {
     "GTSOperationManager": SERVICE_PATH / "Managers/GTSOperationManager.cs",
     "GTSBasedSparkClient": SERVICE_PATH / "SparkHttp/GTSBasedSparkClient.cs",
     "TelemetryReporter": SERVICE_PATH / "Telemetry/CustomLiveTableTelemetryReporter.cs",
+    "WorkloadApp": SERVICE_PATH / "WorkloadApp.cs",
+    "Program": SERVICE_PATH / "Program.cs",
+}
+
+# DevMode log viewer files (created, not patched)
+DEVMODE_FILES = {
+    "EdogLogServer": SERVICE_PATH / "DevMode/EdogLogServer.cs",
+    "EdogLogInterceptor": SERVICE_PATH / "DevMode/EdogLogInterceptor.cs", 
+    "EdogTelemetryInterceptor": SERVICE_PATH / "DevMode/EdogTelemetryInterceptor.cs",
+    "EdogLogsHtml": SERVICE_PATH / "DevMode/edog-logs.html",
 }
 
 
@@ -1613,6 +1624,132 @@ def check_tracer_console_output(repo_root):
     return tracer_path.exists() and usings_path.exists()
 
 
+def apply_log_viewer_files(repo_root):
+    """Deploy EDOG web log viewer files to FLT repo."""
+    src_dir = Path(__file__).parent / "src"
+    created_files = []
+    
+    for name, rel_path in DEVMODE_FILES.items():
+        target = repo_root / rel_path
+        src_file = src_dir / target.name
+        
+        if not src_file.exists():
+            print(f"   ⚠️  Source file not found: {src_file}")
+            continue
+        
+        target.parent.mkdir(parents=True, exist_ok=True)
+        
+        if not target.exists():
+            shutil.copy2(src_file, target)
+            created_files.append(target.name)
+        else:
+            # Update if content differs
+            if src_file.read_text(encoding='utf-8') != target.read_text(encoding='utf-8'):
+                shutil.copy2(src_file, target)
+                created_files.append(f"{target.name} (updated)")
+    
+    if created_files:
+        return "applied", created_files
+    return "already_applied", []
+
+
+def revert_log_viewer_files(repo_root):
+    """Remove EDOG web log viewer files from FLT repo."""
+    removed = False
+    for name, rel_path in DEVMODE_FILES.items():
+        target = repo_root / rel_path
+        if target.exists():
+            target.unlink()
+            removed = True
+    
+    # Remove DevMode directory if empty
+    devmode_dir = repo_root / SERVICE_PATH / "DevMode"
+    if devmode_dir.exists() and not any(devmode_dir.iterdir()):
+        devmode_dir.rmdir()
+    
+    return removed
+
+
+def apply_log_viewer_registration_program_cs(content):
+    """Apply log viewer registration to Program.cs."""
+    # Check if already applied
+    if "EDOG DevMode - Start log viewer server" in content:
+        return content, "already_applied"
+    
+    # Find the WorkloadApp instantiation line
+    patterns = [
+        r"(\s*)(await new WorkloadApp\(\)\.RunAsync\(.*?\);)",
+        r"(\s*)(new WorkloadApp\(\)\.RunAsync\(.*?\)\.GetAwaiter\(\)\.GetResult\(\);)"
+    ]
+    
+    registration_code = """    // EDOG DevMode - Start log viewer server and intercept Tracer
+    var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5555);
+    edogServer.Start();
+    Microsoft.ServicePlatform.Telemetry.Tracer.SetStructuredTestLogger(
+        new Microsoft.LiveTable.Service.DevMode.EdogLogInterceptor(edogServer));
+    // Store server for telemetry interceptor registration later
+    Microsoft.PowerBI.ServicePlatform.WireUp.WireUp.RegisterInstance(edogServer);
+
+"""
+    
+    for pattern in patterns:
+        match = re.search(pattern, content, re.DOTALL)
+        if match:
+            indent = match.group(1)
+            workload_line = match.group(2)
+            new_content = content[:match.start()] + registration_code + indent + workload_line + content[match.end():]
+            return new_content, "applied"
+    
+    return content, "pattern_not_found"
+
+
+def apply_log_viewer_registration_workloadapp_cs(content):
+    """Apply log viewer telemetry interceptor registration to WorkloadApp.cs."""
+    # Check if already applied
+    if "EdogTelemetryInterceptor" in content:
+        return content, "already_applied"
+    
+    # Find the TelemetryReporter registration line
+    pattern = r"(\s*)(WireUp\.RegisterSingletonType<ICustomLiveTableTelemetryReporter, CustomLiveTableTelemetryReporter>\(\);)"
+    
+    replacement = r"""\1WireUp.RegisterSingletonType<ICustomLiveTableTelemetryReporter>(() => 
+\1    new Microsoft.LiveTable.Service.DevMode.EdogTelemetryInterceptor(
+\1        new CustomLiveTableTelemetryReporter(), 
+\1        WireUp.Resolve<Microsoft.LiveTable.Service.DevMode.EdogLogServer>()));"""
+    
+    match = re.search(pattern, content)
+    if match:
+        new_content = re.sub(pattern, replacement, content)
+        return new_content, "applied"
+    
+    return content, "pattern_not_found"
+
+
+def revert_log_viewer_registration_program_cs(content):
+    """Revert log viewer registration from Program.cs."""
+    # Remove the EDOG DevMode block
+    pattern = r"\s*// EDOG DevMode - Start log viewer server.*?WireUp\.RegisterInstance\(edogServer\);\s*\n"
+    new_content = re.sub(pattern, "", content, flags=re.DOTALL)
+    return new_content
+
+
+def revert_log_viewer_registration_workloadapp_cs(content):
+    """Revert log viewer telemetry interceptor registration from WorkloadApp.cs."""
+    # Replace back with original registration
+    pattern = r"WireUp\.RegisterSingletonType<ICustomLiveTableTelemetryReporter>\(\(\) =>\s*\n\s*new Microsoft\.LiveTable\.Service\.DevMode\.EdogTelemetryInterceptor\([\s\S]*?\)\);"
+    replacement = "WireUp.RegisterSingletonType<ICustomLiveTableTelemetryReporter, CustomLiveTableTelemetryReporter>();"
+    
+    new_content = re.sub(pattern, replacement, content)
+    return new_content
+
+
+def check_tracer_console_output(repo_root):
+    """Check if tracer console output files exist."""
+    tracer_path = get_tracer_file_path(repo_root)
+    usings_path = get_global_usings_path(repo_root)
+    return tracer_path.exists() and usings_path.exists()
+
+
 def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
     """Fetch MWC token using Bearer token."""
     
@@ -1839,30 +1976,50 @@ def apply_all_changes(token, repo_root):
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
     
-    # 5. TelemetryReporter - Console output (included in patch)
-    rel_path = FILES["TelemetryReporter"]
+    # 5. Deploy web log viewer files (creates new files in DevMode/)
+    status, files = apply_log_viewer_files(repo_root)
+    if status == "applied":
+        changes_made.append(f"✅ Web log viewer ({', '.join(files)})")
+    elif status == "already_applied":
+        changes_made.append(f"⏭️  Web log viewer (already)")
+    
+    # 6. Register log viewer interceptors (modify Program.cs and WorkloadApp.cs)
+    # Program.cs registration
+    rel_path = FILES["Program"]
     filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
         original_contents[rel_path] = content
-        new_content, status = apply_telemetry_console_output(content)
+        new_content, status = apply_log_viewer_registration_program_cs(content)
         if status == "applied":
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ Telemetry console output (SSR events)")
+            changes_made.append(f"✅ Log viewer server registration (Program.cs)")
         elif status == "already_applied":
             modified_contents[rel_path] = content
-            changes_made.append(f"⏭️  Telemetry console output (already)")
+            changes_made.append(f"⏭️  Log viewer server registration (already)")
         elif status == "pattern_not_found":
             modified_contents[rel_path] = content
-            warnings.append(f"⚠️  Telemetry console output: pattern not found")
+            warnings.append(f"⚠️  Log viewer server registration: pattern not found")
     
-    # 6. Tracer wrapper - Console output for logs (creates new files)
-    status, files = apply_tracer_console_output(repo_root)
-    if status == "applied":
-        changes_made.append(f"✅ Tracer console output (application logs)")
-    elif status == "already_applied":
-        changes_made.append(f"⏭️  Tracer console output (already)")
+    # WorkloadApp.cs registration
+    rel_path = FILES["WorkloadApp"]
+    filepath = repo_root / rel_path
+    content = read_file(filepath)
+    if content:
+        if rel_path not in original_contents:
+            original_contents[rel_path] = content
+        new_content, status = apply_log_viewer_registration_workloadapp_cs(content)
+        if status == "applied":
+            write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
+            changes_made.append(f"✅ Log viewer telemetry interceptor (WorkloadApp.cs)")
+        elif status == "already_applied":
+            modified_contents[rel_path] = content
+            changes_made.append(f"⏭️  Log viewer telemetry interceptor (already)")
+        elif status == "pattern_not_found":
+            modified_contents[rel_path] = content
+            warnings.append(f"⚠️  Log viewer telemetry interceptor: pattern not found")
     
     # Generate patch file for clean revert
     if generate_patch(original_contents, modified_contents, repo_root):
@@ -1886,9 +2043,9 @@ def revert_all_changes(repo_root):
     """Revert all EDOG changes using the saved patch file."""
     print("\n🔄 Reverting EDOG changes...")
     
-    # First revert tracer console output files (not in patch)
-    if revert_tracer_console_output(repo_root):
-        print(f"   ✅ Removed Tracer console output files")
+    # First revert log viewer files (not in patch)
+    if revert_log_viewer_files(repo_root):
+        print(f"   ✅ Removed log viewer files")
     
     # Then apply patch reverse for modified files
     success, message = apply_patch_reverse(repo_root)
@@ -1962,16 +2119,23 @@ def check_status(repo_root):
         applied = "// EDOG DevMode - bypassing OBO token exchange" in content
         status.append(("GTSBasedSparkClient token bypass", applied))
     
-    # Check TelemetryReporter (console output)
-    filepath = repo_root / FILES["TelemetryReporter"]
+    # Check log viewer files
+    log_viewer_files_exist = all((repo_root / rel_path).exists() for rel_path in DEVMODE_FILES.values())
+    status.append(("Web log viewer files", log_viewer_files_exist))
+    
+    # Check Program.cs registration
+    filepath = repo_root / FILES["Program"]
     content = read_file(filepath)
     if content:
-        applied = "// EDOG DevMode - Console telemetry output" in content
-        status.append(("Telemetry console output (SSR)", applied))
+        applied = "EDOG DevMode - Start log viewer server" in content
+        status.append(("Log viewer server registration (Program.cs)", applied))
     
-    # Check Tracer console output (DevMode tracer files)
-    tracer_applied = check_tracer_console_output(repo_root)
-    status.append(("Tracer console output (logs)", tracer_applied))
+    # Check WorkloadApp.cs registration
+    filepath = repo_root / FILES["WorkloadApp"]
+    content = read_file(filepath)
+    if content:
+        applied = "EdogTelemetryInterceptor" in content
+        status.append(("Log viewer telemetry interceptor (WorkloadApp.cs)", applied))
     
     all_applied = all(s[1] for s in status) if status else False
     any_applied = any(s[1] for s in status) if status else False
@@ -2126,6 +2290,7 @@ Examples:
   edog                              Start daemon (fetches token, applies changes, auto-refresh)
   edog --revert                     Revert all EDOG changes  
   edog --status                     Check if changes are applied
+  edog --logs                       Open web log viewer in browser
   edog --config                     Show current config
   edog --config -u <email>          Update username/email
   edog --config -w <id> -a <id>     Update workspace and artifact IDs
@@ -2141,6 +2306,7 @@ Examples:
     parser.add_argument("--clear-token", action="store_true", help="Clear cached authentication token")
     parser.add_argument("--install-hook", action="store_true", help="Install git pre-commit hook")
     parser.add_argument("--uninstall-hook", action="store_true", help="Remove git pre-commit hook")
+    parser.add_argument("--logs", action="store_true", help="Open log viewer in browser")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -2161,6 +2327,14 @@ Examples:
     if args.clear_token:
         clear_token_cache()
         print("✅ Token cache cleared")
+        sys.exit(0)
+    
+    # Logs command doesn't need repo_root
+    if args.logs:
+        import webbrowser
+        webbrowser.open("http://localhost:5555")
+        print("🐕 Opening EDOG Log Viewer at http://localhost:5555")
+        print("   Make sure FLT service is running with EDOG changes applied.")
         sys.exit(0)
     
     # All other commands need repo_root

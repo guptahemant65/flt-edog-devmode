@@ -1,0 +1,2068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐕 EDOG Log Viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* Reset and Variables */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0a0e1a;
+      --surface: #111827;
+      --surface-2: #1e293b;
+      --surface-3: #334155;
+      --border: rgba(255,255,255,0.06);
+      --border-bright: rgba(255,255,255,0.12);
+      --text: #e2e8f0;
+      --text-dim: #64748b;
+      --text-muted: #475569;
+      --accent: #8b5cf6;
+      --accent-dim: rgba(139,92,246,0.12);
+      --font-body: 'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+      --level-verbose: #64748b;
+      --level-message: #38bdf8;
+      --level-warning: #fbbf24;
+      --level-error: #f87171;
+      --status-succeeded: #34d399;
+      --status-failed: #f87171;
+      --status-cancelled: #fbbf24;
+      --status-pending: #64748b;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --surface-3: #e2e8f0;
+      --border: rgba(0,0,0,0.08);
+      --border-bright: rgba(0,0,0,0.15);
+      --text: #1e293b;
+      --text-dim: #64748b;
+      --text-muted: #94a3b8;
+      --accent: #7c3aed;
+      --accent-dim: rgba(124,58,237,0.08);
+    }
+
+    /* Body and Layout */
+    html {
+      height: 100%;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      min-height: 60px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      font-size: 24px;
+      background: linear-gradient(135deg, var(--accent), #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-badge.connected {
+      background: rgba(52, 211, 153, 0.15);
+      color: var(--status-succeeded);
+    }
+
+    .status-badge.disconnected {
+      background: rgba(248, 113, 113, 0.15);
+      color: var(--status-failed);
+    }
+
+    .status-badge.connecting {
+      background: rgba(251, 191, 36, 0.15);
+      color: var(--status-cancelled);
+    }
+
+    .status-badge.reconnecting {
+      background: rgba(251, 191, 36, 0.15);
+      color: var(--status-cancelled);
+    }
+
+    .header-stats {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-dim);
+    }
+
+    .stat b {
+      color: var(--text);
+    }
+
+    .stat.verbose b { color: var(--level-verbose); }
+    .stat.message b { color: var(--level-message); }
+    .stat.warning b { color: var(--level-warning); }
+    .stat.error b { color: var(--level-error); }
+    .stat.succeeded b { color: var(--status-succeeded); }
+    .stat.failed b { color: var(--status-failed); }
+
+    .stat-divider {
+      color: var(--border-bright);
+      margin: 0 4px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: var(--surface-2);
+      color: var(--text-dim);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .icon-btn:hover {
+      background: var(--surface-3);
+      color: var(--text);
+    }
+
+    /* Toolbar */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 60px;
+      z-index: 99;
+    }
+
+    .search-wrapper {
+      position: relative;
+      flex: 1;
+      max-width: 400px;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+      font-size: 14px;
+    }
+
+    #search-input {
+      width: 100%;
+      padding: 8px 12px 8px 36px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: var(--font-body);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    #search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    #search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-count {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+    }
+
+    .level-filters {
+      display: flex;
+      gap: 4px;
+    }
+
+    .level-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      border-radius: 16px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: var(--font-mono);
+      transition: all 0.2s ease;
+    }
+
+    .level-btn:hover {
+      border-color: var(--border-bright);
+      background: var(--surface-2);
+    }
+
+    .level-btn.active[data-level="Verbose"] {
+      border-color: var(--level-verbose);
+      background: rgba(100, 116, 139, 0.15);
+      color: var(--level-verbose);
+    }
+
+    .level-btn.active[data-level="Message"] {
+      border-color: var(--level-message);
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--level-message);
+    }
+
+    .level-btn.active[data-level="Warning"] {
+      border-color: var(--level-warning);
+      background: rgba(251, 191, 36, 0.15);
+      color: var(--level-warning);
+    }
+
+    .level-btn.active[data-level="Error"] {
+      border-color: var(--level-error);
+      background: rgba(248, 113, 113, 0.15);
+      color: var(--level-error);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .action-btn:hover {
+      background: var(--surface-3);
+      color: var(--text);
+      border-color: var(--border-bright);
+    }
+
+    /* Main Content */
+    #main-content {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 65% 1px 35%;
+      height: calc(100vh - 136px);
+      overflow: hidden;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .panel-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .panel-divider {
+      background: var(--border);
+      width: 1px;
+    }
+
+    .correlation-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    #clear-correlation {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+      margin-left: 4px;
+    }
+
+    /* Log Container */
+    .log-scroll {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .empty-text {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    .empty-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    .empty-dots span {
+      width: 6px;
+      height: 6px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .empty-dots span:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .empty-dots span:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    .log-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 16px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.1s ease;
+    }
+
+    .log-row:nth-child(even) {
+      background: rgba(255, 255, 255, 0.01);
+    }
+
+    .log-row:hover {
+      background: var(--surface-2);
+    }
+
+    .log-time {
+      color: var(--text-dim);
+      white-space: nowrap;
+      font-size: 11px;
+      min-width: 80px;
+    }
+
+    .log-level {
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 500;
+      min-width: 24px;
+      text-align: center;
+    }
+
+    .log-level.verbose {
+      background: rgba(100, 116, 139, 0.2);
+      color: var(--level-verbose);
+    }
+
+    .log-level.message {
+      background: rgba(56, 189, 248, 0.2);
+      color: var(--level-message);
+    }
+
+    .log-level.warning {
+      background: rgba(251, 191, 36, 0.2);
+      color: var(--level-warning);
+    }
+
+    .log-level.error {
+      background: rgba(248, 113, 113, 0.2);
+      color: var(--level-error);
+    }
+
+    .log-component {
+      padding: 2px 6px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .log-message {
+      flex: 1;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    /* Telemetry Container */
+    .telemetry-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .telemetry-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      transition: all 0.2s ease;
+    }
+
+    .telemetry-card:hover {
+      border-color: var(--border-bright);
+    }
+
+    .telemetry-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .telem-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .telem-activity {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .telem-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .telem-duration {
+      font-weight: 500;
+    }
+
+    .telem-time {
+      font-family: var(--font-mono);
+    }
+
+    .telem-result {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--level-error);
+    }
+
+    .telemetry-operation {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .telemetry-status {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .telemetry-status.succeeded {
+      color: var(--status-succeeded);
+    }
+
+    .telemetry-status.failed {
+      color: var(--status-failed);
+    }
+
+    .telemetry-status.cancelled {
+      color: var(--status-cancelled);
+    }
+
+    .telemetry-status.pending {
+      color: var(--status-pending);
+    }
+
+    .telemetry-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .telemetry-detail {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-dim);
+    }
+
+    .telemetry-detail .value {
+      font-family: var(--font-mono);
+      color: var(--text);
+    }
+
+    /* Scroll FAB */
+    .scroll-fab {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 20px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+      transition: all 0.2s ease;
+      z-index: 10;
+    }
+
+    .scroll-fab:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+    }
+
+    /* Detail Panel */
+    .detail-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      max-height: 40vh;
+      z-index: 200;
+      animation: slideUp 0.3s ease-out;
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .detail-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .detail-body {
+      padding: 16px;
+      overflow-y: auto;
+      max-height: calc(40vh - 48px);
+    }
+
+    .detail-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 16px;
+      margin-bottom: 12px;
+      align-items: flex-start;
+    }
+
+    .detail-row.full-width {
+      grid-template-columns: 120px 1fr;
+    }
+
+    .detail-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-dim);
+      text-align: right;
+    }
+
+    .detail-value {
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .detail-value.mono {
+      font-family: var(--font-mono);
+    }
+
+    .detail-value.clickable {
+      cursor: pointer;
+      text-decoration: underline;
+      color: var(--accent);
+    }
+
+    .detail-value.json {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    /* Search Highlighting */
+    mark {
+      background: var(--accent-dim);
+      color: var(--accent);
+      padding: 1px 2px;
+      border-radius: 2px;
+    }
+
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--surface);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--surface-3);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    /* Animations */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .fade-in {
+      opacity: 0;
+      animation: fadeIn 0.2s ease-out forwards;
+    }
+
+    .fade-in-complete {
+      opacity: 1;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    @keyframes errorPulse {
+      0% { background: rgba(248, 113, 113, 0.1); }
+      50% { background: rgba(248, 113, 113, 0.3); }
+      100% { background: rgba(248, 113, 113, 0.1); }
+    }
+
+    .log-row.error.new {
+      animation: errorPulse 2s ease-in-out;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 1024px) {
+      #main-content {
+        grid-template-columns: 100%;
+        grid-template-rows: 1fr;
+      }
+
+      #telemetry-panel {
+        display: none;
+      }
+
+      .panel-divider {
+        display: none;
+      }
+    }
+
+    @media (max-width: 768px) {
+      #header {
+        padding: 8px 12px;
+      }
+
+      .header-stats {
+        display: none;
+      }
+
+      #toolbar {
+        padding: 8px 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .search-wrapper {
+        max-width: none;
+        order: 3;
+        width: 100%;
+      }
+
+      .log-row {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .detail-row {
+        grid-template-columns: 100px 1fr;
+        gap: 8px;
+      }
+    }
+
+    /* Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .empty-dots span {
+        animation: none;
+      }
+    }
+
+    /* JSON Syntax Highlighting */
+    .json-key {
+      color: var(--accent);
+    }
+
+    .json-string {
+      color: var(--status-succeeded);
+    }
+
+    .json-number {
+      color: var(--level-message);
+    }
+
+    .json-boolean {
+      color: var(--level-warning);
+    }
+
+    .json-null {
+      color: var(--text-dim);
+    }
+
+    /* Detail Panel Specific Styles */
+    .detail-section {
+      margin-bottom: 20px;
+    }
+
+    .detail-section h4 {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .detail-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .detail-field label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
+    }
+
+    .detail-field span, .detail-message {
+      font-size: 13px;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .json-container {
+      background: var(--surface-3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      margin: 8px 0;
+      font-size: 12px;
+      line-height: 1.4;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .clickable-id {
+      cursor: pointer;
+      color: var(--accent) !important;
+      text-decoration: underline;
+    }
+
+    .clickable-id:hover {
+      color: var(--text) !important;
+    }
+
+    /* Focus Management */
+    .focus-trap {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* High Contrast Mode */
+    @media (prefers-contrast: high) {
+      :root {
+        --border: rgba(255,255,255,0.3);
+        --border-bright: rgba(255,255,255,0.6);
+        --text-dim: #94a3b8;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header id="header">
+    <div class="header-left">
+      <span class="logo">🐕</span>
+      <h1>EDOG Log Viewer</h1>
+      <span id="connection-status" class="status-badge disconnected">● Disconnected</span>
+    </div>
+    <div class="header-stats" id="stats-bar">
+      <span class="stat">Logs: <b id="stat-total-logs">0</b></span>
+      <span class="stat verbose">V: <b id="stat-verbose">0</b></span>
+      <span class="stat message">M: <b id="stat-message">0</b></span>
+      <span class="stat warning">W: <b id="stat-warning">0</b></span>
+      <span class="stat error">E: <b id="stat-error">0</b></span>
+      <span class="stat-divider">│</span>
+      <span class="stat">Events: <b id="stat-total-events">0</b></span>
+      <span class="stat succeeded">✓: <b id="stat-succeeded">0</b></span>
+      <span class="stat failed">✗: <b id="stat-failed">0</b></span>
+    </div>
+    <div class="header-right">
+      <button id="theme-btn" class="icon-btn" title="Toggle theme">🌙</button>
+    </div>
+  </header>
+
+  <div id="toolbar">
+    <div class="search-wrapper">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" placeholder="Search logs... (Ctrl+K)" />
+      <span id="search-count" class="search-count"></span>
+    </div>
+    <div class="level-filters">
+      <button class="level-btn active" data-level="Verbose">V</button>
+      <button class="level-btn active" data-level="Message">M</button>
+      <button class="level-btn active" data-level="Warning">W</button>
+      <button class="level-btn active" data-level="Error">E</button>
+    </div>
+    <div class="toolbar-actions">
+      <button id="clear-btn" class="action-btn" title="Clear (Ctrl+L)">🗑 Clear</button>
+      <button id="export-btn" class="action-btn" title="Export JSON">📥 Export</button>
+      <button id="pause-btn" class="action-btn" title="Pause (Space)">⏸ Pause</button>
+    </div>
+  </div>
+
+  <div id="main-content">
+    <div id="logs-panel" class="panel">
+      <div class="panel-header">
+        <h2>📋 Application Logs</h2>
+        <span id="correlation-badge" class="correlation-badge" style="display:none">
+          Filtered: <span id="correlation-id"></span> <button id="correlation-close">✕</button>
+        </span>
+      </div>
+      <div id="logs-container" class="log-scroll">
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">📡</div>
+          <div class="empty-text">Waiting for logs...</div>
+          <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
+        </div>
+        <!-- Log rows will be inserted here -->
+      </div>
+      <button id="resume-scroll-btn" class="scroll-fab" style="display:none">↓ Resume auto-scroll</button>
+    </div>
+
+    <div class="panel-divider"></div>
+
+    <div id="telemetry-panel" class="panel">
+      <div class="panel-header">
+        <h2>📡 SSR Telemetry</h2>
+      </div>
+      <div id="telemetry-container" class="telemetry-scroll">
+        <!-- Telemetry cards will be inserted here -->
+      </div>
+    </div>
+  </div>
+
+  <div id="detail-panel" class="detail-panel" style="display:none">
+    <div class="detail-header">
+      <h3 id="detail-title">Log Detail</h3>
+      <button id="detail-close" class="icon-btn">✕</button>
+    </div>
+    <div class="detail-content">
+      <div class="detail-row">
+        <span class="detail-label">Timestamp</span>
+        <span id="detail-timestamp" class="detail-value mono"></span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Level</span>
+        <span id="detail-level" class="detail-value"></span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Component</span>
+        <span id="detail-component" class="detail-value"></span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Activity ID</span>
+        <span id="detail-activity-id" class="detail-value mono clickable"></span>
+      </div>
+      <div class="detail-row full-width">
+        <span class="detail-label">Message</span>
+        <pre id="detail-message" class="detail-value mono"></pre>
+      </div>
+      <div class="detail-row full-width">
+        <span class="detail-label">Custom Data</span>
+        <pre id="detail-custom-data" class="detail-value mono json"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+/**
+ * EDOG Real-Time Log Viewer - Core JavaScript
+ * Complete implementation for log/telemetry viewing with WebSocket updates
+ */
+
+// ===== STATE MANAGEMENT =====
+
+class LogViewerState {
+  constructor() {
+    this.logs = [];           // All received log entries (max 5000)
+    this.telemetry = [];      // All received telemetry events (max 2000)
+    this.filteredLogs = [];   // After search/level/correlation filter
+    this.activeLevels = new Set(['Verbose', 'Message', 'Warning', 'Error']);
+    this.searchText = '';
+    this.correlationFilter = null;  // rootActivityId to filter by
+    this.autoScroll = true;
+    this.paused = false;
+    this.stats = { 
+      totalLogs: 0, verbose: 0, message: 0, warning: 0, error: 0, 
+      totalEvents: 0, succeeded: 0, failed: 0 
+    };
+    this.pendingLogs = [];    // Buffer for batched rendering
+    this.pendingTelemetry = [];
+  }
+  
+  addLog = (entry) => {
+    this.logs.push(entry);
+    this.pendingLogs.push(entry);
+    
+    // Cap logs array at 5000
+    if (this.logs.length > 5000) {
+      this.logs.shift();
+    }
+    
+    // Update stats
+    this.stats.totalLogs++;
+    const level = entry.level?.toLowerCase();
+    if (level && this.stats[level] !== undefined) {
+      this.stats[level]++;
+    }
+  }
+  
+  addTelemetry = (event) => {
+    this.telemetry.push(event);
+    this.pendingTelemetry.push(event);
+    
+    // Cap telemetry array at 2000
+    if (this.telemetry.length > 2000) {
+      this.telemetry.shift();
+    }
+    
+    // Update stats
+    this.stats.totalEvents++;
+    const status = event.activityStatus?.toLowerCase();
+    if (status === 'succeeded') this.stats.succeeded++;
+    else if (status === 'failed') this.stats.failed++;
+  }
+}
+
+// ===== WEBSOCKET MANAGER =====
+
+class WebSocketManager {
+  constructor() {
+    this.ws = null;
+    this.reconnectDelay = 1000; // Start with 1 second
+    this.maxReconnectDelay = 30000; // Max 30 seconds
+    this.reconnectAttempts = 0;
+    this.status = 'disconnected';
+    this.onStatusChange = null;
+    this.onMessage = null;
+    this.url = 'ws://localhost:5555/ws/logs';
+  }
+  
+  connect = () => {
+    try {
+      this.ws = new WebSocket(this.url);
+      this.setStatus('connecting');
+      
+      this.ws.onopen = () => {
+        console.log('WebSocket connected');
+        this.setStatus('connected');
+        this.reconnectDelay = 1000; // Reset delay on successful connection
+        this.reconnectAttempts = 0;
+      };
+      
+      this.ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (this.onMessage) {
+            this.onMessage(message.type, message.data);
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+      
+      this.ws.onclose = () => {
+        console.log('WebSocket closed');
+        this.setStatus('disconnected');
+        this.scheduleReconnect();
+      };
+      
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        this.setStatus('disconnected');
+      };
+      
+    } catch (error) {
+      console.error('Failed to create WebSocket:', error);
+      this.setStatus('disconnected');
+      this.scheduleReconnect();
+    }
+  }
+  
+  scheduleReconnect = () => {
+    this.reconnectAttempts++;
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
+    
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    this.setStatus('reconnecting');
+    
+    setTimeout(() => {
+      this.connect();
+    }, delay);
+  }
+  
+  setStatus = (status) => {
+    this.status = status;
+    if (this.onStatusChange) {
+      this.onStatusChange(status);
+    }
+  }
+  
+  disconnect = () => {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+}
+
+// ===== RENDERER =====
+
+class Renderer {
+  constructor(state) {
+    this.state = state;
+    this.renderScheduled = false;
+    this.maxDomRows = 500; // Max log rows in DOM
+  }
+  
+  scheduleRender = () => {
+    if (!this.renderScheduled) {
+      this.renderScheduled = true;
+      requestAnimationFrame(() => this.flush());
+    }
+  }
+  
+  flush = () => {
+    this.renderScheduled = false;
+    
+    // Process pending logs
+    if (this.state.pendingLogs.length > 0) {
+      this.renderPendingLogs();
+      this.state.pendingLogs = [];
+    }
+    
+    // Process pending telemetry
+    if (this.state.pendingTelemetry.length > 0) {
+      this.renderPendingTelemetry();
+      this.state.pendingTelemetry = [];
+    }
+    
+    // Update stats
+    this.updateStats();
+  }
+  
+  renderPendingLogs = () => {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+    
+    const wasAtBottom = this.isScrolledToBottom(container);
+    
+    // Add new log rows
+    this.state.pendingLogs.forEach(entry => {
+      if (!this.state.paused && this.passesFilter(entry)) {
+        const row = this.createLogRow(entry);
+        container.appendChild(row);
+        
+        // Trigger animation
+        requestAnimationFrame(() => row.classList.add('fade-in-complete'));
+      }
+    });
+    
+    // Cap DOM rows
+    this.capDomRows(container);
+    
+    // Auto-scroll if was at bottom and auto-scroll enabled
+    if (this.state.autoScroll && wasAtBottom) {
+      this.scrollToBottom(container);
+    }
+  }
+  
+  renderPendingTelemetry = () => {
+    const container = document.getElementById('telemetry-container');
+    if (!container) return;
+    
+    this.state.pendingTelemetry.forEach(event => {
+      if (!this.state.paused) {
+        const card = this.createTelemetryCard(event);
+        container.insertBefore(card, container.firstChild); // Add to top
+        
+        // Trigger animation
+        requestAnimationFrame(() => card.classList.add('fade-in-complete'));
+      }
+    });
+    
+    // Cap telemetry cards (keep latest 100)
+    while (container.children.length > 100) {
+      container.removeChild(container.lastChild);
+    }
+  }
+  
+  createLogRow = (entry) => {
+    const row = document.createElement('div');
+    row.className = 'log-row fade-in';
+    row.dataset.rootActivityId = entry.rootActivityId || '';
+    
+    const level = entry.level || 'Message';
+    const levelLetter = this.getLevelLetter(level);
+    const time = this.formatTime(entry.timestamp);
+    const component = entry.component || 'Unknown';
+    const message = this.truncateMessage(entry.message || '', 200);
+    
+    row.innerHTML = `
+      <span class="log-time">${time}</span>
+      <span class="level-badge ${level.toLowerCase()}">${levelLetter}</span>
+      <span class="log-component">${this.escapeHtml(component)}</span>
+      <span class="log-message">${this.escapeHtml(message)}</span>
+    `;
+    
+    // Click handler for detail panel
+    row.addEventListener('click', () => {
+      if (window.edogViewer && window.edogViewer.detail) {
+        window.edogViewer.detail.show(entry, 'log');
+      }
+    });
+    
+    return row;
+  }
+  
+  createTelemetryCard = (event) => {
+    const card = document.createElement('div');
+    card.className = 'telemetry-card fade-in';
+    
+    const status = event.activityStatus || 'Unknown';
+    const icon = this.getStatusIcon(status);
+    const duration = this.formatDuration(event.durationMs);
+    const time = this.formatTime(event.timestamp);
+    const resultCode = event.resultCode || 'OK';
+    
+    let resultHtml = '';
+    if (resultCode !== 'OK') {
+      resultHtml = `<div class="telem-result">${this.escapeHtml(resultCode)}</div>`;
+    }
+    
+    card.innerHTML = `
+      <div class="telem-header">
+        <span class="telem-activity">${this.escapeHtml(event.activityName || 'Unknown')}</span>
+        <span class="status-badge ${status.toLowerCase()}">${icon} ${status}</span>
+      </div>
+      <div class="telem-meta">
+        <span class="telem-duration">${duration}</span>
+        <span class="telem-time">${time}</span>
+      </div>
+      ${resultHtml}
+    `;
+    
+    // Click handler for detail panel
+    card.addEventListener('click', () => {
+      if (window.edogViewer && window.edogViewer.detail) {
+        window.edogViewer.detail.show(event, 'telemetry');
+      }
+    });
+    
+    return card;
+  }
+  
+  formatDuration = (ms) => {
+    if (ms < 1000) {
+      return `${Math.round(ms)}ms`;
+    } else if (ms < 60000) {
+      return `${(ms / 1000).toFixed(1)}s`;
+    } else {
+      const minutes = Math.floor(ms / 60000);
+      const seconds = Math.round((ms % 60000) / 1000);
+      return `${minutes}m ${seconds}s`;
+    }
+  }
+  
+  formatTime = (isoString) => {
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleTimeString('en-US', { 
+        hour12: false, 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      }) + '.' + String(date.getMilliseconds()).padStart(3, '0');
+    } catch {
+      return '00:00:00.000';
+    }
+  }
+  
+  getLevelLetter = (level) => {
+    const mapping = {
+      'verbose': 'V',
+      'message': 'I', 
+      'warning': 'W',
+      'error': 'E'
+    };
+    return mapping[level.toLowerCase()] || 'I';
+  }
+  
+  getStatusIcon = (status) => {
+    const mapping = {
+      'succeeded': '✓',
+      'failed': '✗',
+      'cancelled': '◌',
+      'pending': '⋯'
+    };
+    return mapping[status.toLowerCase()] || '?';
+  }
+  
+  truncateMessage = (message, maxLength) => {
+    if (message.length <= maxLength) return message;
+    return message.substring(0, maxLength) + '...';
+  }
+  
+  escapeHtml = (text) => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  
+  capDomRows = (container) => {
+    while (container.children.length > this.maxDomRows) {
+      container.removeChild(container.firstChild);
+    }
+  }
+  
+  isScrolledToBottom = (container) => {
+    return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+  }
+  
+  scrollToBottom = (container) => {
+    container.scrollTop = container.scrollHeight;
+  }
+  
+  passesFilter = (entry) => {
+    // Level filter
+    if (!this.state.activeLevels.has(entry.level)) return false;
+    
+    // Correlation filter
+    if (this.state.correlationFilter && entry.rootActivityId !== this.state.correlationFilter) {
+      return false;
+    }
+    
+    // Text search
+    if (this.state.searchText) {
+      const searchLower = this.state.searchText.toLowerCase();
+      const searchableText = [
+        entry.message || '',
+        entry.component || '',
+        entry.rootActivityId || '',
+        JSON.stringify(entry.customData || {})
+      ].join(' ').toLowerCase();
+      
+      if (!searchableText.includes(searchLower)) return false;
+    }
+    
+    return true;
+  }
+  
+  updateStats = () => {
+    const elements = {
+      'stat-total-logs': this.state.stats.totalLogs,
+      'stat-verbose': this.state.stats.verbose,
+      'stat-message': this.state.stats.message,
+      'stat-warning': this.state.stats.warning,
+      'stat-error': this.state.stats.error,
+      'stat-total-events': this.state.stats.totalEvents,
+      'stat-succeeded': this.state.stats.succeeded,
+      'stat-failed': this.state.stats.failed
+    };
+    
+    Object.entries(elements).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value.toLocaleString();
+    });
+  }
+  
+  rerenderAllLogs = () => {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+    
+    // Clear container
+    container.innerHTML = '';
+    
+    // Re-filter logs
+    this.state.filteredLogs = this.state.logs.filter(entry => this.passesFilter(entry));
+    
+    // Render filtered logs (latest 500)
+    const logsToRender = this.state.filteredLogs.slice(-this.maxDomRows);
+    logsToRender.forEach(entry => {
+      const row = this.createLogRow(entry);
+      row.classList.add('fade-in-complete'); // Skip animation for bulk render
+      container.appendChild(row);
+    });
+    
+    // Update search count
+    this.updateSearchCount();
+    
+    // Auto-scroll to bottom
+    if (this.state.autoScroll) {
+      this.scrollToBottom(container);
+    }
+  }
+  
+  updateSearchCount = () => {
+    const countEl = document.getElementById('search-count');
+    if (countEl) {
+      if (this.state.searchText || this.state.correlationFilter) {
+        const count = this.state.filteredLogs.length;
+        countEl.textContent = `${count.toLocaleString()} matches`;
+        countEl.style.display = 'block';
+      } else {
+        countEl.style.display = 'none';
+      }
+    }
+  }
+}
+
+// ===== SEARCH & FILTER =====
+
+class FilterManager {
+  constructor(state, renderer) {
+    this.state = state;
+    this.renderer = renderer;
+    this.searchTimeout = null;
+  }
+  
+  setSearch = (text) => {
+    // Debounce search
+    clearTimeout(this.searchTimeout);
+    this.searchTimeout = setTimeout(() => {
+      this.state.searchText = text.trim();
+      this.applyFilters();
+    }, 300);
+  }
+  
+  toggleLevel = (level) => {
+    if (this.state.activeLevels.has(level)) {
+      this.state.activeLevels.delete(level);
+    } else {
+      this.state.activeLevels.add(level);
+    }
+    
+    // Update button visual state
+    const button = document.querySelector(`[data-level="${level}"]`);
+    if (button) {
+      button.classList.toggle('active', this.state.activeLevels.has(level));
+    }
+    
+    this.applyFilters();
+  }
+  
+  setCorrelationFilter = (rootActivityId) => {
+    this.state.correlationFilter = rootActivityId;
+    this.showCorrelationBadge(rootActivityId);
+    this.applyFilters();
+  }
+  
+  clearCorrelationFilter = () => {
+    this.state.correlationFilter = null;
+    this.hideCorrelationBadge();
+    this.applyFilters();
+  }
+  
+  showCorrelationBadge = (id) => {
+    const badge = document.getElementById('correlation-badge');
+    if (badge) {
+      badge.textContent = `Correlation: ${id.substring(0, 8)}...`;
+      badge.style.display = 'block';
+    }
+  }
+  
+  hideCorrelationBadge = () => {
+    const badge = document.getElementById('correlation-badge');
+    if (badge) {
+      badge.style.display = 'none';
+    }
+  }
+  
+  applyFilters = () => {
+    this.renderer.rerenderAllLogs();
+  }
+  
+  clearAll = () => {
+    // Clear search
+    this.state.searchText = '';
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) searchInput.value = '';
+    
+    // Reset levels
+    this.state.activeLevels = new Set(['Verbose', 'Message', 'Warning', 'Error']);
+    document.querySelectorAll('.level-btn').forEach(btn => {
+      btn.classList.add('active');
+    });
+    
+    // Clear correlation
+    this.clearCorrelationFilter();
+    
+    this.applyFilters();
+  }
+}
+
+// ===== DETAIL PANEL =====
+
+class DetailPanel {
+  constructor() {
+    this.isVisible = false;
+  }
+  
+  show = (entry, type) => {
+    const panel = document.getElementById('detail-panel');
+    if (!panel) return;
+    
+    // Populate content based on type
+    if (type === 'log') {
+      this.showLogDetail(panel, entry);
+    } else if (type === 'telemetry') {
+      this.showTelemetryDetail(panel, entry);
+    }
+    
+    // Show panel with animation
+    panel.classList.add('visible');
+    this.isVisible = true;
+    
+    // Focus close button for accessibility
+    const closeBtn = panel.querySelector('.detail-close');
+    if (closeBtn) closeBtn.focus();
+  }
+  
+  showLogDetail = (panel, entry) => {
+    const title = panel.querySelector('.detail-title');
+    const content = panel.querySelector('.detail-content');
+    
+    if (title) title.textContent = 'Log Entry Details';
+    
+    if (content) {
+      content.innerHTML = `
+        <div class="detail-section">
+          <h4>Basic Information</h4>
+          <div class="detail-grid">
+            <div class="detail-field">
+              <label>Timestamp:</label>
+              <span>${entry.timestamp || 'N/A'}</span>
+            </div>
+            <div class="detail-field">
+              <label>Level:</label>
+              <span class="level-badge ${(entry.level || '').toLowerCase()}">${entry.level || 'N/A'}</span>
+            </div>
+            <div class="detail-field">
+              <label>Component:</label>
+              <span>${this.escapeHtml(entry.component || 'N/A')}</span>
+            </div>
+            <div class="detail-field">
+              <label>Event ID:</label>
+              <span>${this.escapeHtml(entry.eventId || 'N/A')}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="detail-section">
+          <h4>Message</h4>
+          <div class="detail-message">${this.escapeHtml(entry.message || 'No message')}</div>
+        </div>
+        
+        <div class="detail-section">
+          <h4>Correlation</h4>
+          <div class="detail-field">
+            <label>Root Activity ID:</label>
+            <span class="clickable-id" data-id="${entry.rootActivityId || ''}">${entry.rootActivityId || 'N/A'}</span>
+          </div>
+        </div>
+        
+        <div class="detail-section">
+          <h4>Custom Data</h4>
+          <pre class="json-container">${syntaxHighlightJson(JSON.stringify(entry.customData || {}, null, 2))}</pre>
+        </div>
+      `;
+      
+      // Add click handlers for correlation IDs
+      content.querySelectorAll('.clickable-id').forEach(el => {
+        el.addEventListener('click', (e) => {
+          const id = e.target.dataset.id;
+          if (id && window.edogViewer && window.edogViewer.filter) {
+            window.edogViewer.filter.setCorrelationFilter(id);
+            this.hide();
+          }
+        });
+      });
+    }
+  }
+  
+  showTelemetryDetail = (panel, event) => {
+    const title = panel.querySelector('.detail-title');
+    const content = panel.querySelector('.detail-content');
+    
+    if (title) title.textContent = 'Telemetry Event Details';
+    
+    if (content) {
+      const status = event.activityStatus || 'Unknown';
+      const icon = this.getStatusIcon(status);
+      
+      content.innerHTML = `
+        <div class="detail-section">
+          <h4>Activity Information</h4>
+          <div class="detail-grid">
+            <div class="detail-field">
+              <label>Activity Name:</label>
+              <span>${this.escapeHtml(event.activityName || 'N/A')}</span>
+            </div>
+            <div class="detail-field">
+              <label>Status:</label>
+              <span class="status-badge ${status.toLowerCase()}">${icon} ${status}</span>
+            </div>
+            <div class="detail-field">
+              <label>Duration:</label>
+              <span>${this.formatDuration(event.durationMs)}</span>
+            </div>
+            <div class="detail-field">
+              <label>Result Code:</label>
+              <span>${this.escapeHtml(event.resultCode || 'OK')}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="detail-section">
+          <h4>Timing</h4>
+          <div class="detail-field">
+            <label>Timestamp:</label>
+            <span>${event.timestamp || 'N/A'}</span>
+          </div>
+        </div>
+        
+        <div class="detail-section">
+          <h4>Correlation</h4>
+          <div class="detail-field">
+            <label>Correlation ID:</label>
+            <span class="clickable-id" data-id="${event.correlationId || ''}">${event.correlationId || 'N/A'}</span>
+          </div>
+          <div class="detail-field">
+            <label>User ID:</label>
+            <span>${event.userId || 'N/A'}</span>
+          </div>
+        </div>
+        
+        <div class="detail-section">
+          <h4>Attributes</h4>
+          <pre class="json-container">${syntaxHighlightJson(JSON.stringify(event.attributes || {}, null, 2))}</pre>
+        </div>
+      `;
+      
+      // Add click handlers for correlation IDs
+      content.querySelectorAll('.clickable-id').forEach(el => {
+        el.addEventListener('click', (e) => {
+          const id = e.target.dataset.id;
+          if (id && window.edogViewer && window.edogViewer.filter) {
+            // For telemetry, correlation ID might be in format "guid|guid" - use first part
+            const rootId = id.split('|')[0];
+            window.edogViewer.filter.setCorrelationFilter(rootId);
+            this.hide();
+          }
+        });
+      });
+    }
+  }
+  
+  hide = () => {
+    const panel = document.getElementById('detail-panel');
+    if (panel) {
+      panel.classList.remove('visible');
+    }
+    this.isVisible = false;
+  }
+  
+  escapeHtml = (text) => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  
+  formatDuration = (ms) => {
+    if (ms < 1000) {
+      return `${Math.round(ms)}ms`;
+    } else if (ms < 60000) {
+      return `${(ms / 1000).toFixed(1)}s`;
+    } else {
+      const minutes = Math.floor(ms / 60000);
+      const seconds = Math.round((ms % 60000) / 1000);
+      return `${minutes}m ${seconds}s`;
+    }
+  }
+  
+  getStatusIcon = (status) => {
+    const mapping = {
+      'succeeded': '✓',
+      'failed': '✗',
+      'cancelled': '◌',
+      'pending': '⋯'
+    };
+    return mapping[status.toLowerCase()] || '?';
+  }
+}
+
+// JSON syntax highlighting function
+function syntaxHighlightJson(json) {
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+    let cls = 'json-number';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key';
+      } else {
+        cls = 'json-string';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-boolean';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return '<span class="' + cls + '">' + match + '</span>';
+  });
+}
+
+// ===== MAIN APPLICATION =====
+
+class EdogLogViewer {
+  constructor() {
+    this.state = new LogViewerState();
+    this.renderer = new Renderer(this.state);
+    this.ws = new WebSocketManager();
+    this.filter = new FilterManager(this.state, this.renderer);
+    this.detail = new DetailPanel();
+    
+    // Set up WebSocket callbacks
+    this.ws.onStatusChange = this.updateConnectionStatus;
+    this.ws.onMessage = this.handleWebSocketMessage;
+  }
+  
+  init = () => {
+    console.log('Initializing EDOG Log Viewer');
+    
+    // Make globally accessible
+    window.edogViewer = this;
+    
+    this.bindEventListeners();
+    this.loadInitialData();
+    this.ws.connect();
+  }
+  
+  bindEventListeners = () => {
+    // Search input
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        this.filter.setSearch(e.target.value);
+      });
+    }
+    
+    // Level buttons
+    document.querySelectorAll('.level-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const level = btn.dataset.level;
+        if (level) this.filter.toggleLevel(level);
+      });
+    });
+    
+    // Clear button
+    const clearBtn = document.getElementById('clear-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', this.filter.clearAll);
+    }
+    
+    // Export button
+    const exportBtn = document.getElementById('export-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', this.exportLogs);
+    }
+    
+    // Pause button
+    const pauseBtn = document.getElementById('pause-btn');
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', this.togglePause);
+    }
+    
+    // Theme toggle
+    const themeBtn = document.getElementById('theme-btn');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', this.toggleTheme);
+    }
+    
+    // Auto-scroll resume button
+    const resumeBtn = document.getElementById('resume-scroll-btn');
+    if (resumeBtn) {
+      resumeBtn.addEventListener('click', this.resumeAutoScroll);
+    }
+    
+    // Detail panel close button
+    const detailClose = document.getElementById('detail-close');
+    if (detailClose) {
+      detailClose.addEventListener('click', this.detail.hide);
+    }
+    
+    // Correlation badge close
+    const correlationClose = document.getElementById('correlation-close');
+    if (correlationClose) {
+      correlationClose.addEventListener('click', this.filter.clearCorrelationFilter);
+    }
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', this.handleKeydown);
+    
+    // Scroll detection for auto-scroll pause
+    const logsContainer = document.getElementById('logs-container');
+    if (logsContainer) {
+      logsContainer.addEventListener('scroll', this.handleScroll);
+    }
+  }
+  
+  handleKeydown = (e) => {
+    // Skip if typing in input field
+    if (e.target.tagName === 'INPUT') return;
+    
+    switch (e.code) {
+      case 'Escape':
+        if (this.detail.isVisible) {
+          this.detail.hide();
+        } else if (this.state.searchText || this.state.correlationFilter) {
+          this.filter.clearAll();
+        }
+        break;
+        
+      case 'KeyK':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const searchInput = document.getElementById('search-input');
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+          }
+        }
+        break;
+        
+      case 'KeyL':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          this.filter.clearAll();
+        }
+        break;
+        
+      case 'Space':
+        if (!this.detail.isVisible) {
+          e.preventDefault();
+          this.togglePause();
+        }
+        break;
+    }
+  }
+  
+  handleScroll = (e) => {
+    const container = e.target;
+    const isAtBottom = this.renderer.isScrolledToBottom(container);
+    
+    if (!isAtBottom && this.state.autoScroll) {
+      this.state.autoScroll = false;
+      this.showResumeButton();
+    }
+  }
+  
+  handleWebSocketMessage = (type, data) => {
+    if (type === 'log') {
+      this.state.addLog(data);
+      this.renderer.scheduleRender();
+    } else if (type === 'telemetry') {
+      this.state.addTelemetry(data);
+      this.renderer.scheduleRender();
+    }
+  }
+  
+  updateConnectionStatus = (status) => {
+    const badge = document.getElementById('connection-status');
+    if (badge) {
+      badge.textContent = status;
+      badge.className = `connection-badge ${status}`;
+    }
+  }
+  
+  loadInitialData = async () => {
+    try {
+      // Load logs
+      const logsResponse = await fetch('/api/logs');
+      if (logsResponse.ok) {
+        const logs = await logsResponse.json();
+        logs.forEach(log => this.state.addLog(log));
+      }
+      
+      // Load telemetry
+      const telemetryResponse = await fetch('/api/telemetry');
+      if (telemetryResponse.ok) {
+        const events = await telemetryResponse.json();
+        events.forEach(event => this.state.addTelemetry(event));
+      }
+      
+      // Load stats
+      const statsResponse = await fetch('/api/stats');
+      if (statsResponse.ok) {
+        const stats = await statsResponse.json();
+        Object.assign(this.state.stats, stats);
+      }
+      
+      // Render initial data
+      this.renderer.scheduleRender();
+      
+    } catch (error) {
+      console.error('Failed to load initial data:', error);
+    }
+  }
+  
+  togglePause = () => {
+    this.state.paused = !this.state.paused;
+    const btn = document.getElementById('pause-btn');
+    if (btn) {
+      btn.textContent = this.state.paused ? '▶ Resume' : '⏸ Pause';
+      btn.classList.toggle('paused', this.state.paused);
+    }
+  }
+  
+  toggleTheme = () => {
+    const body = document.body;
+    const currentTheme = body.dataset.theme || 'light';
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    body.dataset.theme = newTheme;
+    
+    // Save preference
+    localStorage.setItem('edog-theme', newTheme);
+  }
+  
+  resumeAutoScroll = () => {
+    this.state.autoScroll = true;
+    this.hideResumeButton();
+    
+    // Scroll to bottom
+    const container = document.getElementById('logs-container');
+    if (container) {
+      this.renderer.scrollToBottom(container);
+    }
+  }
+  
+  showResumeButton = () => {
+    const btn = document.getElementById('resume-scroll-btn');
+    if (btn) btn.style.display = 'block';
+  }
+  
+  hideResumeButton = () => {
+    const btn = document.getElementById('resume-scroll-btn');
+    if (btn) btn.style.display = 'none';
+  }
+  
+  exportLogs = () => {
+    const dataToExport = {
+      exportedAt: new Date().toISOString(),
+      logs: this.state.filteredLogs.length > 0 ? this.state.filteredLogs : this.state.logs,
+      telemetry: this.state.telemetry,
+      stats: this.state.stats,
+      filters: {
+        searchText: this.state.searchText,
+        activeLevels: Array.from(this.state.activeLevels),
+        correlationFilter: this.state.correlationFilter
+      }
+    };
+    
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { 
+      type: 'application/json' 
+    });
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `edog-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ===== INITIALIZATION =====
+
+// Initialize app when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  // Load theme preference
+  const savedTheme = localStorage.getItem('edog-theme') || 'light';
+  document.body.dataset.theme = savedTheme;
+  
+  // Start the application
+  new EdogLogViewer().init();
+});
+  </script>
+</body>
+</html>
