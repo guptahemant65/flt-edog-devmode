@@ -328,6 +328,37 @@
       border-color: var(--accent); 
     }
 
+    .time-filter { 
+      display: flex; 
+      gap: 4px; 
+      margin-right: 12px; 
+      padding-right: 12px; 
+      border-right: 1px solid var(--border); 
+    }
+    
+    .time-btn { 
+      font-family: var(--font-mono); 
+      font-size: 11px; 
+      padding: 4px 8px; 
+      border-radius: 6px; 
+      border: 1px solid var(--border); 
+      background: transparent; 
+      color: var(--text-dim); 
+      cursor: pointer; 
+      transition: all 0.15s; 
+    }
+    
+    .time-btn:hover { 
+      border-color: var(--accent); 
+      color: var(--accent); 
+    }
+    
+    .time-btn.active { 
+      background: var(--accent); 
+      color: white; 
+      border-color: var(--accent); 
+    }
+
     .toolbar-actions {
       display: flex;
       gap: 8px;
@@ -707,6 +738,17 @@
       color: var(--text);
     }
 
+    /* Logs Status Bar */
+    .logs-status {
+      padding: 4px 12px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      text-align: center;
+    }
+
     /* Scroll FAB */
     .scroll-fab {
       position: absolute;
@@ -741,6 +783,81 @@
       max-height: 40vh;
       z-index: 200;
       animation: slideUp 0.3s ease-out;
+    }
+
+    /* Copy buttons */
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-dim);
+      transition: all 0.15s;
+      margin-left: 8px;
+    }
+    .copy-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .copy-btn.copied {
+      border-color: var(--status-succeeded);
+      color: var(--status-succeeded);
+    }
+
+    /* Collapsible JSON sections */
+    .json-details {
+      margin-top: 4px;
+    }
+    .json-details summary {
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      padding: 4px 0;
+    }
+    .json-details summary:hover {
+      color: var(--accent);
+    }
+    .json-content {
+      margin-top: 4px;
+      padding: 8px;
+      background: var(--surface);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    /* Cross-link styling */
+    .cross-link {
+      font-size: 12px;
+      color: var(--accent);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: var(--accent-dim);
+      margin-top: 8px;
+      display: inline-block;
+    }
+    .cross-link:hover {
+      background: var(--accent);
+      color: white;
+    }
+
+    /* SSR highlight effect */
+    .ssr-highlight {
+      border: 2px solid var(--accent) !important;
+      box-shadow: 0 0 10px rgba(139, 92, 246, 0.5) !important;
+      animation: highlight-pulse 2s ease-in-out;
+    }
+    
+    @keyframes highlight-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
     }
 
     .detail-header {
@@ -1055,6 +1172,13 @@
   </header>
 
   <div id="toolbar">
+    <div class="time-filter">
+      <button class="time-btn active" data-range="0" title="All time">All</button>
+      <button class="time-btn" data-range="60" title="Last 1 minute">1m</button>
+      <button class="time-btn" data-range="300" title="Last 5 minutes">5m</button>
+      <button class="time-btn" data-range="900" title="Last 15 minutes">15m</button>
+      <button class="time-btn" data-range="3600" title="Last 1 hour">1h</button>
+    </div>
     <div class="search-wrapper">
       <span class="search-icon">🔍</span>
       <input type="text" id="search-input" placeholder="Search logs... (Ctrl+K)" />
@@ -1095,6 +1219,9 @@
           <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
         </div>
         <!-- Log rows will be inserted here -->
+      </div>
+      <div class="logs-status" id="logs-status-bar">
+        Showing <span id="visible-count">0</span> of <span id="total-count">0</span> logs
       </div>
       <button id="resume-scroll-btn" class="scroll-fab" style="display:none">↓ Resume auto-scroll</button>
     </div>
@@ -1164,6 +1291,7 @@ class LogViewerState {
     this.activePreset = 'all';  // Current component preset
     this.autoScroll = true;
     this.paused = false;
+    this.timeRangeSeconds = 0;  // 0 = all time, >0 = last N seconds
     this.stats = { 
       totalLogs: 0, verbose: 0, message: 0, warning: 0, error: 0, 
       totalEvents: 0, succeeded: 0, failed: 0 
@@ -1294,7 +1422,7 @@ class Renderer {
   constructor(state) {
     this.state = state;
     this.renderScheduled = false;
-    this.maxDomRows = 500; // Max log rows in DOM
+    this.maxDomRows = 300; // Max log rows in DOM
   }
   
   scheduleRender = () => {
@@ -1329,19 +1457,32 @@ class Renderer {
     
     const wasAtBottom = this.isScrolledToBottom(container);
     
-    // Add new log rows
-    this.state.pendingLogs.forEach(entry => {
-      if (!this.state.paused && this.passesFilter(entry)) {
-        const row = this.createLogRow(entry);
-        container.appendChild(row);
-        
-        // Trigger animation
-        requestAnimationFrame(() => row.classList.add('fade-in-complete'));
-      }
-    });
+    // Filter pending logs first
+    const filteredPendingLogs = this.state.pendingLogs.filter(entry => 
+      !this.state.paused && this.passesFilter(entry)
+    );
     
-    // Cap DOM rows
+    // Add new log rows using DocumentFragment for better performance
+    if (filteredPendingLogs.length > 0) {
+      const fragment = document.createDocumentFragment();
+      filteredPendingLogs.forEach(entry => {
+        const row = this.createLogRow(entry);
+        fragment.appendChild(row);
+      });
+      container.appendChild(fragment);
+      
+      // Trigger animations for new rows
+      const newRows = Array.from(container.children).slice(-filteredPendingLogs.length);
+      requestAnimationFrame(() => {
+        newRows.forEach(row => row.classList.add('fade-in-complete'));
+      });
+    }
+    
+    // Cap DOM rows with scroll position preservation
     this.capDomRows(container);
+    
+    // Update status counter
+    this.updateLogsStatus();
     
     // Auto-scroll if was at bottom and auto-scroll enabled
     if (this.state.autoScroll && wasAtBottom) {
@@ -1532,10 +1673,48 @@ class Renderer {
     div.textContent = text;
     return div.innerHTML;
   }
+
+  updateLogsStatus = () => {
+    const container = document.getElementById('logs-container');
+    const visibleCountEl = document.getElementById('visible-count');
+    const totalCountEl = document.getElementById('total-count');
+    
+    if (container && visibleCountEl && totalCountEl) {
+      // Count visible rows (excluding empty state)
+      const visibleRows = Array.from(container.children).filter(child => 
+        !child.id || child.id !== 'empty-state'
+      ).length;
+      
+      visibleCountEl.textContent = visibleRows;
+      totalCountEl.textContent = this.state.logs.length;
+    }
+  }
   
   capDomRows = (container) => {
-    while (container.children.length > this.maxDomRows) {
-      container.removeChild(container.firstChild);
+    const maxRows = this.maxDomRows;
+    const currentCount = container.children.length;
+    
+    if (currentCount > maxRows + 50) {
+      // Preserve scroll position
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      
+      // Remove 50 rows at once for better performance
+      const toRemove = Math.min(50, currentCount - maxRows);
+      let removedHeight = 0;
+      
+      for (let i = 0; i < toRemove; i++) {
+        const firstChild = container.firstChild;
+        if (firstChild) {
+          removedHeight += firstChild.offsetHeight;
+          container.removeChild(firstChild);
+        }
+      }
+      
+      // Adjust scroll position to prevent jumping
+      const newScrollHeight = container.scrollHeight;
+      const heightDiff = scrollHeight - newScrollHeight;
+      container.scrollTop = Math.max(0, scrollTop - heightDiff);
     }
   }
   
@@ -1560,6 +1739,13 @@ class Renderer {
     const component = entry.component || 'Unknown';
     if (this.state.excludedComponents.has(component)) {
       return false;
+    }
+    
+    // Time range filter
+    if (this.state.timeRangeSeconds > 0) {
+      const cutoff = new Date(Date.now() - this.state.timeRangeSeconds * 1000);
+      const logTime = new Date(entry.timestamp);
+      if (logTime < cutoff) return false;
     }
     
     // Text search
@@ -1617,6 +1803,9 @@ class Renderer {
     // Update search count
     this.updateSearchCount();
     
+    // Update logs status counter
+    this.updateLogsStatus();
+    
     // Auto-scroll to bottom
     if (this.state.autoScroll) {
       this.scrollToBottom(container);
@@ -1644,6 +1833,7 @@ class FilterManager {
     this.state = state;
     this.renderer = renderer;
     this.searchTimeout = null;
+    this.timeFilterInterval = null;
   }
   
   setSearch = (text) => {
@@ -1680,6 +1870,15 @@ class FilterManager {
   clearCorrelationFilter = () => {
     this.state.correlationFilter = null;
     this.hideCorrelationBadge();
+    this.applyFilters();
+  }
+
+  updateTimeFilter = (seconds) => {
+    this.state.timeRangeSeconds = seconds;
+    if (this.timeFilterInterval) clearInterval(this.timeFilterInterval);
+    if (seconds > 0) {
+      this.timeFilterInterval = setInterval(() => this.applyFilters(), 10000);
+    }
     this.applyFilters();
   }
   
@@ -1775,6 +1974,12 @@ class FilterManager {
       btn.classList.toggle('active', btn.dataset.preset === 'all');
     });
     
+    // Reset time filter
+    this.updateTimeFilter(0);
+    document.querySelectorAll('.time-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.range === '0');
+    });
+    
     // Clear correlation
     this.clearCorrelationFilter();
     
@@ -1816,6 +2021,9 @@ class DetailPanel {
     if (title) title.textContent = 'Log Entry Details';
     
     if (content) {
+      const customDataJson = JSON.stringify(entry.customData || {}, null, 2);
+      const shouldCollapseJson = customDataJson.split('\n').length > 4;
+      
       content.innerHTML = `
         <div class="detail-section">
           <h4>Basic Information</h4>
@@ -1840,7 +2048,9 @@ class DetailPanel {
         </div>
         
         <div class="detail-section">
-          <h4>Message</h4>
+          <h4>Message 
+            <button class="copy-btn" onclick="copyToClipboard(this, \`${(entry.message || 'No message').replace(/[`\\]/g, '\\$&')}\`)" title="Copy message to clipboard">📋</button>
+          </h4>
           <div class="detail-message">${this.escapeHtml(entry.message || 'No message')}</div>
         </div>
         
@@ -1849,12 +2059,22 @@ class DetailPanel {
           <div class="detail-field">
             <label>Root Activity ID:</label>
             <span class="clickable-id" data-id="${entry.rootActivityId || ''}">${entry.rootActivityId || 'N/A'}</span>
+            ${entry.rootActivityId ? `<button class="copy-btn" onclick="copyToClipboard(this, '${entry.rootActivityId}')" title="Copy Activity ID to clipboard">📋</button>` : ''}
           </div>
+          <div class="cross-link" onclick="filterSSRByCorrelation('${entry.rootActivityId || ''}')">🔗 Find in SSR</div>
         </div>
         
         <div class="detail-section">
-          <h4>Custom Data</h4>
-          <pre class="json-container">${syntaxHighlightJson(JSON.stringify(entry.customData || {}, null, 2))}</pre>
+          <h4>Custom Data 
+            <button class="copy-btn" onclick="copyToClipboard(this, \`${customDataJson.replace(/[`\\]/g, '\\$&')}\`)" title="Copy JSON to clipboard">📋</button>
+          </h4>
+          ${shouldCollapseJson ? 
+            `<details class="json-details">
+              <summary>Custom Data (${Object.keys(entry.customData || {}).length} fields) ▸</summary>
+              <pre class="json-content">${syntaxHighlightJson(customDataJson)}</pre>
+            </details>` :
+            `<pre class="json-container">${syntaxHighlightJson(customDataJson)}</pre>`
+          }
         </div>
       `;
       
@@ -1880,6 +2100,8 @@ class DetailPanel {
     if (content) {
       const status = event.activityStatus || 'Unknown';
       const icon = this.getStatusIcon(status);
+      const attributesJson = JSON.stringify(event.attributes || {}, null, 2);
+      const shouldCollapseJson = attributesJson.split('\n').length > 4;
       
       content.innerHTML = `
         <div class="detail-section">
@@ -1917,16 +2139,26 @@ class DetailPanel {
           <div class="detail-field">
             <label>Correlation ID:</label>
             <span class="clickable-id" data-id="${event.correlationId || ''}">${event.correlationId || 'N/A'}</span>
+            ${event.correlationId ? `<button class="copy-btn" onclick="copyToClipboard(this, '${event.correlationId}')" title="Copy Correlation ID to clipboard">📋</button>` : ''}
           </div>
           <div class="detail-field">
             <label>User ID:</label>
             <span>${event.userId || 'N/A'}</span>
           </div>
+          <div class="cross-link" onclick="filterLogsByCorrelation('${(event.correlationId || '').split('|')[0]}')">🔗 Show related logs</div>
         </div>
         
         <div class="detail-section">
-          <h4>Attributes</h4>
-          <pre class="json-container">${syntaxHighlightJson(JSON.stringify(event.attributes || {}, null, 2))}</pre>
+          <h4>Attributes
+            <button class="copy-btn" onclick="copyToClipboard(this, \`${attributesJson.replace(/[`\\]/g, '\\$&')}\`)" title="Copy JSON to clipboard">📋</button>
+          </h4>
+          ${shouldCollapseJson ? 
+            `<details class="json-details">
+              <summary>Attributes (${Object.keys(event.attributes || {}).length} fields) ▸</summary>
+              <pre class="json-content">${syntaxHighlightJson(attributesJson)}</pre>
+            </details>` :
+            `<pre class="json-container">${syntaxHighlightJson(attributesJson)}</pre>`
+          }
         </div>
       `;
       
@@ -1982,6 +2214,90 @@ class DetailPanel {
   }
 }
 
+// ===== UTILITY FUNCTIONS FOR DETAIL PANEL =====
+
+// Copy to clipboard function
+function copyToClipboard(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(() => { 
+      btn.classList.remove('copied'); 
+      btn.textContent = '📋'; 
+    }, 1500);
+  }).catch(err => {
+    console.error('Failed to copy text: ', err);
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      btn.classList.add('copied');
+      btn.textContent = '✓';
+      setTimeout(() => { 
+        btn.classList.remove('copied'); 
+        btn.textContent = '📋'; 
+      }, 1500);
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed: ', fallbackErr);
+    }
+    document.body.removeChild(textArea);
+  });
+}
+
+// Filter SSR telemetry by correlation ID
+function filterSSRByCorrelation(rootActivityId) {
+  if (!rootActivityId || !window.edogViewer) return;
+  
+  const telemetryContainer = document.getElementById('telemetry-container');
+  if (!telemetryContainer) return;
+  
+  // Clear any existing highlights first
+  telemetryContainer.querySelectorAll('.telemetry-card').forEach(card => {
+    card.classList.remove('ssr-highlight');
+  });
+  
+  // Find and highlight matching SSR cards
+  let foundMatch = false;
+  telemetryContainer.querySelectorAll('.telemetry-card').forEach(card => {
+    const correlationElements = card.querySelectorAll('[data-correlation]');
+    correlationElements.forEach(element => {
+      const cardCorrelationId = element.dataset.correlation || '';
+      if (cardCorrelationId.includes(rootActivityId)) {
+        card.classList.add('ssr-highlight');
+        if (!foundMatch) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          foundMatch = true;
+        }
+      }
+    });
+  });
+  
+  // Also scroll to telemetry panel if match found
+  if (foundMatch) {
+    const telemetryPanel = document.getElementById('telemetry-panel');
+    if (telemetryPanel) {
+      setTimeout(() => {
+        telemetryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    }
+  }
+}
+
+// Filter logs by correlation ID
+function filterLogsByCorrelation(correlationId) {
+  if (!correlationId || !window.edogViewer || !window.edogViewer.filter) return;
+  
+  window.edogViewer.filter.setCorrelationFilter(correlationId);
+  
+  // Close detail panel
+  if (window.edogViewer.detail) {
+    window.edogViewer.detail.hide();
+  }
+}
+
 // JSON syntax highlighting function
 function syntaxHighlightJson(json) {
   json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -2011,6 +2327,7 @@ class EdogLogViewer {
     this.ws = new WebSocketManager();
     this.filter = new FilterManager(this.state, this.renderer);
     this.detail = new DetailPanel();
+    this.scrollTimeout = null;
     
     // Set up WebSocket callbacks
     this.ws.onStatusChange = this.updateConnectionStatus;
@@ -2052,6 +2369,16 @@ class EdogLogViewer {
         btn.classList.add('active');
         const preset = btn.dataset.preset;
         if (preset) this.filter.applyPreset(preset);
+      });
+    });
+    
+    // Time filter buttons
+    document.querySelectorAll('.time-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const range = parseInt(btn.dataset.range);
+        this.filter.updateTimeFilter(range);
       });
     });
     
@@ -2166,13 +2493,16 @@ class EdogLogViewer {
   }
   
   handleScroll = (e) => {
-    const container = e.target;
-    const isAtBottom = this.renderer.isScrolledToBottom(container);
-    
-    if (!isAtBottom && this.state.autoScroll) {
-      this.state.autoScroll = false;
-      this.showResumeButton();
-    }
+    if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
+    this.scrollTimeout = setTimeout(() => {
+      const container = e.target;
+      const isAtBottom = this.renderer.isScrolledToBottom(container);
+      
+      if (!isAtBottom && this.state.autoScroll) {
+        this.state.autoScroll = false;
+        this.showResumeButton();
+      }
+    }, 100);
   }
   
   handleWebSocketMessage = (type, data) => {
