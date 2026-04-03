@@ -297,6 +297,37 @@
       color: var(--level-error);
     }
 
+    .preset-bar { 
+      display: flex; 
+      gap: 4px; 
+      margin-left: 12px; 
+      padding-left: 12px; 
+      border-left: 1px solid var(--border); 
+    }
+    
+    .preset-btn { 
+      font-family: var(--font-mono); 
+      font-size: 11px; 
+      padding: 4px 10px; 
+      border-radius: 6px; 
+      border: 1px solid var(--border); 
+      background: transparent; 
+      color: var(--text-dim); 
+      cursor: pointer; 
+      transition: all 0.15s; 
+    }
+    
+    .preset-btn:hover { 
+      border-color: var(--accent); 
+      color: var(--accent); 
+    }
+    
+    .preset-btn.active { 
+      background: var(--accent); 
+      color: white; 
+      border-color: var(--accent); 
+    }
+
     .toolbar-actions {
       display: flex;
       gap: 8px;
@@ -321,6 +352,16 @@
       background: var(--surface-3);
       color: var(--text);
       border-color: var(--border-bright);
+    }
+
+    .error-jump { 
+      color: var(--level-error); 
+      border-color: var(--level-error); 
+    }
+    
+    .error-jump:hover { 
+      background: var(--level-error); 
+      color: white; 
     }
 
     /* Main Content */
@@ -443,6 +484,10 @@
       transition: all 0.1s ease;
     }
 
+    .log-row.error-row { 
+      border-left: 3px solid var(--level-error); 
+    }
+
     .log-row:nth-child(even) {
       background: rgba(255, 255, 255, 0.01);
     }
@@ -495,6 +540,14 @@
       font-size: 10px;
       font-weight: 500;
       white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .log-component:hover {
+      background: var(--accent);
+      color: white;
+      transform: scale(1.05);
     }
 
     .log-message {
@@ -513,10 +566,21 @@
     .telemetry-card {
       background: var(--surface-2);
       border: 1px solid var(--border);
+      border-left: 3px solid var(--border);
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 12px;
       transition: all 0.2s ease;
+    }
+
+    .telemetry-card.succeeded { 
+      border-left-color: var(--status-succeeded); 
+    }
+    .telemetry-card.failed { 
+      border-left-color: var(--status-failed); 
+    }
+    .telemetry-card.cancelled { 
+      border-left-color: var(--status-cancelled); 
     }
 
     .telemetry-card:hover {
@@ -561,8 +625,38 @@
 
     .telem-result {
       margin-top: 4px;
+      font-family: var(--font-mono);
       font-size: 11px;
       color: var(--level-error);
+    }
+
+    .telem-correlation { 
+      font-family: var(--font-mono); 
+      font-size: 10px; 
+      color: var(--text-dim); 
+      cursor: pointer; 
+    }
+    
+    .telem-correlation:hover { 
+      color: var(--accent); 
+      text-decoration: underline; 
+    }
+    
+    .attr-pill { 
+      font-family: var(--font-mono); 
+      font-size: 9px; 
+      padding: 1px 6px; 
+      border-radius: 4px; 
+      background: var(--accent-dim); 
+      color: var(--accent); 
+      margin-right: 4px; 
+    }
+    
+    .telem-attrs { 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: 3px; 
+      margin-top: 4px; 
     }
 
     .telemetry-operation {
@@ -972,10 +1066,17 @@
       <button class="level-btn active" data-level="Warning">W</button>
       <button class="level-btn active" data-level="Error">E</button>
     </div>
+    <div class="preset-bar">
+      <button class="preset-btn active" data-preset="all" title="Show all">All</button>
+      <button class="preset-btn" data-preset="flt" title="FLT application logs only">FLT</button>
+      <button class="preset-btn" data-preset="dag" title="DAG execution logs">DAG</button>
+      <button class="preset-btn" data-preset="spark" title="Spark/GTS logs">Spark</button>
+    </div>
     <div class="toolbar-actions">
       <button id="clear-btn" class="action-btn" title="Clear (Ctrl+L)">🗑 Clear</button>
       <button id="export-btn" class="action-btn" title="Export JSON">📥 Export</button>
       <button id="pause-btn" class="action-btn" title="Pause (Space)">⏸ Pause</button>
+      <button id="btn-next-error" class="action-btn error-jump" title="Jump to next error (↓E)">↓E</button>
     </div>
   </div>
 
@@ -1059,6 +1160,8 @@ class LogViewerState {
     this.activeLevels = new Set(['Verbose', 'Message', 'Warning', 'Error']);
     this.searchText = '';
     this.correlationFilter = null;  // rootActivityId to filter by
+    this.excludedComponents = new Set();  // Components to exclude
+    this.activePreset = 'all';  // Current component preset
     this.autoScroll = true;
     this.paused = false;
     this.stats = { 
@@ -1272,6 +1375,7 @@ class Renderer {
     row.dataset.rootActivityId = entry.rootActivityId || '';
     
     const level = entry.level || 'Message';
+    if (level === 'Error') row.classList.add('error-row');
     const levelLetter = this.getLevelLetter(level);
     const time = this.formatTime(entry.timestamp);
     const component = entry.component || 'Unknown';
@@ -1280,7 +1384,7 @@ class Renderer {
     row.innerHTML = `
       <span class="log-time">${time}</span>
       <span class="level-badge ${level.toLowerCase()}">${levelLetter}</span>
-      <span class="log-component">${this.escapeHtml(component)}</span>
+      <span class="log-component" title="Click to exclude this component">${this.escapeHtml(component)}</span>
       <span class="log-message">${this.escapeHtml(message)}</span>
     `;
     
@@ -1291,22 +1395,51 @@ class Renderer {
       }
     });
     
+    // Click handler for component pill exclusion
+    const componentSpan = row.querySelector('.log-component');
+    if (componentSpan) {
+      componentSpan.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (window.edogViewer && window.edogViewer.filter) {
+          window.edogViewer.filter.excludeComponent(component);
+        }
+      });
+    }
+    
     return row;
   }
   
   createTelemetryCard = (event) => {
     const card = document.createElement('div');
-    card.className = 'telemetry-card fade-in';
+    card.className = `telemetry-card fade-in ${(event.activityStatus || 'unknown').toLowerCase()}`;
     
     const status = event.activityStatus || 'Unknown';
     const icon = this.getStatusIcon(status);
     const duration = this.formatDuration(event.durationMs);
     const time = this.formatTime(event.timestamp);
     const resultCode = event.resultCode || 'OK';
+    const correlationId = event.correlationId || '';
     
     let resultHtml = '';
-    if (resultCode !== 'OK') {
+    if (resultCode !== 'OK' && resultCode) {
       resultHtml = `<div class="telem-result">${this.escapeHtml(resultCode)}</div>`;
+    }
+    
+    let correlationHtml = '';
+    if (correlationId) {
+      const shortCorr = correlationId.substring(0, 8);
+      correlationHtml = `<div class="telem-correlation" data-correlation="${this.escapeHtml(correlationId)}" title="Filter by ${this.escapeHtml(correlationId)}">${this.escapeHtml(shortCorr)}</div>`;
+    }
+    
+    let attributesHtml = '';
+    if (event.attributes) {
+      const attrs = [];
+      if (event.attributes.WorkspaceId) attrs.push(`<span class="attr-pill">WS: ${this.escapeHtml(event.attributes.WorkspaceId.substring(0, 6))}</span>`);
+      if (event.attributes.ArtifactId) attrs.push(`<span class="attr-pill">Art: ${this.escapeHtml(event.attributes.ArtifactId.substring(0, 6))}</span>`);
+      if (event.attributes.IterationId) attrs.push(`<span class="attr-pill">Iter: ${this.escapeHtml(event.attributes.IterationId.substring(0, 6))}</span>`);
+      if (attrs.length > 0) {
+        attributesHtml = `<div class="telem-attrs">${attrs.join('')}</div>`;
+      }
     }
     
     card.innerHTML = `
@@ -1319,10 +1452,22 @@ class Renderer {
         <span class="telem-time">${time}</span>
       </div>
       ${resultHtml}
+      ${correlationHtml}
+      ${attributesHtml}
     `;
     
     // Click handler for detail panel
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      // Handle correlation click
+      if (e.target.classList.contains('telem-correlation')) {
+        e.stopPropagation();
+        const corrId = e.target.dataset.correlation;
+        if (corrId && window.edogViewer && window.edogViewer.filter) {
+          window.edogViewer.filter.setCorrelationFilter(corrId);
+        }
+        return;
+      }
+      
       if (window.edogViewer && window.edogViewer.detail) {
         window.edogViewer.detail.show(event, 'telemetry');
       }
@@ -1408,6 +1553,12 @@ class Renderer {
     
     // Correlation filter
     if (this.state.correlationFilter && entry.rootActivityId !== this.state.correlationFilter) {
+      return false;
+    }
+    
+    // Component filter
+    const component = entry.component || 'Unknown';
+    if (this.state.excludedComponents.has(component)) {
       return false;
     }
     
@@ -1551,6 +1702,60 @@ class FilterManager {
     this.renderer.rerenderAllLogs();
   }
   
+  // Component presets — regex patterns to EXCLUDE
+  static COMPONENT_PRESETS = {
+    all: { exclude: [] },
+    flt: { exclude: [/^WCL-/i, /^IntervalTimer/i, /^MonitoredScope/i, /^FutureConsumption/i, /^HealthCheck/i, /^Kestrel/i, /^Microsoft\.AspNetCore/i, /^System\./i, /^HiccupMonitor/i] },
+    dag: { include: [/DagExecution/i, /NodeExec/i, /Hook/i, /InsightsMetrics/i, /RunMetrics/i, /Orchestrat/i, /Pipeline/i] },
+    spark: { include: [/Spark/i, /GTS/i, /Notebook/i, /Session/i, /Livy/i, /Transform/i] },
+  };
+  
+  applyPreset = (presetName) => {
+    this.state.activePreset = presetName;
+    this.state.excludedComponents.clear();
+    
+    const preset = FilterManager.COMPONENT_PRESETS[presetName];
+    if (!preset) return;
+    
+    if (preset.exclude) {
+      // Exclude components matching ANY exclude pattern
+      const allComponents = new Set();
+      this.state.logs.forEach(entry => {
+        if (entry.component) allComponents.add(entry.component);
+      });
+      
+      allComponents.forEach(component => {
+        if (preset.exclude.some(pattern => pattern.test(component))) {
+          this.state.excludedComponents.add(component);
+        }
+      });
+    } else if (preset.include) {
+      // Exclude everything EXCEPT components matching ANY include pattern  
+      const allComponents = new Set();
+      this.state.logs.forEach(entry => {
+        if (entry.component) allComponents.add(entry.component);
+      });
+      
+      allComponents.forEach(component => {
+        if (!preset.include.some(pattern => pattern.test(component))) {
+          this.state.excludedComponents.add(component);
+        }
+      });
+    }
+    
+    this.applyFilters();
+  }
+  
+  excludeComponent = (component) => {
+    this.state.excludedComponents.add(component);
+    // Reset preset to 'all' since user manually excluded
+    this.state.activePreset = 'all';
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.preset === 'all');
+    });
+    this.applyFilters();
+  }
+
   clearAll = () => {
     // Clear search
     this.state.searchText = '';
@@ -1561,6 +1766,13 @@ class FilterManager {
     this.state.activeLevels = new Set(['Verbose', 'Message', 'Warning', 'Error']);
     document.querySelectorAll('.level-btn').forEach(btn => {
       btn.classList.add('active');
+    });
+    
+    // Reset component filters
+    this.state.excludedComponents.clear();
+    this.state.activePreset = 'all';
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.preset === 'all');
     });
     
     // Clear correlation
@@ -1833,6 +2045,16 @@ class EdogLogViewer {
       });
     });
     
+    // Preset buttons
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const preset = btn.dataset.preset;
+        if (preset) this.filter.applyPreset(preset);
+      });
+    });
+    
     // Clear button
     const clearBtn = document.getElementById('clear-btn');
     if (clearBtn) {
@@ -1849,6 +2071,24 @@ class EdogLogViewer {
     const pauseBtn = document.getElementById('pause-btn');
     if (pauseBtn) {
       pauseBtn.addEventListener('click', this.togglePause);
+    }
+    
+    // Error navigation button
+    const nextErrorBtn = document.getElementById('btn-next-error');
+    if (nextErrorBtn) {
+      nextErrorBtn.addEventListener('click', () => {
+        const container = document.getElementById('logs-container');
+        const errorRows = container.querySelectorAll('.error-row');
+        // Find next error below current scroll position
+        const scrollTop = container.scrollTop;
+        for (const row of errorRows) {
+          if (row.offsetTop > scrollTop + 50) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            row.style.animation = 'pulse 0.5s ease';
+            break;
+          }
+        }
+      });
     }
     
     // Theme toggle
