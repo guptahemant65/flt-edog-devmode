@@ -1799,7 +1799,7 @@ def check_tracer_console_output(repo_root):
 
 
 def apply_log_viewer_files(repo_root):
-    """Deploy EDOG web log viewer files to FLT repo."""
+    """Deploy EDOG web log viewer files to FLT repo and build output."""
     src_dir = Path(__file__).parent / "src"
     created_files = []
     
@@ -1821,6 +1821,17 @@ def apply_log_viewer_files(repo_root):
             if src_file.read_text(encoding='utf-8') != target.read_text(encoding='utf-8'):
                 shutil.copy2(src_file, target)
                 created_files.append(f"{target.name} (updated)")
+    
+    # Also copy edog-logs.html to build output dirs so the server can find it at runtime
+    html_src = src_dir / "edog-logs.html"
+    if html_src.exists():
+        entry_point = repo_root / "Service" / "Microsoft.LiveTable.Service.EntryPoint"
+        bin_dir = entry_point / "bin"
+        if bin_dir.exists():
+            for dll in bin_dir.rglob("Microsoft.LiveTable.Service.EntryPoint.dll"):
+                out_devmode = dll.parent / "DevMode"
+                out_devmode.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(html_src, out_devmode / "edog-logs.html")
     
     if created_files:
         return "applied", created_files
