@@ -79,7 +79,7 @@ FILES = {
     "GTSBasedSparkClient": SERVICE_PATH / "SparkHttp/GTSBasedSparkClient.cs",
     "TelemetryReporter": SERVICE_PATH / "Telemetry/CustomLiveTableTelemetryReporter.cs",
     "WorkloadApp": SERVICE_PATH / "WorkloadApp.cs",
-    "Program": SERVICE_PATH / "Program.cs",
+    "Program": Path("Service/Microsoft.LiveTable.Service.EntryPoint") / "Program.cs",
 }
 
 # DevMode log viewer files (created, not patched)
