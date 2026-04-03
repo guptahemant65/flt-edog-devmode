@@ -2,49 +2,32 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // </copyright>
 
-using System.Collections.Concurrent;
-using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+#nullable disable
+#pragma warning disable // DevMode-only file — suppress all warnings
 
-namespace Microsoft.LiveTable.Service.DevMode;
+namespace Microsoft.LiveTable.Service.DevMode
+{
+    using System;
+    using System.Collections.Concurrent;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Net.WebSockets;
+    using System.Text;
+    using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.Hosting;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Hosting;
+    using Microsoft.Extensions.Logging;
 
-/// <summary>
-/// Data model representing a log entry with associated metadata.
-/// </summary>
-public record LogEntry(
-    DateTime Timestamp,
-    string Level,
-    string Message,
-    string Component,
-    string RootActivityId,
-    string EventId,
-    Dictionary<string, string> CustomData);
-
-/// <summary>
-/// Data model representing a telemetry event with performance metrics.
-/// </summary>
-public record TelemetryEvent(
-    DateTime Timestamp,
-    string ActivityName,
-    string ActivityStatus,
-    long DurationMs,
-    string ResultCode,
-    string CorrelationId,
-    Dictionary<string, string> Attributes,
-    string UserId);
-
-/// <summary>
-/// Embedded Kestrel HTTP + WebSocket server for real-time log viewing in EDOG devmode.
-/// Provides REST APIs and WebSocket streaming for log entries and telemetry events.
-/// </summary>
-internal sealed class EdogLogServer : IDisposable
+    /// <summary>
+    /// Embedded Kestrel HTTP + WebSocket server for real-time log viewing in EDOG devmode.
+    /// Provides REST APIs and WebSocket streaming for log entries and telemetry events.
+    /// </summary>
+    internal sealed class EdogLogServer : IDisposable
 {
     private const int MaxLogEntries = 10000;
     private const int MaxTelemetryEvents = 5000;
@@ -56,8 +39,8 @@ internal sealed class EdogLogServer : IDisposable
     private readonly ConcurrentDictionary<int, WebSocket> webSocketClients = new();
     private int nextClientId;
     
-    private WebApplication? app;
-    private Task? hostTask;
+    private WebApplication app;
+    private Task hostTask;
     private string htmlContent = "<html><body><h1>EDOG Log Server</h1><p>WebSocket endpoint: /ws/logs</p></body></html>";
     private bool disposed;
 
@@ -377,10 +360,10 @@ internal sealed class EdogLogServer : IDisposable
         while (buffer.Count > maxSize && buffer.TryDequeue(out _)) { }
     }
 
-    private LogEntry[] FilterLogs(DateTime? since, string level, string search, int limit)
+    private LogEntry[] FilterLogs(DateTime since, string level, string search, int limit)
     {
         return logBuffer.ToArray()
-            .Where(log => since == null || log.Timestamp >= since)
+            .Where(log => since == DateTime.MinValue || log.Timestamp >= since)
             .Where(log => string.IsNullOrEmpty(level) || log.Level.Equals(level, StringComparison.OrdinalIgnoreCase))
             .Where(log => string.IsNullOrEmpty(search) || 
                          log.Message.Contains(search, StringComparison.OrdinalIgnoreCase) ||
@@ -390,20 +373,20 @@ internal sealed class EdogLogServer : IDisposable
             .ToArray();
     }
 
-    private TelemetryEvent[] FilterTelemetry(DateTime? since, string activity, int limit)
+    private TelemetryEvent[] FilterTelemetry(DateTime since, string activity, int limit)
     {
         return telemetryBuffer.ToArray()
-            .Where(evt => since == null || evt.Timestamp >= since)
+            .Where(evt => since == DateTime.MinValue || evt.Timestamp >= since)
             .Where(evt => string.IsNullOrEmpty(activity) || evt.ActivityName.Equals(activity, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(evt => evt.Timestamp)
             .Take(limit)
             .ToArray();
     }
 
-    private static DateTime? ParseDateTime(string? value) =>
-        string.IsNullOrEmpty(value) ? null : DateTime.TryParse(value, out var dt) ? dt : null;
+    private static DateTime ParseDateTime(string value) =>
+        string.IsNullOrEmpty(value) ? DateTime.MinValue : DateTime.TryParse(value, out var dt) ? dt : DateTime.MinValue;
 
-    private static int ParseInt(string? value, int defaultValue) =>
+    private static int ParseInt(string value, int defaultValue) =>
         string.IsNullOrEmpty(value) ? defaultValue : int.TryParse(value, out var result) ? result : defaultValue;
 
     /// <inheritdoc/>
@@ -421,4 +404,5 @@ internal sealed class EdogLogServer : IDisposable
             Console.WriteLine($"Error during EdogLogServer disposal: {ex}");
         }
     }
+}
 }

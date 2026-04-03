@@ -2,14 +2,16 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // </copyright>
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Microsoft.LiveTable.Service.Telemetry;
-using Microsoft.ServicePlatform.Telemetry;
+#nullable disable
+#pragma warning disable // DevMode-only file — suppress all warnings
 
 namespace Microsoft.LiveTable.Service.DevMode
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Microsoft.LiveTable.Service.Telemetry;
+    using Microsoft.ServicePlatform.Telemetry;
     /// <summary>
     /// Decorator that intercepts ICustomLiveTableTelemetryReporter calls and forwards them to EdogLogServer
     /// for dev-time analysis while maintaining the original telemetry flow.
@@ -64,16 +66,16 @@ namespace Microsoft.LiveTable.Service.DevMode
                 }
 
                 var telemetryEvent = new TelemetryEvent(
-                    Timestamp: operationStartTime,
-                    ActivityName: activityName ?? string.Empty,
-                    ActivityStatus: activityStatus ?? string.Empty,
-                    DurationMs: durationMs,
-                    ResultCode: resultCode,
-                    CorrelationId: string.IsNullOrEmpty(correlationId)
+                    operationStartTime,
+                    activityName ?? string.Empty,
+                    activityStatus ?? string.Empty,
+                    durationMs,
+                    resultCode,
+                    string.IsNullOrEmpty(correlationId)
                         ? MonitoredScope.RootActivityId.ToString()
                         : correlationId,
-                    Attributes: attributes,
-                    UserId: executingUserObjectId.ToString());
+                    attributes,
+                    executingUserObjectId.ToString());
 
                 // Forward to EdogLogServer
                 this.edogLogServer.AddTelemetry(telemetryEvent);

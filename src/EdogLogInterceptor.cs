@@ -2,14 +2,16 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // </copyright>
 
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using Microsoft.ServicePlatform.Telemetry;
+#nullable disable
+#pragma warning disable // DevMode-only file — suppress all warnings
 
 namespace Microsoft.LiveTable.Service.DevMode
 {
+    using System;
+    using System.Collections.Concurrent;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Microsoft.ServicePlatform.Telemetry;
     /// <summary>
     /// Intercepts all Tracer.LogSanitized* calls and forwards them to EdogLogServer for dev-time analysis.
     /// Also writes colored console output so developers see logs in their terminal.

@@ -85,9 +85,11 @@ FILES = {
 # DevMode log viewer files (created, not patched)
 DEVMODE_FILES = {
     "EdogLogServer": SERVICE_PATH / "DevMode/EdogLogServer.cs",
+    "EdogLogModels": SERVICE_PATH / "DevMode/EdogLogModels.cs",
     "EdogLogInterceptor": SERVICE_PATH / "DevMode/EdogLogInterceptor.cs", 
     "EdogTelemetryInterceptor": SERVICE_PATH / "DevMode/EdogTelemetryInterceptor.cs",
     "EdogLogsHtml": SERVICE_PATH / "DevMode/edog-logs.html",
+    "EditorConfig": SERVICE_PATH / "DevMode/.editorconfig",
 }
 
 
@@ -1881,17 +1883,18 @@ def apply_log_viewer_registration_workloadapp_cs(content):
     if "EdogTelemetryInterceptor" in content:
         return content, "already_applied"
     
-    # Find the TelemetryReporter registration line
-    pattern = r"(\s*)(WireUp\.RegisterSingletonType<ICustomLiveTableTelemetryReporter, CustomLiveTableTelemetryReporter>\(\);)"
+    # Find the TelemetryReporter registration line and replace with interceptor wrapper
+    original = "WireUp.RegisterSingletonType<ICustomLiveTableTelemetryReporter, CustomLiveTableTelemetryReporter>();"
+    replacement = (
+        "// EDOG DevMode - Wrap telemetry reporter with web log viewer interceptor\n"
+        "            WireUp.RegisterInstance<ICustomLiveTableTelemetryReporter>(\n"
+        "                new Microsoft.LiveTable.Service.DevMode.EdogTelemetryInterceptor(\n"
+        "                    new CustomLiveTableTelemetryReporter(),\n"
+        "                    WireUp.Resolve<Microsoft.LiveTable.Service.DevMode.EdogLogServer>()));"
+    )
     
-    replacement = r"""\1WireUp.RegisterSingletonType<ICustomLiveTableTelemetryReporter>(() => 
-\1    new Microsoft.LiveTable.Service.DevMode.EdogTelemetryInterceptor(
-\1        new CustomLiveTableTelemetryReporter(), 
-\1        WireUp.Resolve<Microsoft.LiveTable.Service.DevMode.EdogLogServer>()));"""
-    
-    match = re.search(pattern, content)
-    if match:
-        new_content = re.sub(pattern, replacement, content)
+    if original in content:
+        new_content = content.replace(original, replacement)
         return new_content, "applied"
     
     return content, "pattern_not_found"
@@ -1907,8 +1910,14 @@ def revert_log_viewer_registration_program_cs(content):
 
 def revert_log_viewer_registration_workloadapp_cs(content):
     """Revert log viewer telemetry interceptor registration from WorkloadApp.cs."""
-    # Replace back with original registration
-    pattern = r"WireUp\.RegisterSingletonType<ICustomLiveTableTelemetryReporter>\(\(\) =>\s*\n\s*new Microsoft\.LiveTable\.Service\.DevMode\.EdogTelemetryInterceptor\([\s\S]*?\)\);"
+    # Replace interceptor wrapper back with original registration
+    pattern = (
+        r"// EDOG DevMode - Wrap telemetry reporter with web log viewer interceptor\n"
+        r"\s*WireUp\.RegisterInstance<ICustomLiveTableTelemetryReporter>\(\n"
+        r"\s*new Microsoft\.LiveTable\.Service\.DevMode\.EdogTelemetryInterceptor\(\n"
+        r"\s*new CustomLiveTableTelemetryReporter\(\),\n"
+        r"\s*WireUp\.Resolve<Microsoft\.LiveTable\.Service\.DevMode\.EdogLogServer>\(\)\)\);"
+    )
     replacement = "WireUp.RegisterSingletonType<ICustomLiveTableTelemetryReporter, CustomLiveTableTelemetryReporter>();"
     
     new_content = re.sub(pattern, replacement, content)
