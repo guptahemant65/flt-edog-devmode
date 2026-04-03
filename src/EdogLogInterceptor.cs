@@ -44,9 +44,9 @@ namespace Microsoft.LiveTable.Service.DevMode
 
                 // Extract core data
                 var timestamp = DateTime.UtcNow;
-                var level = testLogEvent.Level.ToString();
+                var level = NormalizeLevel(testLogEvent.Level.ToString());
                 var message = testLogEvent.Message;
-                var component = MonitoredScope.CurrentCodeMarkerName ?? "Unknown";
+                var component = ExtractComponent(MonitoredScope.CurrentCodeMarkerName, message);
                 var rootActivityId = MonitoredScope.RootActivityId.ToString();
                 var eventId = testLogEvent.EventId;
 
@@ -76,10 +76,6 @@ namespace Microsoft.LiveTable.Service.DevMode
         /// <summary>
         /// Writes colored console output based on log level for developer visibility.
         /// </summary>
-        /// <param name="level">The log level.</param>
-        /// <param name="component">The component name.</param>
-        /// <param name="rootActivityId">The root activity ID.</param>
-        /// <param name="message">The log message.</param>
         private void WriteColoredConsoleOutput(string level, string component, string rootActivityId, string message)
         {
             try
@@ -89,7 +85,6 @@ namespace Microsoft.LiveTable.Service.DevMode
 
                 var originalColor = Console.ForegroundColor;
                 
-                // Set color based on log level
                 Console.ForegroundColor = level.ToUpperInvariant() switch
                 {
                     "MESSAGE" => ConsoleColor.Cyan,
@@ -106,6 +101,51 @@ namespace Microsoft.LiveTable.Service.DevMode
             {
                 // Ignore console output errors - don't break logging pipeline
             }
+        }
+
+        /// <summary>
+        /// Normalizes ServicePlatform TraceLevel enum names to the display names used by the frontend.
+        /// The platform uses "Informational" but the UI expects "Message".
+        /// </summary>
+        private static string NormalizeLevel(string level)
+        {
+            return level switch
+            {
+                "Informational" => "Message",
+                "Info" => "Message",
+                _ => level
+            };
+        }
+
+        /// <summary>
+        /// Extracts a clean component name from the MonitoredScope code marker name.
+        /// Strips WCL- prefixes and extracts FLT-specific bracket tags from messages.
+        /// </summary>
+        private static string ExtractComponent(string codeMarkerName, string message)
+        {
+            // Try to extract [BracketedComponent] from message first — most informative
+            if (!string.IsNullOrEmpty(message))
+            {
+                int start = message.IndexOf('[');
+                int end = message.IndexOf(']');
+                if (start == 0 && end > 1 && end < 60)
+                {
+                    return message.Substring(1, end - 1);
+                }
+            }
+
+            if (string.IsNullOrEmpty(codeMarkerName) || codeMarkerName == "Unknown")
+            {
+                return "Unknown";
+            }
+
+            // Clean up WCL- prefix and take meaningful suffix
+            if (codeMarkerName.StartsWith("WCL-"))
+            {
+                return codeMarkerName.Substring(4);
+            }
+
+            return codeMarkerName;
         }
     }
 }
