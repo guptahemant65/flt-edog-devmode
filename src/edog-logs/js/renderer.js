@@ -97,6 +97,7 @@ class Renderer {
     this.renderThrottleMs = 100;
     this.lastRenderTime = 0;
     this.pendingTimer = null;
+    this._lastPinnedScrollTop = -1;
 
     // Virtual scroll state
     this.scrollContainer = null;
@@ -270,9 +271,19 @@ class Renderer {
 
     // Auto-scroll: pin to latest entries
     if (this.state.autoScroll) {
-      endIdx = totalFiltered;
-      startIdx = Math.max(0, endIdx - Math.ceil(viewportHeight / this.ROW_HEIGHT) - this.OVERSCAN);
-      this.scrollContainer.scrollTop = totalHeight - viewportHeight;
+      // Detect if user scrolled away from where we last pinned them
+      if (this._lastPinnedScrollTop >= 0 && scrollTop < this._lastPinnedScrollTop - this.ROW_HEIGHT) {
+        // User scrolled up — disable auto-scroll
+        this.state.autoScroll = false;
+        this._lastPinnedScrollTop = -1;
+        if (window.edogViewer) window.edogViewer.showResumeButton();
+      } else {
+        const newScrollTop = Math.max(0, totalHeight - viewportHeight);
+        endIdx = totalFiltered;
+        startIdx = Math.max(0, endIdx - Math.ceil(viewportHeight / this.ROW_HEIGHT) - this.OVERSCAN);
+        this.scrollContainer.scrollTop = newScrollTop;
+        this._lastPinnedScrollTop = newScrollTop;
+      }
     }
 
     // Determine which filtered indices need to be on screen
@@ -564,6 +575,7 @@ class Renderer {
     if (this.state.autoScroll && this.scrollContainer) {
       const totalHeight = this.state.filterIndex.length * this.ROW_HEIGHT;
       this.scrollContainer.scrollTop = totalHeight;
+      this._lastPinnedScrollTop = totalHeight;
     }
   }
 
@@ -640,6 +652,7 @@ class Renderer {
     if (!container) return;
     const totalHeight = this.state.filterIndex.length * this.ROW_HEIGHT;
     container.scrollTop = totalHeight;
+    this._lastPinnedScrollTop = totalHeight;
   }
 
   // Legacy public API: createLogRow (used by external callers like smart-context)
