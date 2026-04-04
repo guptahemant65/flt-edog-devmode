@@ -2755,11 +2755,11 @@ class Renderer {
     // Level filter — but allow Verbose from FLT-relevant components
     const level = entry.level || 'Message';
     if (!this.state.activeLevels.has(level)) {
-      // If Verbose is off but preset is FLT, still show Verbose from non-excluded components
+      // If Verbose is off but preset is FLT, still show Verbose from included components
       if (level !== 'Verbose' || this.state.activePreset !== 'flt') return false;
       if (this.state.excludedComponents.has(component)) return false;
       const fltPreset = FilterManager.COMPONENT_PRESETS.flt;
-      if (fltPreset.exclude && fltPreset.exclude.some(p => p.test(component))) return false;
+      if (fltPreset.include && !fltPreset.include.some(p => p.test(component))) return false;
       // Falls through — this is a Verbose log from an FLT-relevant component
     }
 
@@ -3031,10 +3031,55 @@ class FilterManager {
     this.renderer.rerenderTelemetry();
   }
   
-  // Component presets — regex patterns to EXCLUDE
+  // Component presets — regex patterns to INCLUDE (allowlist approach)
+  // Derived from workload-fabriclivetable CodeMarkers.cs, MonitoredCodeMarkers.cs,
+  // and bracket-tagged Tracer.Log* calls across the entire FLT codebase.
   static COMPONENT_PRESETS = {
-    all: { exclude: [] },
-    flt: { exclude: [/^WCL-/i, /^IntervalTimer/i, /^MonitoredScope/i, /^FutureConsumption/i, /^HealthCheck/i, /^Kestrel/i, /^Microsoft\.AspNetCore/i, /^System\./i, /^HiccupMonitor/i] },
+    all: {},
+    flt: { include: [
+      // CodeMarkers.cs — controllers, handlers, scheduler, reliable ops (54+ markers)
+      /^LiveTable/i,
+      // MonitoredCodeMarkers.cs — TIPS, FabricApi, eviction, OneLakeRestClient (27+ markers)
+      /^Workload\.LiveTable/i,
+      // FeatureFlightProvider CodeMarkers
+      /^LTWorkload/i,
+      // DQ metrics hook + writer bracket tags
+      /^DqMetrics/i,
+      // Insights metrics bracket tags (InsightsMetricsWrite, InsightsTableManager)
+      /^Insights/i,
+      // OneLake bracket tags (OneLakeRestClient, OneLakeRetryPolicyProvider)
+      /^OneLake/i,
+      // DAG execution flow bracket tags (DagExecutionBeginFlow, DagExecutionEndFlow, etc.)
+      /^DagExecution/i,
+      /^DagCancellation/i,
+      /^DagHook/i,
+      // Node execution flow bracket tags
+      /^NodeExecution/i,
+      // Retry bracket tags (RetryExecutor, RetryPolicy, StandardRetryStrategy)
+      /^Retry/i,
+      /^StandardRetry/i,
+      // Lineage bracket tags
+      /^Lineage/i,
+      /^ExtendedLineage/i,
+      /^FullLineage/i,
+      /^RecursiveTraversal/i,
+      // Error & cancellation flows
+      /^ErrorMessage/i,
+      /^Cancellation$/i,
+      // Catalog & DQ
+      /^GetConnected/i,
+      /^GetDataQuality/i,
+      /^Cache$/i,
+      // Metrics table names (sys_run_metrics)
+      /^sys_/i,
+      // Misc FLT bracket tags
+      /^DevMode$/i,
+      /^WES$/i,
+      /^Multischedule/i,
+      /^IncludedLakehouses/i,
+      /^SelectedOnly/i,
+      /^OC\./i,
+    ] },
     dag: { include: [/DagExecution/i, /NodeExec/i, /Hook/i, /InsightsMetrics/i, /RunMetrics/i, /Orchestrat/i, /Pipeline/i] },
     spark: { include: [/Spark/i, /GTS/i, /Notebook/i, /Session/i, /Livy/i, /Transform/i] },
   };

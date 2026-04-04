@@ -79,10 +79,55 @@ class FilterManager {
     this.renderer.rerenderTelemetry();
   }
   
-  // Component presets — regex patterns to EXCLUDE
+  // Component presets — regex patterns to INCLUDE (allowlist approach)
+  // Derived from workload-fabriclivetable CodeMarkers.cs, MonitoredCodeMarkers.cs,
+  // and bracket-tagged Tracer.Log* calls across the entire FLT codebase.
   static COMPONENT_PRESETS = {
-    all: { exclude: [] },
-    flt: { exclude: [/^WCL-/i, /^IntervalTimer/i, /^MonitoredScope/i, /^FutureConsumption/i, /^HealthCheck/i, /^Kestrel/i, /^Microsoft\.AspNetCore/i, /^System\./i, /^HiccupMonitor/i] },
+    all: {},
+    flt: { include: [
+      // CodeMarkers.cs — controllers, handlers, scheduler, reliable ops (54+ markers)
+      /^LiveTable/i,
+      // MonitoredCodeMarkers.cs — TIPS, FabricApi, eviction, OneLakeRestClient (27+ markers)
+      /^Workload\.LiveTable/i,
+      // FeatureFlightProvider CodeMarkers
+      /^LTWorkload/i,
+      // DQ metrics hook + writer bracket tags
+      /^DqMetrics/i,
+      // Insights metrics bracket tags (InsightsMetricsWrite, InsightsTableManager)
+      /^Insights/i,
+      // OneLake bracket tags (OneLakeRestClient, OneLakeRetryPolicyProvider)
+      /^OneLake/i,
+      // DAG execution flow bracket tags (DagExecutionBeginFlow, DagExecutionEndFlow, etc.)
+      /^DagExecution/i,
+      /^DagCancellation/i,
+      /^DagHook/i,
+      // Node execution flow bracket tags
+      /^NodeExecution/i,
+      // Retry bracket tags (RetryExecutor, RetryPolicy, StandardRetryStrategy)
+      /^Retry/i,
+      /^StandardRetry/i,
+      // Lineage bracket tags
+      /^Lineage/i,
+      /^ExtendedLineage/i,
+      /^FullLineage/i,
+      /^RecursiveTraversal/i,
+      // Error & cancellation flows
+      /^ErrorMessage/i,
+      /^Cancellation$/i,
+      // Catalog & DQ
+      /^GetConnected/i,
+      /^GetDataQuality/i,
+      /^Cache$/i,
+      // Metrics table names (sys_run_metrics)
+      /^sys_/i,
+      // Misc FLT bracket tags
+      /^DevMode$/i,
+      /^WES$/i,
+      /^Multischedule/i,
+      /^IncludedLakehouses/i,
+      /^SelectedOnly/i,
+      /^OC\./i,
+    ] },
     dag: { include: [/DagExecution/i, /NodeExec/i, /Hook/i, /InsightsMetrics/i, /RunMetrics/i, /Orchestrat/i, /Pipeline/i] },
     spark: { include: [/Spark/i, /GTS/i, /Notebook/i, /Session/i, /Livy/i, /Transform/i] },
   };
