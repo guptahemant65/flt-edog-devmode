@@ -39,12 +39,7 @@ namespace Microsoft.LiveTable.Service.DevMode
                 var config = await ReadConfig();
                 if (config == null)
                 {
-                    context.Response.StatusCode = 503;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "config_not_found",
-                        message = "edog-config.json not found"
-                    }, JsonOpts));
+                    await WriteError(context, 503, "config_not_found", "edog-config.json not found");
                     return;
                 }
 
@@ -58,232 +53,138 @@ namespace Microsoft.LiveTable.Service.DevMode
                     tokenExpired = false;
                 }
 
-                var response = new
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new
                 {
                     workspaceId = config.WorkspaceId,
                     artifactId = config.ArtifactId,
                     capacityId = config.CapacityId,
                     tokenExpiryMinutes = (int)expiryMinutes,
                     tokenExpired
-                };
-                await context.Response.WriteAsync(JsonSerializer.Serialize(response, JsonOpts));
+                }, JsonOpts));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[EDOG] HandleConfig error: {ex}");
-                context.Response.StatusCode = 500;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "internal_error",
-                    message = ex.Message
-                }, JsonOpts));
+                await WriteError(context, 500, "internal_error", ex.Message);
             }
         }
 
         public async Task HandleGetLatestDag(HttpContext context)
         {
-            context.Response.ContentType = "application/json";
-            try
+            await ProxyFabricRequest(context, "HandleGetLatestDag", async (baseUrl, token) =>
             {
-                var config = await ReadConfig();
-                var token = ReadToken();
-
-                if (config == null)
-                {
-                    context.Response.StatusCode = 503;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "config_not_found",
-                        message = "edog-config.json not found"
-                    }, JsonOpts));
-                    return;
-                }
-
-                if (token == null)
-                {
-                    context.Response.StatusCode = 401;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "token_expired",
-                        message = "Run edog --refresh-token in terminal"
-                    }, JsonOpts));
-                    return;
-                }
-
-                var baseUrl = BuildBaseUrl(config);
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/liveTable/getLatestDag?showExtendedLineage=true");
-                request.Headers.Add("Authorization", $"Bearer {token.Value.Token}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/liveTable/getLatestDag?showExtendedLineage=true");
+                request.Headers.Add("Authorization", $"Bearer {token}");
                 request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
-
-                var response = await Http.SendAsync(request);
-                var body = await response.Content.ReadAsStringAsync();
-
-                context.Response.StatusCode = (int)response.StatusCode;
-                await context.Response.WriteAsync(body);
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.WriteLine($"[EDOG] HandleGetLatestDag service error: {ex}");
-                context.Response.StatusCode = 502;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "service_unreachable",
-                    message = ex.Message
-                }, JsonOpts));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[EDOG] HandleGetLatestDag error: {ex}");
-                context.Response.StatusCode = 500;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "internal_error",
-                    message = ex.Message
-                }, JsonOpts));
-            }
+                return await Http.SendAsync(request);
+            });
         }
 
         public async Task HandleRunDag(HttpContext context)
         {
-            context.Response.ContentType = "application/json";
-            try
+            await ProxyFabricRequest(context, "HandleRunDag", async (baseUrl, token) =>
             {
-                var config = await ReadConfig();
-                var token = ReadToken();
-
-                if (config == null)
-                {
-                    context.Response.StatusCode = 503;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "config_not_found",
-                        message = "edog-config.json not found"
-                    }, JsonOpts));
-                    return;
-                }
-
-                if (token == null)
-                {
-                    context.Response.StatusCode = 401;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "token_expired",
-                        message = "Run edog --refresh-token in terminal"
-                    }, JsonOpts));
-                    return;
-                }
-
-                var baseUrl = BuildBaseUrl(config);
                 var iterationId = Guid.NewGuid().ToString();
 
-                var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/liveTableSchedule/runDAG/{iterationId}");
-                request.Headers.Add("Authorization", $"Bearer {token.Value.Token}");
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/liveTableSchedule/runDAG/{iterationId}");
+                request.Headers.Add("Authorization", $"Bearer {token}");
                 request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
 
                 var response = await Http.SendAsync(request);
 
+                // Wrap RunDAG response with the generated iterationId
                 context.Response.StatusCode = (int)response.StatusCode;
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new
                 {
                     iterationId,
                     statusCode = (int)response.StatusCode
                 }, JsonOpts));
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.WriteLine($"[EDOG] HandleRunDag service error: {ex}");
-                context.Response.StatusCode = 502;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "service_unreachable",
-                    message = ex.Message
-                }, JsonOpts));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[EDOG] HandleRunDag error: {ex}");
-                context.Response.StatusCode = 500;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "internal_error",
-                    message = ex.Message
-                }, JsonOpts));
-            }
+                return null; // Signal that response was already written
+            });
         }
 
         public async Task HandleCancelDag(HttpContext context)
         {
+            var iterationId = context.Request.RouteValues["iterationId"]?.ToString();
+            if (string.IsNullOrEmpty(iterationId))
+            {
+                context.Response.ContentType = "application/json";
+                await WriteError(context, 400, "missing_iteration_id", "iterationId is required");
+                return;
+            }
+
+            await ProxyFabricRequest(context, "HandleCancelDag", async (baseUrl, token) =>
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/liveTableSchedule/cancelDAG/{iterationId}");
+                request.Headers.Add("Authorization", $"Bearer {token}");
+                request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
+                return await Http.SendAsync(request);
+            });
+        }
+
+        /// <summary>
+        /// Shared proxy pipeline: validate config+token, execute the Fabric request, forward the response.
+        /// When the callback returns null, the response has already been written (e.g., RunDAG's custom body).
+        /// </summary>
+        private async Task ProxyFabricRequest(
+            HttpContext context,
+            string handlerName,
+            Func<string, string, Task<HttpResponseMessage>> executeRequest)
+        {
             context.Response.ContentType = "application/json";
             try
             {
-                var iterationId = context.Request.RouteValues["iterationId"]?.ToString();
-                if (string.IsNullOrEmpty(iterationId))
-                {
-                    context.Response.StatusCode = 400;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "missing_iteration_id",
-                        message = "iterationId is required"
-                    }, JsonOpts));
-                    return;
-                }
+                var credentials = await ValidateAndGetCredentials(context);
+                if (credentials == null) return; // Error response already written
 
-                var config = await ReadConfig();
-                var token = ReadToken();
-
-                if (config == null)
-                {
-                    context.Response.StatusCode = 503;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "config_not_found",
-                        message = "edog-config.json not found"
-                    }, JsonOpts));
-                    return;
-                }
-
-                if (token == null)
-                {
-                    context.Response.StatusCode = 401;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                    {
-                        error = "token_expired",
-                        message = "Run edog --refresh-token in terminal"
-                    }, JsonOpts));
-                    return;
-                }
-
+                var (config, token) = credentials.Value;
                 var baseUrl = BuildBaseUrl(config);
-                var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/liveTableSchedule/cancelDAG/{iterationId}");
-                request.Headers.Add("Authorization", $"Bearer {token.Value.Token}");
-                request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
 
-                var response = await Http.SendAsync(request);
+                var response = await executeRequest(baseUrl, token.Token);
+                if (response == null) return; // Response already written by callback
+
                 var body = await response.Content.ReadAsStringAsync();
-
                 context.Response.StatusCode = (int)response.StatusCode;
                 await context.Response.WriteAsync(body);
             }
             catch (HttpRequestException ex)
             {
-                Console.WriteLine($"[EDOG] HandleCancelDag service error: {ex}");
-                context.Response.StatusCode = 502;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "service_unreachable",
-                    message = ex.Message
-                }, JsonOpts));
+                Console.WriteLine($"[EDOG] {handlerName} service error: {ex}");
+                await WriteError(context, 502, "service_unreachable", ex.Message);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[EDOG] HandleCancelDag error: {ex}");
-                context.Response.StatusCode = 500;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    error = "internal_error",
-                    message = ex.Message
-                }, JsonOpts));
+                Console.WriteLine($"[EDOG] {handlerName} error: {ex}");
+                await WriteError(context, 500, "internal_error", ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Reads and validates config + token. Returns null and writes error response if either is missing.
+        /// </summary>
+        private async Task<(EdogConfig Config, TokenInfo Token)?> ValidateAndGetCredentials(HttpContext context)
+        {
+            var config = await ReadConfig();
+            if (config == null)
+            {
+                await WriteError(context, 503, "config_not_found", "edog-config.json not found");
+                return null;
+            }
+
+            var token = ReadToken();
+            if (token == null)
+            {
+                await WriteError(context, 401, "token_expired", "Run edog --refresh-token in terminal");
+                return null;
+            }
+
+            return (config, token.Value);
+        }
+
+        private static async Task WriteError(HttpContext context, int statusCode, string error, string message)
+        {
+            context.Response.StatusCode = statusCode;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error, message }, JsonOpts));
         }
 
         private static string BuildBaseUrl(EdogConfig config)
@@ -294,11 +195,6 @@ namespace Microsoft.LiveTable.Service.DevMode
         private async Task<EdogConfig> ReadConfig()
         {
             var path = Path.Combine(configDir, "edog-config.json");
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-
             try
             {
                 var json = await File.ReadAllTextAsync(path);
@@ -322,11 +218,6 @@ namespace Microsoft.LiveTable.Service.DevMode
         private TokenInfo? ReadToken()
         {
             var path = Path.Combine(configDir, ".edog-token-cache");
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-
             try
             {
                 var raw = File.ReadAllText(path).Trim();
