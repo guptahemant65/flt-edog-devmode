@@ -187,6 +187,15 @@ class EdogLogViewer {
       });
     }
 
+    // Component filter
+    const componentFilter = document.getElementById('component-filter');
+    if (componentFilter) {
+      componentFilter.addEventListener('change', (e) => {
+        this.state.componentFilter = e.target.value;
+        this.filter.applyFilters();
+      });
+    }
+
     // RAID filter (W0.3)
     const raidInput = document.getElementById('raid-filter-input');
     if (raidInput) {
@@ -258,8 +267,11 @@ class EdogLogViewer {
       clearBtn.addEventListener('click', () => {
         this.clearRaidFilter();
         this.state.endpointFilter = '';
+        this.state.componentFilter = '';
         const ef = document.getElementById('endpoint-filter');
         if (ef) ef.value = '';
+        const cf = document.getElementById('component-filter');
+        if (cf) cf.value = '';
         this.filter.clearAll();
       });
     }
@@ -376,7 +388,8 @@ class EdogLogViewer {
       this.state.addLog(data);
       this.autoDetector.processLog(data);
       this.anomaly.processLog(data);
-      this.extractEndpointFromLog(data);
+      this.extractEndpointFromLog();
+      this.extractComponentFromLog();
       this.extractIterationIdFromLog(data);
       this.renderer.scheduleRender();
     } else if (type === 'telemetry') {
@@ -394,7 +407,8 @@ class EdogLogViewer {
       this.state.addLog(log);
       this.autoDetector.processLog(log);
       this.anomaly.processLog(log);
-      this.extractEndpointFromLog(log);
+      this.extractEndpointFromLog();
+      this.extractComponentFromLog();
       this.extractIterationIdFromLog(log);
     }
 
@@ -455,7 +469,8 @@ class EdogLogViewer {
           this.state.stats.totalLogs++;
           const level = (log.level || '').toLowerCase();
           if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
-          this.extractEndpointFromLog(log);
+          this.extractEndpointFromLog();
+      this.extractComponentFromLog();
           this.extractIterationIdFromLog(log);
         });
       }
@@ -637,6 +652,32 @@ class EdogLogViewer {
       select.appendChild(opt);
     });
     select.value = current; // Preserve selection
+  }
+
+  extractComponentFromLog = (entry) => {
+    const component = entry.component || '';
+    if (!component || component === 'Unknown') return;
+    // Normalize: strip trailing endpoint suffix (e.g. "OneLake-GetLatestDag" → "OneLake")
+    const base = component.replace(/-[A-Za-z]+$/, '');
+    if (base && !this.state.knownComponents.has(base)) {
+      this.state.knownComponents.add(base);
+      this.updateComponentDropdown();
+    }
+  }
+
+  updateComponentDropdown = () => {
+    const select = document.getElementById('component-filter');
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = '<option value="">All Components</option>';
+    const sorted = Array.from(this.state.knownComponents).sort();
+    sorted.forEach(comp => {
+      const opt = document.createElement('option');
+      opt.value = comp;
+      opt.textContent = comp;
+      select.appendChild(opt);
+    });
+    select.value = current;
   }
 
   // ===== RAID / ITERATION ID FILTER (W0.3) =====

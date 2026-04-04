@@ -1736,6 +1736,9 @@ mark {
     <select id="endpoint-filter" title="Filter by API endpoint">
       <option value="">All Endpoints</option>
     </select>
+    <select id="component-filter" title="Filter by component">
+      <option value="">All Components</option>
+    </select>
     <div class="raid-filter-wrapper">
       <span class="raid-filter-icon">🔍</span>
       <input type="text" id="raid-filter-input" placeholder="Filter by RAID or IterationId..." autocomplete="off" />
@@ -2013,6 +2016,10 @@ class LogViewerState {
     // W0.2 — Endpoint filter
     this.endpointFilter = '';
     this.knownEndpoints = new Set();
+
+    // Component filter
+    this.componentFilter = '';
+    this.knownComponents = new Set();
 
     // W0.3 — RAID / IterationId filter
     this.raidFilter = '';
@@ -2772,6 +2779,13 @@ class Renderer {
       const match = comp.match(/-([A-Za-z]+)$/);
       const endpoint = match ? match[1] : '';
       if (endpoint.toLowerCase() !== this.state.endpointFilter.toLowerCase()) return false;
+    }
+
+    // Component filter
+    if (this.state.componentFilter) {
+      const comp = entry.component || '';
+      const base = comp.replace(/-[A-Za-z]+$/, '');
+      if (base.toLowerCase() !== this.state.componentFilter.toLowerCase()) return false;
     }
 
     // RAID / IterationId filter (W0.3)
@@ -4307,6 +4321,15 @@ class EdogLogViewer {
       });
     }
 
+    // Component filter
+    const componentFilter = document.getElementById('component-filter');
+    if (componentFilter) {
+      componentFilter.addEventListener('change', (e) => {
+        this.state.componentFilter = e.target.value;
+        this.filter.applyFilters();
+      });
+    }
+
     // RAID filter (W0.3)
     const raidInput = document.getElementById('raid-filter-input');
     if (raidInput) {
@@ -4378,8 +4401,11 @@ class EdogLogViewer {
       clearBtn.addEventListener('click', () => {
         this.clearRaidFilter();
         this.state.endpointFilter = '';
+        this.state.componentFilter = '';
         const ef = document.getElementById('endpoint-filter');
         if (ef) ef.value = '';
+        const cf = document.getElementById('component-filter');
+        if (cf) cf.value = '';
         this.filter.clearAll();
       });
     }
@@ -4496,7 +4522,8 @@ class EdogLogViewer {
       this.state.addLog(data);
       this.autoDetector.processLog(data);
       this.anomaly.processLog(data);
-      this.extractEndpointFromLog(data);
+      this.extractEndpointFromLog();
+      this.extractComponentFromLog();
       this.extractIterationIdFromLog(data);
       this.renderer.scheduleRender();
     } else if (type === 'telemetry') {
@@ -4514,7 +4541,8 @@ class EdogLogViewer {
       this.state.addLog(log);
       this.autoDetector.processLog(log);
       this.anomaly.processLog(log);
-      this.extractEndpointFromLog(log);
+      this.extractEndpointFromLog();
+      this.extractComponentFromLog();
       this.extractIterationIdFromLog(log);
     }
 
@@ -4575,7 +4603,8 @@ class EdogLogViewer {
           this.state.stats.totalLogs++;
           const level = (log.level || '').toLowerCase();
           if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
-          this.extractEndpointFromLog(log);
+          this.extractEndpointFromLog();
+      this.extractComponentFromLog();
           this.extractIterationIdFromLog(log);
         });
       }
@@ -4757,6 +4786,32 @@ class EdogLogViewer {
       select.appendChild(opt);
     });
     select.value = current; // Preserve selection
+  }
+
+  extractComponentFromLog = (entry) => {
+    const component = entry.component || '';
+    if (!component || component === 'Unknown') return;
+    // Normalize: strip trailing endpoint suffix (e.g. "OneLake-GetLatestDag" → "OneLake")
+    const base = component.replace(/-[A-Za-z]+$/, '');
+    if (base && !this.state.knownComponents.has(base)) {
+      this.state.knownComponents.add(base);
+      this.updateComponentDropdown();
+    }
+  }
+
+  updateComponentDropdown = () => {
+    const select = document.getElementById('component-filter');
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = '<option value="">All Components</option>';
+    const sorted = Array.from(this.state.knownComponents).sort();
+    sorted.forEach(comp => {
+      const opt = document.createElement('option');
+      opt.value = comp;
+      opt.textContent = comp;
+      select.appendChild(opt);
+    });
+    select.value = current;
   }
 
   // ===== RAID / ITERATION ID FILTER (W0.3) =====

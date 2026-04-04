@@ -150,6 +150,10 @@ class LogViewerState {
     this.endpointFilter = '';
     this.knownEndpoints = new Set();
 
+    // Component filter
+    this.componentFilter = '';
+    this.knownComponents = new Set();
+
     // W0.3 — RAID / IterationId filter
     this.raidFilter = '';
     this.knownIterationIds = new Map();

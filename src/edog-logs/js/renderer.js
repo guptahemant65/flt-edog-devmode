@@ -538,6 +538,13 @@ class Renderer {
       if (endpoint.toLowerCase() !== this.state.endpointFilter.toLowerCase()) return false;
     }
 
+    // Component filter
+    if (this.state.componentFilter) {
+      const comp = entry.component || '';
+      const base = comp.replace(/-[A-Za-z]+$/, '');
+      if (base.toLowerCase() !== this.state.componentFilter.toLowerCase()) return false;
+    }
+
     // RAID / IterationId filter (W0.3)
     if (this.state.raidFilter) {
       const raidLower = this.state.raidFilter.toLowerCase();
