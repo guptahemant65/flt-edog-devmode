@@ -132,7 +132,7 @@ class EdogLogViewer {
     this.ws.onMessage = this.handleWebSocketMessage;
   }
   
-  init = () => {
+  init = async () => {
     console.log('Initializing EDOG Log Viewer V2');
     
     // Make globally accessible
@@ -142,7 +142,7 @@ class EdogLogViewer {
     this.switchTab(this.state.activeTab);
     
     this.bindEventListeners();
-    this.loadInitialData();
+    await this.loadInitialData();
     this.ws.connect();
   }
   
@@ -452,6 +452,9 @@ class EdogLogViewer {
     if (btn) {
       btn.textContent = this.state.paused ? '▶ Resume' : '⏸ Pause';
       btn.classList.toggle('paused', this.state.paused);
+    }
+    if (!this.state.paused) {
+      this.filter.applyFilters();
     }
   }
   

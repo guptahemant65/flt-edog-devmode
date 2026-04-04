@@ -75,8 +75,7 @@ class AutoDetector {
           const [, nodeName, status] = nodeMatch;
           if (!exec.nodes) exec.nodes = new Map();
           exec.nodes.set(nodeName, { status, timestamp: entry.timestamp });
-          if (status === 'Completed') exec.completedNodes++;
-          else if (status === 'Failed') exec.failedNodes++;
+          this.recountNodes(exec);
         }
       }
       if (msg.includes('Executing node') && !msg.includes('Executed')) {
@@ -148,8 +147,7 @@ class AutoDetector {
             errorCode: event.attributes.ErrorCode,
             timestamp: event.timestamp
           });
-          if (event.activityStatus === 'Succeeded') exec.completedNodes++;
-          else if (event.activityStatus === 'Failed') exec.failedNodes++;
+          this.recountNodes(exec);
         }
       }
 
@@ -179,6 +177,14 @@ class AutoDetector {
         errors: [], raids: new Set(), endpoint: null, nodes: new Map()
       });
     }
+  }
+
+  recountNodes = (exec) => {
+    if (!exec.nodes) return;
+    const statuses = [...exec.nodes.values()].map(n => n.status);
+    exec.completedNodes = statuses.filter(s => s === 'Completed' || s === 'Succeeded').length;
+    exec.failedNodes = statuses.filter(s => s === 'Failed').length;
+    exec.skippedNodes = statuses.filter(s => s === 'Skipped' || s === 'Faulted').length;
   }
 
   extractIterationId = (msg) => {

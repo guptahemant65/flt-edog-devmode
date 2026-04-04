@@ -290,7 +290,10 @@ class Renderer {
       let removedHeight = 0;
       
       for (let i = 0; i < toRemove; i++) {
-        const firstChild = container.firstChild;
+        let firstChild = container.firstChild;
+        while (firstChild && firstChild.id === 'empty-state') {
+          firstChild = firstChild.nextSibling;
+        }
         if (firstChild) {
           removedHeight += firstChild.offsetHeight;
           container.removeChild(firstChild);

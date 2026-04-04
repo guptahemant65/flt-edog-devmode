@@ -2313,7 +2313,10 @@ class Renderer {
       let removedHeight = 0;
       
       for (let i = 0; i < toRemove; i++) {
-        const firstChild = container.firstChild;
+        let firstChild = container.firstChild;
+        while (firstChild && firstChild.id === 'empty-state') {
+          firstChild = firstChild.nextSibling;
+        }
         if (firstChild) {
           removedHeight += firstChild.offsetHeight;
           container.removeChild(firstChild);
@@ -2713,7 +2716,7 @@ class DetailPanel {
         
         <div class="detail-section">
           <h4>Message 
-            <button class="copy-btn" onclick="copyToClipboard(this, \`${(entry.message || 'No message').replace(/[`\\]/g, '\\$&')}\`)" title="Copy message to clipboard">📋</button>
+            <button class="copy-btn" data-copy="message" title="Copy message to clipboard">📋</button>
           </h4>
           <div class="detail-message">${this.escapeHtml(entry.message || 'No message')}</div>
         </div>
@@ -2722,15 +2725,15 @@ class DetailPanel {
           <h4>Correlation</h4>
           <div class="detail-field">
             <label>Root Activity ID:</label>
-            <span class="clickable-id" data-id="${entry.rootActivityId || ''}">${entry.rootActivityId || 'N/A'}</span>
-            ${entry.rootActivityId ? `<button class="copy-btn" onclick="copyToClipboard(this, '${entry.rootActivityId}')" title="Copy Activity ID to clipboard">📋</button>` : ''}
+            <span class="clickable-id" data-id="${this.escapeHtml(entry.rootActivityId || '')}">${this.escapeHtml(entry.rootActivityId || 'N/A')}</span>
+            ${entry.rootActivityId ? `<button class="copy-btn" data-copy="activityId" title="Copy Activity ID to clipboard">📋</button>` : ''}
           </div>
-          <div class="cross-link" onclick="filterSSRByCorrelation('${entry.rootActivityId || ''}')">🔗 Find in SSR</div>
+          <div class="cross-link" data-action="filterSSR">🔗 Find in SSR</div>
         </div>
         
         <div class="detail-section">
           <h4>Custom Data 
-            <button class="copy-btn" onclick="copyToClipboard(this, \`${customDataJson.replace(/[`\\]/g, '\\$&')}\`)" title="Copy JSON to clipboard">📋</button>
+            <button class="copy-btn" data-copy="customData" title="Copy JSON to clipboard">📋</button>
           </h4>
           ${shouldCollapseJson ? 
             `<details class="json-details">
@@ -2741,6 +2744,21 @@ class DetailPanel {
           }
         </div>
       `;
+
+      // Bind copy buttons safely via addEventListener (no inline onclick)
+      const copyData = {
+        message: entry.message || 'No message',
+        activityId: entry.rootActivityId || '',
+        customData: customDataJson
+      };
+      content.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          copyToClipboard(btn, copyData[btn.dataset.copy]);
+        });
+      });
+      content.querySelector('[data-action="filterSSR"]')?.addEventListener('click', () => {
+        filterSSRByCorrelation(entry.rootActivityId || '');
+      });
       
       // Add click handlers for correlation IDs
       content.querySelectorAll('.clickable-id').forEach(el => {
@@ -3220,8 +3238,7 @@ class AutoDetector {
           const [, nodeName, status] = nodeMatch;
           if (!exec.nodes) exec.nodes = new Map();
           exec.nodes.set(nodeName, { status, timestamp: entry.timestamp });
-          if (status === 'Completed') exec.completedNodes++;
-          else if (status === 'Failed') exec.failedNodes++;
+          this.recountNodes(exec);
         }
       }
       if (msg.includes('Executing node') && !msg.includes('Executed')) {
@@ -3293,8 +3310,7 @@ class AutoDetector {
             errorCode: event.attributes.ErrorCode,
             timestamp: event.timestamp
           });
-          if (event.activityStatus === 'Succeeded') exec.completedNodes++;
-          else if (event.activityStatus === 'Failed') exec.failedNodes++;
+          this.recountNodes(exec);
         }
       }
 
@@ -3324,6 +3340,14 @@ class AutoDetector {
         errors: [], raids: new Set(), endpoint: null, nodes: new Map()
       });
     }
+  }
+
+  recountNodes = (exec) => {
+    if (!exec.nodes) return;
+    const statuses = [...exec.nodes.values()].map(n => n.status);
+    exec.completedNodes = statuses.filter(s => s === 'Completed' || s === 'Succeeded').length;
+    exec.failedNodes = statuses.filter(s => s === 'Failed').length;
+    exec.skippedNodes = statuses.filter(s => s === 'Skipped' || s === 'Faulted').length;
   }
 
   extractIterationId = (msg) => {
@@ -3696,7 +3720,7 @@ class EdogLogViewer {
     this.ws.onMessage = this.handleWebSocketMessage;
   }
   
-  init = () => {
+  init = async () => {
     console.log('Initializing EDOG Log Viewer V2');
     
     // Make globally accessible
@@ -3706,7 +3730,7 @@ class EdogLogViewer {
     this.switchTab(this.state.activeTab);
     
     this.bindEventListeners();
-    this.loadInitialData();
+    await this.loadInitialData();
     this.ws.connect();
   }
   
@@ -4016,6 +4040,9 @@ class EdogLogViewer {
     if (btn) {
       btn.textContent = this.state.paused ? '▶ Resume' : '⏸ Pause';
       btn.classList.toggle('paused', this.state.paused);
+    }
+    if (!this.state.paused) {
+      this.filter.applyFilters();
     }
   }
   

@@ -64,7 +64,7 @@ class DetailPanel {
         
         <div class="detail-section">
           <h4>Message 
-            <button class="copy-btn" onclick="copyToClipboard(this, \`${(entry.message || 'No message').replace(/[`\\]/g, '\\$&')}\`)" title="Copy message to clipboard">📋</button>
+            <button class="copy-btn" data-copy="message" title="Copy message to clipboard">📋</button>
           </h4>
           <div class="detail-message">${this.escapeHtml(entry.message || 'No message')}</div>
         </div>
@@ -73,15 +73,15 @@ class DetailPanel {
           <h4>Correlation</h4>
           <div class="detail-field">
             <label>Root Activity ID:</label>
-            <span class="clickable-id" data-id="${entry.rootActivityId || ''}">${entry.rootActivityId || 'N/A'}</span>
-            ${entry.rootActivityId ? `<button class="copy-btn" onclick="copyToClipboard(this, '${entry.rootActivityId}')" title="Copy Activity ID to clipboard">📋</button>` : ''}
+            <span class="clickable-id" data-id="${this.escapeHtml(entry.rootActivityId || '')}">${this.escapeHtml(entry.rootActivityId || 'N/A')}</span>
+            ${entry.rootActivityId ? `<button class="copy-btn" data-copy="activityId" title="Copy Activity ID to clipboard">📋</button>` : ''}
           </div>
-          <div class="cross-link" onclick="filterSSRByCorrelation('${entry.rootActivityId || ''}')">🔗 Find in SSR</div>
+          <div class="cross-link" data-action="filterSSR">🔗 Find in SSR</div>
         </div>
         
         <div class="detail-section">
           <h4>Custom Data 
-            <button class="copy-btn" onclick="copyToClipboard(this, \`${customDataJson.replace(/[`\\]/g, '\\$&')}\`)" title="Copy JSON to clipboard">📋</button>
+            <button class="copy-btn" data-copy="customData" title="Copy JSON to clipboard">📋</button>
           </h4>
           ${shouldCollapseJson ? 
             `<details class="json-details">
@@ -92,6 +92,21 @@ class DetailPanel {
           }
         </div>
       `;
+
+      // Bind copy buttons safely via addEventListener (no inline onclick)
+      const copyData = {
+        message: entry.message || 'No message',
+        activityId: entry.rootActivityId || '',
+        customData: customDataJson
+      };
+      content.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          copyToClipboard(btn, copyData[btn.dataset.copy]);
+        });
+      });
+      content.querySelector('[data-action="filterSSR"]')?.addEventListener('click', () => {
+        filterSSRByCorrelation(entry.rootActivityId || '');
+      });
       
       // Add click handlers for correlation IDs
       content.querySelectorAll('.clickable-id').forEach(el => {
