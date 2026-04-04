@@ -3,58 +3,62 @@
   display: none;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: var(--space-1) var(--space-4);
+  padding: 8px 16px;
   font-family: var(--font-body);
-  font-size: var(--font-size-sm);
-  animation: slideDown 0.2s ease;
+  font-size: 12px;
+  animation: slideDown 0.3s ease;
 }
-.smart-context-bar.active { display: flex; align-items: center; gap: var(--space-3); }
-.smart-context-bar .dag-name { color: var(--text-bright); font-weight: 600; }
+.smart-context-bar.active { display: flex; align-items: center; gap: 12px; }
+.smart-context-bar .dag-name { color: var(--text); font-weight: 600; }
 .smart-context-bar .dag-status { font-weight: 500; }
 .smart-context-bar .dag-status.running { color: var(--level-message); }
 .smart-context-bar .dag-status.completed { color: var(--status-succeeded); }
 .smart-context-bar .dag-status.failed { color: var(--level-error); }
 .smart-context-bar .node-progress { color: var(--text-dim); }
-.smart-context-bar .elapsed { color: var(--text-dim); font-family: var(--font-mono); font-size: var(--font-size-xs); }
-.smart-context-bar .iter-id { color: var(--accent-bright); font-family: var(--font-mono); font-size: var(--font-size-xs); }
-.smart-context-bar .dismiss { color: var(--text-muted); cursor: pointer; margin-left: auto; font-size: var(--font-size-sm); }
+.smart-context-bar .elapsed { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+.smart-context-bar .iter-id { color: var(--accent); font-family: var(--font-mono); font-size: 10px; }
+.smart-context-bar .dismiss { color: var(--text-muted); cursor: pointer; margin-left: auto; }
 .smart-context-bar .dismiss:hover { color: var(--text); }
 
 /* Error Alert Card — surfaces when errors detected */
 .error-alert {
   display: none;
-  background: rgba(244, 71, 71, 0.04);
-  border: 1px solid rgba(244, 71, 71, 0.12);
-  border-radius: var(--radius-md);
-  margin: var(--space-1) var(--space-4);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-sm);
-  animation: slideDown 0.2s ease;
+  background: rgba(248,113,113,0.06);
+  border: 1px solid rgba(248,113,113,0.15);
+  border-radius: 8px;
+  margin: 8px 16px;
+  padding: 10px 14px;
+  font-size: 12px;
+  animation: slideDown 0.3s ease;
   cursor: pointer;
 }
-.error-alert.active { display: flex; align-items: center; gap: var(--space-2); }
+.error-alert.active { display: flex; align-items: center; gap: 10px; }
 .error-alert .error-icon { color: var(--level-error); font-weight: 600; }
 .error-alert .error-summary { color: var(--text); flex: 1; }
-.error-alert .error-action { color: var(--accent-bright); font-size: var(--font-size-xs); white-space: nowrap; }
+.error-alert .error-action { color: var(--accent); font-size: 11px; white-space: nowrap; }
 .error-alert .error-dismiss { color: var(--text-muted); cursor: pointer; }
 
 /* Anomaly Warning — subtle proactive warnings */
 .anomaly-warning {
   display: none;
-  background: rgba(206, 145, 120, 0.04);
-  border: 1px solid rgba(206, 145, 120, 0.1);
-  border-radius: var(--radius-md);
-  margin: var(--space-1) var(--space-4);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-xs);
-  animation: fadeIn 0.3s ease;
+  background: rgba(251,191,36,0.06);
+  border: 1px solid rgba(251,191,36,0.12);
+  border-radius: 6px;
+  margin: 4px 16px;
+  padding: 6px 12px;
+  font-size: 11px;
+  animation: fadeIn 0.5s ease;
 }
-.anomaly-warning.active { display: flex; align-items: center; gap: var(--space-2); }
+.anomaly-warning.active { display: flex; align-items: center; gap: 8px; }
 .anomaly-warning .anomaly-icon { color: var(--level-warning); }
 .anomaly-warning .anomaly-text { color: var(--text-dim); flex: 1; }
-.anomaly-warning .anomaly-dismiss { color: var(--text-muted); cursor: pointer; font-size: var(--font-size-xs); }
+.anomaly-warning .anomaly-dismiss { color: var(--text-muted); cursor: pointer; font-size: 10px; }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-4px); }
+  from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

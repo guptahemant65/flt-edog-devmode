@@ -1,39 +1,37 @@
 .correlation-badge {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 2px var(--space-2);
+  gap: 8px;
+  padding: 4px 8px;
   background: var(--accent-dim);
-  color: var(--accent-bright);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
+  color: var(--accent);
+  border-radius: 12px;
+  font-size: 11px;
   font-weight: 500;
-  font-family: var(--font-mono);
 }
 
 #clear-correlation {
   background: none;
   border: none;
-  color: var(--accent-bright);
+  color: var(--accent);
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: 12px;
   padding: 0;
-  margin-left: var(--space-1);
+  margin-left: 4px;
 }
 
-/* Detail Panel — slide-up inspector */
+/* Detail Panel */
 .detail-panel {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   background: var(--surface);
-  border-top: 1px solid var(--border-bright);
+  border-top: 1px solid var(--border);
   max-height: 40vh;
   z-index: 200;
-  animation: slideUp 0.2s ease-out;
+  animation: slideUp 0.3s ease-out;
   display: none;
-  box-shadow: 0 -4px 16px rgba(0,0,0,0.3);
 }
 
 .detail-panel.visible {
@@ -44,13 +42,13 @@
 .copy-btn {
   background: none;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 1px var(--space-1);
+  border-radius: 4px;
+  padding: 2px 6px;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: 12px;
   color: var(--text-dim);
-  transition: border-color 0.1s ease, color 0.1s ease;
-  margin-left: var(--space-2);
+  transition: all 0.15s;
+  margin-left: 8px;
 }
 .copy-btn:hover {
   border-color: var(--accent);
@@ -63,26 +61,26 @@
 
 /* Collapsible JSON sections */
 .json-details {
-  margin-top: var(--space-1);
+  margin-top: 4px;
 }
 .json-details summary {
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: 11px;
   color: var(--text-dim);
-  padding: var(--space-1) 0;
+  padding: 4px 0;
 }
 .json-details summary:hover {
-  color: var(--accent-bright);
+  color: var(--accent);
 }
 .json-content {
-  margin-top: var(--space-1);
-  padding: var(--space-2);
-  background: var(--bg);
-  border-radius: var(--radius-md);
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: 6px;
   border: 1px solid var(--border);
   overflow-x: auto;
-  font-size: var(--font-size-sm);
+  font-size: 12px;
   max-height: 300px;
   overflow-y: auto;
 }
@@ -91,55 +89,44 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-4);
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
-  min-height: 32px;
 }
 
 .detail-header h3 {
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--text);
 }
 
 .detail-body {
-  padding: var(--space-4);
+  padding: 16px;
   overflow-y: auto;
-  max-height: calc(40vh - 32px);
-}
-
-.detail-content {
-  padding: var(--space-3) var(--space-4);
-  overflow-y: auto;
-  max-height: calc(40vh - 32px);
+  max-height: calc(40vh - 48px);
 }
 
 .detail-row {
   display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
-  align-items: baseline;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+  align-items: flex-start;
 }
 
 .detail-row.full-width {
-  grid-template-columns: 110px 1fr;
+  grid-template-columns: 120px 1fr;
 }
 
 .detail-label {
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--text-dim);
   text-align: right;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .detail-value {
-  font-size: var(--font-size-sm);
+  font-size: 12px;
   color: var(--text);
   word-break: break-all;
 }
@@ -150,43 +137,31 @@
 
 .detail-value.clickable {
   cursor: pointer;
-  text-decoration: none;
-  color: var(--accent-bright);
-}
-
-.detail-value.clickable:hover {
   text-decoration: underline;
+  color: var(--accent);
 }
 
 .detail-value.json {
-  background: var(--bg);
+  background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
+  border-radius: 6px;
+  padding: 8px;
   white-space: pre-wrap;
-  max-height: 200px;
-  overflow-y: auto;
-  font-size: var(--font-size-sm);
-}
-
-.message-detail {
-  white-space: pre-wrap;
-  line-height: 1.5;
   max-height: 200px;
   overflow-y: auto;
 }
 
 /* JSON Syntax Highlighting */
 .json-key {
-  color: var(--level-message);
+  color: var(--accent);
 }
 
 .json-string {
-  color: var(--level-verbose);
+  color: var(--status-succeeded);
 }
 
 .json-number {
-  color: #b5cea8;
+  color: var(--level-message);
 }
 
 .json-boolean {
@@ -194,58 +169,56 @@
 }
 
 .json-null {
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 
 /* Detail Panel Specific Styles */
 .detail-section {
-  margin-bottom: var(--space-5);
+  margin-bottom: 20px;
 }
 
 .detail-section h4 {
-  color: var(--text-dim);
-  font-size: var(--font-size-sm);
+  color: var(--text);
+  font-size: 14px;
   font-weight: 600;
-  margin-bottom: var(--space-2);
+  margin-bottom: 8px;
   border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-1);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  padding-bottom: 4px;
 }
 
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-3);
+  gap: 12px;
 }
 
 .detail-field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .detail-field label {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.5px;
   font-weight: 500;
 }
 
 .detail-field span, .detail-message {
-  font-size: var(--font-size-base);
+  font-size: 13px;
   color: var(--text);
   word-break: break-all;
 }
 
 .json-container {
-  background: var(--bg);
+  background: var(--surface-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  margin: var(--space-2) 0;
-  font-size: var(--font-size-sm);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 8px 0;
+  font-size: 12px;
   line-height: 1.4;
   max-height: 200px;
   overflow-y: auto;
@@ -253,10 +226,10 @@
 
 .clickable-id {
   cursor: pointer;
-  color: var(--accent-bright) !important;
-  text-decoration: none;
+  color: var(--accent) !important;
+  text-decoration: underline;
 }
 
 .clickable-id:hover {
-  text-decoration: underline;
+  color: var(--text) !important;
 }
