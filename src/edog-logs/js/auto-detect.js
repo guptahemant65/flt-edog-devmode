@@ -2,16 +2,24 @@
  * AutoDetector — Automatically detects active DAG executions, IterationIds, 
  * RAIDs, and API endpoints from the incoming log stream.
  * 
+ * Two tracking modes:
+ *   1. Iteration-based: RunDAG, GetDAGExecMetrics — keyed by IterationId
+ *   2. RAID-based: GetLatestDAG, other API calls — keyed by correlationId/RAID
+ * 
  * The tool does the thinking — no manual filter entry needed.
  */
 class AutoDetector {
   constructor(state) {
     this.state = state;
     this.detectedExecutions = new Map(); // iterationId -> { dagName, status, startTime, nodeCount, completedNodes, failedNodes, skippedNodes, errors, endpoint, raids }
+    this.detectedApiCalls = new Map();   // correlationId -> { activityName, status, startTime, duration, endpoint, attributes }
     this.activeExecutionId = null;
-    this.onExecutionDetected = null; // callback
-    this.onExecutionUpdated = null;  // callback
-    this.onErrorDetected = null;     // callback
+    this.activeApiCallId = null;
+    this.onExecutionDetected = null; // callback: (exec, id) for iteration-based
+    this.onExecutionUpdated = null;  // callback: (exec, id) for iteration-based
+    this.onErrorDetected = null;     // callback: (exec, error)
+    this.onApiCallDetected = null;   // callback: (call, id) for RAID-based API calls
+    this.onApiCallUpdated = null;    // callback: (call, id) for RAID-based updates
   }
 
   /**
@@ -129,6 +137,8 @@ class AutoDetector {
 
   /**
    * Process an incoming SSR telemetry event.
+   * If IterationId present → iteration-based execution tracking.
+   * If no IterationId but has correlationId → RAID-based API call tracking.
    */
   processTelemetry = (event) => {
     const iterationId = event.iterationId || (event.attributes && event.attributes.IterationId);
@@ -165,7 +175,65 @@ class AutoDetector {
       if (this.activeExecutionId === iterationId && this.onExecutionUpdated) {
         this.onExecutionUpdated(exec, iterationId);
       }
+      return;
     }
+
+    // No IterationId → track as RAID-based API call (GetLatestDAG, etc.)
+    this._processApiCallTelemetry(event);
+  }
+
+  /**
+   * Track non-iteration API calls by correlationId (RAID).
+   * Shows endpoint name, status, duration in the smart context bar.
+   */
+  _processApiCallTelemetry = (event) => {
+    const correlationId = event.correlationId;
+    if (!correlationId) return;
+
+    // Use first segment of correlation as the RAID key
+    const raid = correlationId.split('|')[0].split('-').slice(0, 5).join('-');
+    if (!raid || raid.length < 8) return;
+
+    const existing = this.detectedApiCalls.get(raid);
+    if (existing) {
+      // Update existing call
+      if (event.activityStatus) existing.status = event.activityStatus;
+      if (event.durationMs) existing.duration = event.durationMs;
+      if (event.activityName && !existing.activityName) existing.activityName = event.activityName;
+      existing.eventCount++;
+      if (this.activeApiCallId === raid && this.onApiCallUpdated) {
+        this.onApiCallUpdated(existing, raid);
+      }
+    } else {
+      // Derive a friendly endpoint name from activityName
+      const endpointName = this._friendlyEndpointName(event.activityName);
+      const call = {
+        activityName: event.activityName || 'Unknown',
+        endpointName,
+        status: event.activityStatus || 'Unknown',
+        startTime: event.timestamp,
+        duration: event.durationMs || 0,
+        resultCode: event.resultCode,
+        userId: event.userId,
+        attributes: event.attributes || {},
+        eventCount: 1
+      };
+      this.detectedApiCalls.set(raid, call);
+      this.activeApiCallId = raid;
+      if (this.onApiCallDetected) this.onApiCallDetected(call, raid);
+    }
+  }
+
+  _friendlyEndpointName = (activityName) => {
+    if (!activityName) return 'API Call';
+    // Strip common prefixes to get the action name
+    return activityName
+      .replace(/^LiveTableController[-.]?/i, '')
+      .replace(/^LiveTableSchedulerRunController[-.]?/i, 'RunDAG-')
+      .replace(/^LiveTableMaintananceController[-.]?/i, 'Maintenance-')
+      .replace(/^LiveTableRefreshTriggersController[-.]?/i, 'RefreshTrigger-')
+      .replace(/^Workload\.LiveTable\./i, '')
+      || activityName;
   }
 
   ensureExecution = (iterationId) => {
@@ -200,6 +268,11 @@ class AutoDetector {
   getActiveExecution = () => {
     if (!this.activeExecutionId) return null;
     return { id: this.activeExecutionId, ...this.detectedExecutions.get(this.activeExecutionId) };
+  }
+
+  getActiveApiCall = () => {
+    if (!this.activeApiCallId) return null;
+    return { id: this.activeApiCallId, ...this.detectedApiCalls.get(this.activeApiCallId) };
   }
 
   getElapsedTime = () => {

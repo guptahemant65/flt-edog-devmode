@@ -1835,7 +1835,7 @@ mark {
 }
 
     /* === css/smart.css === */
-/* Smart Context Bar — appears when DAG execution auto-detected */
+/* Smart Context Bar — appears when DAG execution or API call auto-detected */
 .smart-context-bar {
   display: none;
   background: var(--surface);
@@ -1845,14 +1845,17 @@ mark {
   font-size: 12px;
   animation: slideDown 0.3s ease;
 }
-.smart-context-bar.active { display: flex; align-items: center; gap: 12px; }
+.smart-context-bar.active { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.smart-context-bar .ctx-type { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--accent-dim); color: var(--accent); white-space: nowrap; }
 .smart-context-bar .dag-name { color: var(--text); font-weight: 600; }
 .smart-context-bar .dag-status { font-weight: 500; }
 .smart-context-bar .dag-status.running { color: var(--level-message); }
-.smart-context-bar .dag-status.completed { color: var(--status-succeeded); }
+.smart-context-bar .dag-status.completed,.smart-context-bar .dag-status.succeeded { color: var(--status-succeeded); }
 .smart-context-bar .dag-status.failed { color: var(--level-error); }
-.smart-context-bar .node-progress { color: var(--text-dim); }
+.smart-context-bar .dag-status.unknown { color: var(--text-dim); }
+.smart-context-bar .node-progress { color: var(--text-dim); font-size: 11px; }
 .smart-context-bar .elapsed { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+.smart-context-bar .endpoint { color: var(--level-warning); font-size: 10px; font-family: var(--font-mono); }
 .smart-context-bar .iter-id { color: var(--accent); font-family: var(--font-mono); font-size: 10px; }
 .smart-context-bar .dismiss { color: var(--text-muted); cursor: pointer; margin-left: auto; }
 .smart-context-bar .dismiss:hover { color: var(--text); }
@@ -3919,16 +3922,24 @@ class ExecutionSummary {
  * AutoDetector — Automatically detects active DAG executions, IterationIds, 
  * RAIDs, and API endpoints from the incoming log stream.
  * 
+ * Two tracking modes:
+ *   1. Iteration-based: RunDAG, GetDAGExecMetrics — keyed by IterationId
+ *   2. RAID-based: GetLatestDAG, other API calls — keyed by correlationId/RAID
+ * 
  * The tool does the thinking — no manual filter entry needed.
  */
 class AutoDetector {
   constructor(state) {
     this.state = state;
     this.detectedExecutions = new Map(); // iterationId -> { dagName, status, startTime, nodeCount, completedNodes, failedNodes, skippedNodes, errors, endpoint, raids }
+    this.detectedApiCalls = new Map();   // correlationId -> { activityName, status, startTime, duration, endpoint, attributes }
     this.activeExecutionId = null;
-    this.onExecutionDetected = null; // callback
-    this.onExecutionUpdated = null;  // callback
-    this.onErrorDetected = null;     // callback
+    this.activeApiCallId = null;
+    this.onExecutionDetected = null; // callback: (exec, id) for iteration-based
+    this.onExecutionUpdated = null;  // callback: (exec, id) for iteration-based
+    this.onErrorDetected = null;     // callback: (exec, error)
+    this.onApiCallDetected = null;   // callback: (call, id) for RAID-based API calls
+    this.onApiCallUpdated = null;    // callback: (call, id) for RAID-based updates
   }
 
   /**
@@ -4046,6 +4057,8 @@ class AutoDetector {
 
   /**
    * Process an incoming SSR telemetry event.
+   * If IterationId present → iteration-based execution tracking.
+   * If no IterationId but has correlationId → RAID-based API call tracking.
    */
   processTelemetry = (event) => {
     const iterationId = event.iterationId || (event.attributes && event.attributes.IterationId);
@@ -4082,7 +4095,65 @@ class AutoDetector {
       if (this.activeExecutionId === iterationId && this.onExecutionUpdated) {
         this.onExecutionUpdated(exec, iterationId);
       }
+      return;
     }
+
+    // No IterationId → track as RAID-based API call (GetLatestDAG, etc.)
+    this._processApiCallTelemetry(event);
+  }
+
+  /**
+   * Track non-iteration API calls by correlationId (RAID).
+   * Shows endpoint name, status, duration in the smart context bar.
+   */
+  _processApiCallTelemetry = (event) => {
+    const correlationId = event.correlationId;
+    if (!correlationId) return;
+
+    // Use first segment of correlation as the RAID key
+    const raid = correlationId.split('|')[0].split('-').slice(0, 5).join('-');
+    if (!raid || raid.length < 8) return;
+
+    const existing = this.detectedApiCalls.get(raid);
+    if (existing) {
+      // Update existing call
+      if (event.activityStatus) existing.status = event.activityStatus;
+      if (event.durationMs) existing.duration = event.durationMs;
+      if (event.activityName && !existing.activityName) existing.activityName = event.activityName;
+      existing.eventCount++;
+      if (this.activeApiCallId === raid && this.onApiCallUpdated) {
+        this.onApiCallUpdated(existing, raid);
+      }
+    } else {
+      // Derive a friendly endpoint name from activityName
+      const endpointName = this._friendlyEndpointName(event.activityName);
+      const call = {
+        activityName: event.activityName || 'Unknown',
+        endpointName,
+        status: event.activityStatus || 'Unknown',
+        startTime: event.timestamp,
+        duration: event.durationMs || 0,
+        resultCode: event.resultCode,
+        userId: event.userId,
+        attributes: event.attributes || {},
+        eventCount: 1
+      };
+      this.detectedApiCalls.set(raid, call);
+      this.activeApiCallId = raid;
+      if (this.onApiCallDetected) this.onApiCallDetected(call, raid);
+    }
+  }
+
+  _friendlyEndpointName = (activityName) => {
+    if (!activityName) return 'API Call';
+    // Strip common prefixes to get the action name
+    return activityName
+      .replace(/^LiveTableController[-.]?/i, '')
+      .replace(/^LiveTableSchedulerRunController[-.]?/i, 'RunDAG-')
+      .replace(/^LiveTableMaintananceController[-.]?/i, 'Maintenance-')
+      .replace(/^LiveTableRefreshTriggersController[-.]?/i, 'RefreshTrigger-')
+      .replace(/^Workload\.LiveTable\./i, '')
+      || activityName;
   }
 
   ensureExecution = (iterationId) => {
@@ -4119,6 +4190,11 @@ class AutoDetector {
     return { id: this.activeExecutionId, ...this.detectedExecutions.get(this.activeExecutionId) };
   }
 
+  getActiveApiCall = () => {
+    if (!this.activeApiCallId) return null;
+    return { id: this.activeApiCallId, ...this.detectedApiCalls.get(this.activeApiCallId) };
+  }
+
   getElapsedTime = () => {
     const exec = this.getActiveExecution();
     if (!exec || !exec.startTime) return null;
@@ -4131,24 +4207,31 @@ class AutoDetector {
 // === js/smart-context.js ===
 /**
  * SmartContextBar — Renders and updates the auto-detected execution context bar.
- * Appears automatically when a DAG execution is detected. No user action needed.
+ * Appears automatically when a DAG execution OR any FLT API call is detected.
  */
 class SmartContextBar {
   constructor(autoDetector) {
     this.autoDetector = autoDetector;
     this.element = document.getElementById('smart-context-bar');
     this.updateInterval = null;
+    this.mode = null; // 'execution' | 'apicall'
 
-    // Wire up auto-detector callbacks
-    autoDetector.onExecutionDetected = (exec, id) => this.show(exec, id);
-    autoDetector.onExecutionUpdated = (exec, id) => this.update(exec, id);
+    // Wire up auto-detector callbacks — iteration-based executions
+    autoDetector.onExecutionDetected = (exec, id) => this.showExecution(exec, id);
+    autoDetector.onExecutionUpdated = (exec, id) => this.updateExecution(exec, id);
+
+    // Wire up auto-detector callbacks — RAID-based API calls
+    autoDetector.onApiCallDetected = (call, id) => this.showApiCall(call, id);
+    autoDetector.onApiCallUpdated = (call, id) => this.updateApiCall(call, id);
   }
 
-  show = (exec, iterationId) => {
+  // === Iteration-based execution display ===
+
+  showExecution = (exec, iterationId) => {
     if (!this.element) return;
+    this.mode = 'execution';
     this.element.classList.add('active');
-    this.update(exec, iterationId);
-    // Start elapsed time ticker
+    this.updateExecution(exec, iterationId);
     if (this.updateInterval) clearInterval(this.updateInterval);
     this.updateInterval = setInterval(() => {
       const elapsed = this.autoDetector.getElapsedTime();
@@ -4157,8 +4240,10 @@ class SmartContextBar {
     }, 1000);
   }
 
-  update = (exec, iterationId) => {
+  updateExecution = (exec, iterationId) => {
     if (!this.element) return;
+    // Execution takes priority over API call
+    this.mode = 'execution';
     const statusClass = (exec.status || 'unknown').toLowerCase();
     const completedTotal = exec.nodeCount || '?';
     const completed = exec.completedNodes || 0;
@@ -4167,6 +4252,7 @@ class SmartContextBar {
     const shortId = iterationId.substring(0, 8) + '…' + iterationId.substring(iterationId.length - 4);
 
     this.element.innerHTML = `
+      <span class="ctx-type">🔄 Execution</span>
       <span class="dag-status ${statusClass}">● ${exec.status || 'Detected'}</span>
       <span class="dag-name">${exec.dagName || 'DAG Execution'}</span>
       <span class="node-progress">${completed}${failed ? '+' + failed + ' err' : ''} / ${completedTotal} nodes</span>
@@ -4178,9 +4264,47 @@ class SmartContextBar {
     this.element.classList.add('active');
   }
 
+  // === RAID-based API call display ===
+
+  showApiCall = (call, raidId) => {
+    if (!this.element) return;
+    // Don't override active execution context
+    if (this.mode === 'execution') return;
+    this.mode = 'apicall';
+    this.element.classList.add('active');
+    this.updateApiCall(call, raidId);
+  }
+
+  updateApiCall = (call, raidId) => {
+    if (!this.element || this.mode === 'execution') return;
+    const statusClass = (call.status || 'unknown').toLowerCase();
+    const shortRaid = raidId.substring(0, 8) + '…';
+    const duration = call.duration ? this._formatDuration(call.duration) : '—';
+    const statusIcon = statusClass === 'succeeded' ? '✓' : statusClass === 'failed' ? '✗' : '●';
+
+    this.element.innerHTML = `
+      <span class="ctx-type">📡 API</span>
+      <span class="dag-status ${statusClass}">${statusIcon} ${call.status}</span>
+      <span class="dag-name">${call.endpointName}</span>
+      <span class="elapsed">${duration}</span>
+      ${call.resultCode && call.resultCode !== 'OK' ? '<span class="endpoint">' + call.resultCode + '</span>' : ''}
+      <span class="iter-id" title="${raidId}">${shortRaid}</span>
+      ${call.eventCount > 1 ? '<span class="node-progress">' + call.eventCount + ' events</span>' : ''}
+      <span class="dismiss" onclick="document.getElementById('smart-context-bar').classList.remove('active')">✕</span>
+    `;
+    this.element.classList.add('active');
+  }
+
+  _formatDuration = (ms) => {
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    return Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+  }
+
   hide = () => {
     if (this.element) this.element.classList.remove('active');
     if (this.updateInterval) clearInterval(this.updateInterval);
+    this.mode = null;
   }
 }
 
