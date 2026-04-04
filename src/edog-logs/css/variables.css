@@ -1,0 +1,44 @@
+/* Reset and Variables */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0a0e1a;
+  --surface: #111827;
+  --surface-2: #1e293b;
+  --surface-3: #334155;
+  --border: rgba(255,255,255,0.06);
+  --border-bright: rgba(255,255,255,0.12);
+  --text: #e2e8f0;
+  --text-dim: #64748b;
+  --text-muted: #475569;
+  --accent: #8b5cf6;
+  --accent-dim: rgba(139,92,246,0.12);
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+  --level-verbose: #64748b;
+  --level-message: #38bdf8;
+  --level-warning: #fbbf24;
+  --level-error: #f87171;
+  --status-succeeded: #34d399;
+  --status-failed: #f87171;
+  --status-cancelled: #fbbf24;
+  --status-pending: #64748b;
+}
+
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --border: rgba(0,0,0,0.08);
+  --border-bright: rgba(0,0,0,0.15);
+  --text: #1e293b;
+  --text-dim: #64748b;
+  --text-muted: #94a3b8;
+  --accent: #7c3aed;
+  --accent-dim: rgba(124,58,237,0.08);
+}

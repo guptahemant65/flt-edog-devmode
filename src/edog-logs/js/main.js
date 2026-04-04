@@ -1,0 +1,753 @@
+/**
+ * EDOG Real-Time Log Viewer - Main Application
+ */
+
+// ===== UTILITY FUNCTIONS FOR DETAIL PANEL =====
+
+// Copy to clipboard function
+function copyToClipboard(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(() => { 
+      btn.classList.remove('copied'); 
+      btn.textContent = '📋'; 
+    }, 1500);
+  }).catch(err => {
+    console.error('Failed to copy text: ', err);
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      btn.classList.add('copied');
+      btn.textContent = '✓';
+      setTimeout(() => { 
+        btn.classList.remove('copied'); 
+        btn.textContent = '📋'; 
+      }, 1500);
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed: ', fallbackErr);
+    }
+    document.body.removeChild(textArea);
+  });
+}
+
+// Filter SSR telemetry by correlation ID
+function filterSSRByCorrelation(rootActivityId) {
+  if (!rootActivityId || !window.edogViewer) return;
+  
+  // Switch to SSR tab
+  window.edogViewer.switchTab('ssr');
+  
+  const telemetryContainer = document.getElementById('telemetry-container');
+  if (!telemetryContainer) return;
+  
+  // Clear any existing highlights first
+  telemetryContainer.querySelectorAll('.telemetry-card').forEach(card => {
+    card.classList.remove('ssr-highlight');
+  });
+  
+  // Find and highlight matching SSR cards
+  let foundMatch = false;
+  telemetryContainer.querySelectorAll('.telemetry-card').forEach(card => {
+    const correlationElements = card.querySelectorAll('[data-correlation]');
+    correlationElements.forEach(element => {
+      const cardCorrelationId = element.dataset.correlation || '';
+      if (cardCorrelationId.includes(rootActivityId)) {
+        card.classList.add('ssr-highlight');
+        if (!foundMatch) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          foundMatch = true;
+        }
+      }
+    });
+  });
+}
+
+// Filter logs by correlation ID
+function filterLogsByCorrelation(correlationId) {
+  if (!correlationId || !window.edogViewer || !window.edogViewer.filter) return;
+  
+  // Switch to logs tab
+  window.edogViewer.switchTab('logs');
+  
+  window.edogViewer.filter.setCorrelationFilter(correlationId);
+  
+  // Close detail panel
+  if (window.edogViewer.detail) {
+    window.edogViewer.detail.hide();
+  }
+}
+
+// JSON syntax highlighting function
+function syntaxHighlightJson(json) {
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+    let cls = 'json-number';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key';
+      } else {
+        cls = 'json-string';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-boolean';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return '<span class="' + cls + '">' + match + '</span>';
+  });
+}
+
+// ===== MAIN APPLICATION =====
+
+class EdogLogViewer {
+  constructor() {
+    this.state = new LogViewerState();
+    this.renderer = new Renderer(this.state);
+    this.ws = new WebSocketManager();
+    this.filter = new FilterManager(this.state, this.renderer);
+    this.detail = new DetailPanel();
+    this.execSummary = new ExecutionSummary(this.state, this.renderer);
+    this.scrollTimeout = null;
+    this.raidDebounceTimeout = null;
+    
+    // Set up WebSocket callbacks
+    this.ws.onStatusChange = this.updateConnectionStatus;
+    this.ws.onMessage = this.handleWebSocketMessage;
+  }
+  
+  init = () => {
+    console.log('Initializing EDOG Log Viewer V2');
+    
+    // Make globally accessible
+    window.edogViewer = this;
+    
+    // Restore active tab from localStorage
+    this.switchTab(this.state.activeTab);
+    
+    this.bindEventListeners();
+    this.loadInitialData();
+    this.ws.connect();
+  }
+  
+  bindEventListeners = () => {
+    // Tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        if (tab) this.switchTab(tab);
+      });
+    });
+
+    // Search input
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        this.filter.setSearch(e.target.value);
+      });
+    }
+    
+    // Endpoint filter (W0.2)
+    const endpointFilter = document.getElementById('endpoint-filter');
+    if (endpointFilter) {
+      endpointFilter.addEventListener('change', (e) => {
+        this.state.endpointFilter = e.target.value;
+        this.filter.applyFilters();
+      });
+    }
+
+    // RAID filter (W0.3)
+    const raidInput = document.getElementById('raid-filter-input');
+    if (raidInput) {
+      raidInput.addEventListener('input', (e) => {
+        clearTimeout(this.raidDebounceTimeout);
+        const val = e.target.value.trim();
+        this.updateRaidDropdown(val);
+        this.raidDebounceTimeout = setTimeout(() => {
+          this.applyRaidFilter(val);
+        }, 200);
+      });
+      raidInput.addEventListener('focus', () => {
+        this.updateRaidDropdown(raidInput.value.trim());
+        this.showRaidDropdown();
+      });
+      raidInput.addEventListener('paste', (e) => {
+        setTimeout(() => {
+          const val = raidInput.value.trim();
+          if (/^[0-9a-fA-F-]{36}$/.test(val)) {
+            this.applyRaidFilter(val);
+          }
+        }, 0);
+      });
+      // Close dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.raid-filter-wrapper')) {
+          this.hideRaidDropdown();
+        }
+      });
+    }
+
+    // Execution badge clear
+    const execBadgeClear = document.getElementById('exec-badge-clear');
+    if (execBadgeClear) {
+      execBadgeClear.addEventListener('click', () => this.clearRaidFilter());
+    }
+
+    // Level buttons
+    document.querySelectorAll('.level-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const level = btn.dataset.level;
+        if (level) this.filter.toggleLevel(level);
+      });
+    });
+    
+    // Preset buttons
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const preset = btn.dataset.preset;
+        if (preset) this.filter.applyPreset(preset);
+      });
+    });
+    
+    // Time filter buttons
+    document.querySelectorAll('.time-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const range = parseInt(btn.dataset.range);
+        this.filter.updateTimeFilter(range);
+      });
+    });
+    
+    // Clear button
+    const clearBtn = document.getElementById('clear-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        this.clearRaidFilter();
+        this.state.endpointFilter = '';
+        const ef = document.getElementById('endpoint-filter');
+        if (ef) ef.value = '';
+        this.filter.clearAll();
+      });
+    }
+    
+    // Export button
+    const exportBtn = document.getElementById('export-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', this.exportLogs);
+    }
+    
+    // Pause button
+    const pauseBtn = document.getElementById('pause-btn');
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', this.togglePause);
+    }
+    
+    // Error navigation button
+    const nextErrorBtn = document.getElementById('btn-next-error');
+    if (nextErrorBtn) {
+      nextErrorBtn.addEventListener('click', () => {
+        // Ensure we're on the logs tab
+        this.switchTab('logs');
+        const container = document.getElementById('logs-container');
+        const errorRows = container.querySelectorAll('.error-row');
+        const scrollTop = container.scrollTop;
+        for (const row of errorRows) {
+          if (row.offsetTop > scrollTop + 50) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            row.style.animation = 'pulse 0.5s ease';
+            break;
+          }
+        }
+      });
+    }
+    
+    // Theme toggle
+    const themeBtn = document.getElementById('theme-btn');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', this.toggleTheme);
+    }
+    
+    // Auto-scroll resume button
+    const resumeBtn = document.getElementById('resume-scroll-btn');
+    if (resumeBtn) {
+      resumeBtn.addEventListener('click', this.resumeAutoScroll);
+    }
+    
+    // Detail panel close button
+    const detailClose = document.getElementById('detail-close');
+    if (detailClose) {
+      detailClose.addEventListener('click', this.detail.hide);
+    }
+    
+    // Correlation badge close
+    const correlationClose = document.getElementById('correlation-close');
+    if (correlationClose) {
+      correlationClose.addEventListener('click', this.filter.clearCorrelationFilter);
+    }
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', this.handleKeydown);
+    
+    // Scroll detection for auto-scroll pause
+    const logsContainer = document.getElementById('logs-container');
+    if (logsContainer) {
+      logsContainer.addEventListener('scroll', this.handleScroll);
+    }
+  }
+  
+  handleKeydown = (e) => {
+    // Skip if typing in input field
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    
+    // Tab switching: 1/2/3/4
+    const tabMap = { 'Digit1': 'logs', 'Digit2': 'ssr', 'Digit3': 'summary', 'Digit4': 'timeline' };
+    if (tabMap[e.code]) {
+      e.preventDefault();
+      this.switchTab(tabMap[e.code]);
+      return;
+    }
+
+    switch (e.code) {
+      case 'Escape':
+        if (this.detail.isVisible) {
+          this.detail.hide();
+        } else if (this.state.searchText || this.state.correlationFilter) {
+          this.filter.clearAll();
+        }
+        break;
+        
+      case 'KeyK':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const searchInput = document.getElementById('search-input');
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+          }
+        }
+        break;
+        
+      case 'KeyL':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          this.filter.clearAll();
+        }
+        break;
+        
+      case 'Space':
+        if (!this.detail.isVisible) {
+          e.preventDefault();
+          this.togglePause();
+        }
+        break;
+    }
+  }
+  
+  handleScroll = (e) => {
+    if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
+    this.scrollTimeout = setTimeout(() => {
+      const container = e.target;
+      const isAtBottom = this.renderer.isScrolledToBottom(container);
+      
+      if (!isAtBottom && this.state.autoScroll) {
+        this.state.autoScroll = false;
+        this.showResumeButton();
+      }
+    }, 100);
+  }
+  
+  handleWebSocketMessage = (type, data) => {
+    if (type === 'log') {
+      this.state.addLog(data);
+      this.extractEndpointFromLog(data);
+      this.extractIterationIdFromLog(data);
+      this.renderer.scheduleRender();
+    } else if (type === 'telemetry') {
+      this.state.addTelemetry(data);
+      this.extractEndpointFromTelemetry(data);
+      this.extractIterationIdFromTelemetry(data);
+      this.renderer.scheduleRender();
+    }
+  }
+  
+  updateConnectionStatus = (status) => {
+    const badge = document.getElementById('connection-status');
+    if (badge) {
+      const labels = { 'connected': '● Connected', 'disconnected': '● Disconnected', 'connecting': '● Connecting', 'reconnecting': '● Reconnecting' };
+      badge.textContent = labels[status] || `● ${status}`;
+      badge.className = `status-badge ${status}`;
+    }
+  }
+  
+  loadInitialData = async () => {
+    try {
+      // Load logs
+      const logsResponse = await fetch('/api/logs');
+      if (logsResponse.ok) {
+        const logs = await logsResponse.json();
+        logs.forEach(log => {
+          this.state.addLog(log);
+          this.extractEndpointFromLog(log);
+          this.extractIterationIdFromLog(log);
+        });
+      }
+      
+      // Load telemetry
+      const telemetryResponse = await fetch('/api/telemetry');
+      if (telemetryResponse.ok) {
+        const events = await telemetryResponse.json();
+        events.forEach(event => {
+          this.state.addTelemetry(event);
+          this.extractEndpointFromTelemetry(event);
+          this.extractIterationIdFromTelemetry(event);
+        });
+      }
+      
+      // Load stats
+      const statsResponse = await fetch('/api/stats');
+      if (statsResponse.ok) {
+        const stats = await statsResponse.json();
+        Object.assign(this.state.stats, stats);
+      }
+      
+      // Update endpoint dropdown with initial data
+      this.updateEndpointDropdown();
+      
+      // Render initial data
+      this.renderer.scheduleRender();
+      
+    } catch (error) {
+      console.error('Failed to load initial data:', error);
+    }
+  }
+  
+  togglePause = () => {
+    this.state.paused = !this.state.paused;
+    const btn = document.getElementById('pause-btn');
+    if (btn) {
+      btn.textContent = this.state.paused ? '▶ Resume' : '⏸ Pause';
+      btn.classList.toggle('paused', this.state.paused);
+    }
+  }
+  
+  toggleTheme = () => {
+    const body = document.body;
+    const currentTheme = body.dataset.theme || 'light';
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    body.dataset.theme = newTheme;
+    
+    // Save preference
+    localStorage.setItem('edog-theme', newTheme);
+  }
+  
+  resumeAutoScroll = () => {
+    this.state.autoScroll = true;
+    this.hideResumeButton();
+    
+    // Scroll to bottom
+    const container = document.getElementById('logs-container');
+    if (container) {
+      this.renderer.scrollToBottom(container);
+    }
+  }
+  
+  showResumeButton = () => {
+    const btn = document.getElementById('resume-scroll-btn');
+    if (btn) btn.style.display = 'block';
+  }
+  
+  hideResumeButton = () => {
+    const btn = document.getElementById('resume-scroll-btn');
+    if (btn) btn.style.display = 'none';
+  }
+  
+  // ===== TAB MANAGEMENT (W0.1) =====
+  
+  switchTab = (tabId) => {
+    this.state.activeTab = tabId;
+    localStorage.setItem('edog-active-tab', tabId);
+
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+
+    // Update tab panels
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+      panel.classList.toggle('active', panel.id === `tab-${tabId}`);
+    });
+
+    // If switching to summary and a RAID is active, refresh summary
+    if (tabId === 'summary' && this.state.raidFilter) {
+      this.refreshExecutionSummary();
+    }
+  }
+
+  // ===== ENDPOINT FILTER (W0.2) =====
+
+  extractEndpointFromLog = (entry) => {
+    const component = entry.component || '';
+    const match = component.match(/-([A-Za-z]+)$/);
+    if (match) {
+      const endpoint = match[1];
+      if (!this.state.knownEndpoints.has(endpoint)) {
+        this.state.knownEndpoints.add(endpoint);
+        this.updateEndpointDropdown();
+      }
+    }
+  }
+
+  extractEndpointFromTelemetry = (event) => {
+    const name = event.activityName || '';
+    // Known patterns: RunDag, GetLatestDag, CancelDAG, etc.
+    const endpointPatterns = ['RunDag', 'GetLatestDag', 'CancelDAG', 'RunDAG', 'GetDag'];
+    for (const pat of endpointPatterns) {
+      if (name.includes(pat) && !this.state.knownEndpoints.has(pat)) {
+        this.state.knownEndpoints.add(pat);
+        this.updateEndpointDropdown();
+      }
+    }
+  }
+
+  updateEndpointDropdown = () => {
+    const select = document.getElementById('endpoint-filter');
+    if (!select) return;
+    const current = select.value;
+    // Keep "All Endpoints" as first option
+    select.innerHTML = '<option value="">All Endpoints</option>';
+    const sorted = Array.from(this.state.knownEndpoints).sort();
+    sorted.forEach(ep => {
+      const opt = document.createElement('option');
+      opt.value = ep;
+      opt.textContent = ep;
+      select.appendChild(opt);
+    });
+    select.value = current; // Preserve selection
+  }
+
+  // ===== RAID / ITERATION ID FILTER (W0.3) =====
+
+  extractIterationIdFromLog = (entry) => {
+    let id = entry.iterationId || '';
+    if (!id) {
+      const msg = entry.message || '';
+      const match = msg.match(/IterationId[=: ]+([0-9a-fA-F-]{36})/);
+      if (match) id = match[1];
+    }
+    if (!id) return;
+
+    const existing = this.state.knownIterationIds.get(id);
+    if (existing) {
+      existing.logCount++;
+      if (entry.level === 'Error') existing.status = 'Failed';
+      // Extract DAG name
+      const msg = entry.message || '';
+      if (msg.includes('Creating Dag from Catalog') && !existing.dagName) {
+        const dagMatch = msg.match(/Creating Dag from Catalog[^"]*"([^"]+)"/i) || msg.match(/Creating Dag from Catalog\s*[:-]?\s*(\S+)/i);
+        if (dagMatch) existing.dagName = dagMatch[1];
+      }
+    } else {
+      const info = {
+        id,
+        firstSeen: entry.timestamp || new Date().toISOString(),
+        dagName: '',
+        status: entry.level === 'Error' ? 'Failed' : 'Unknown',
+        logCount: 1,
+        ssrCount: 0
+      };
+      this.state.knownIterationIds.set(id, info);
+      // Update recent executions (keep last 10)
+      this.state.recentExecutions = [id, ...this.state.recentExecutions.filter(x => x !== id)].slice(0, 10);
+    }
+  }
+
+  extractIterationIdFromTelemetry = (event) => {
+    const id = (event.attributes && event.attributes.IterationId) || '';
+    if (!id) return;
+
+    const existing = this.state.knownIterationIds.get(id);
+    if (existing) {
+      existing.ssrCount++;
+      if (event.activityStatus === 'Failed') existing.status = 'Failed';
+      else if (event.activityStatus === 'Succeeded' && existing.status !== 'Failed') existing.status = 'Completed';
+    } else {
+      this.state.knownIterationIds.set(id, {
+        id,
+        firstSeen: event.timestamp || new Date().toISOString(),
+        dagName: '',
+        status: event.activityStatus || 'Unknown',
+        logCount: 0,
+        ssrCount: 1
+      });
+      this.state.recentExecutions = [id, ...this.state.recentExecutions.filter(x => x !== id)].slice(0, 10);
+    }
+  }
+
+  applyRaidFilter = (value) => {
+    this.state.raidFilter = value;
+    if (value) {
+      this.showExecutionBadge(value);
+      this.filter.applyFilters();
+      this.refreshExecutionSummary();
+    } else {
+      this.clearRaidFilter();
+    }
+    this.hideRaidDropdown();
+  }
+
+  clearRaidFilter = () => {
+    this.state.raidFilter = '';
+    const raidInput = document.getElementById('raid-filter-input');
+    if (raidInput) raidInput.value = '';
+    this.hideExecutionBadge();
+    this.execSummary.clearSummary();
+    this.filter.applyFilters();
+  }
+
+  showExecutionBadge = (id) => {
+    const badge = document.getElementById('execution-badge');
+    const badgeId = document.getElementById('exec-badge-id');
+    const badgeCounts = document.getElementById('exec-badge-counts');
+    if (!badge) return;
+
+    const shortId = id.length > 8 ? '…' + id.slice(-8) : id;
+    const info = this.state.knownIterationIds.get(id);
+    const logCount = info ? info.logCount : '?';
+    const ssrCount = info ? info.ssrCount : '?';
+
+    if (badgeId) badgeId.textContent = shortId;
+    if (badgeCounts) badgeCounts.textContent = `${logCount} logs, ${ssrCount} SSR`;
+    badge.classList.add('visible');
+  }
+
+  hideExecutionBadge = () => {
+    const badge = document.getElementById('execution-badge');
+    if (badge) badge.classList.remove('visible');
+  }
+
+  showRaidDropdown = () => {
+    const dd = document.getElementById('raid-dropdown');
+    if (dd) dd.classList.add('visible');
+  }
+
+  hideRaidDropdown = () => {
+    const dd = document.getElementById('raid-dropdown');
+    if (dd) dd.classList.remove('visible');
+  }
+
+  updateRaidDropdown = (filterText) => {
+    const list = document.getElementById('raid-dropdown-list');
+    if (!list) return;
+
+    const ids = this.state.recentExecutions;
+    const filtered = filterText
+      ? ids.filter(id => id.toLowerCase().includes(filterText.toLowerCase()))
+      : ids;
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<div style="padding:12px;color:var(--text-dim);text-align:center;font-size:12px">No recent executions</div>';
+      this.showRaidDropdown();
+      return;
+    }
+
+    list.innerHTML = filtered.map(id => {
+      const info = this.state.knownIterationIds.get(id) || {};
+      const statusDot = { 'Completed': '🟢', 'Succeeded': '🟢', 'Failed': '🔴', 'Running': '🟡' }[info.status] || '⚪';
+      const shortId = id.slice(-8);
+      const time = info.firstSeen ? this.renderer.formatTime(info.firstSeen) : '';
+      const dagName = info.dagName || '';
+      return `<div class="raid-item" data-id="${id}">
+        <span class="raid-status-dot">${statusDot}</span>
+        <span class="raid-item-id">…${shortId}</span>
+        ${dagName ? `<span class="raid-item-dag">${dagName}</span>` : ''}
+        <span class="raid-item-meta">${time}</span>
+      </div>`;
+    }).join('');
+
+    // Bind click handlers
+    list.querySelectorAll('.raid-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const id = item.dataset.id;
+        const raidInput = document.getElementById('raid-filter-input');
+        if (raidInput) raidInput.value = id;
+        this.applyRaidFilter(id);
+      });
+    });
+
+    this.showRaidDropdown();
+  }
+
+  refreshExecutionSummary = () => {
+    if (!this.state.raidFilter) {
+      this.execSummary.clearSummary();
+      return;
+    }
+    const data = this.execSummary.compute(this.state.raidFilter);
+    if (data) {
+      this.execSummary.render(data);
+      // Update badge counts
+      this.showExecutionBadge(this.state.raidFilter);
+    }
+  }
+
+  exportLogs = () => {
+    const dataToExport = {
+      exportedAt: new Date().toISOString(),
+      logs: this.state.filteredLogs.length > 0 ? this.state.filteredLogs : this.state.logs,
+      telemetry: this.state.telemetry,
+      stats: this.state.stats,
+      filters: {
+        searchText: this.state.searchText,
+        activeLevels: Array.from(this.state.activeLevels),
+        correlationFilter: this.state.correlationFilter
+      }
+    };
+    
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { 
+      type: 'application/json' 
+    });
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `edog-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  jumpToNextError = () => {
+    this.switchTab('logs');
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+    const errorRows = container.querySelectorAll('.error-row');
+    const scrollTop = container.scrollTop;
+    for (const row of errorRows) {
+      if (row.offsetTop > scrollTop + 50) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.style.animation = 'pulse 0.5s ease';
+        break;
+      }
+    }
+  }
+}
+
+// ===== INITIALIZATION =====
+
+// Initialize app when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  // Load theme preference
+  const savedTheme = localStorage.getItem('edog-theme') || 'light';
+  document.body.dataset.theme = savedTheme;
+  
+  // Start the application
+  new EdogLogViewer().init();
+});

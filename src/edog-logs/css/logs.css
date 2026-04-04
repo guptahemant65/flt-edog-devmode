@@ -1,0 +1,182 @@
+/* Log Container */
+.log-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-text {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.empty-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.empty-dots span {
+  width: 6px;
+  height: 6px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.empty-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.empty-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.log-row.error-row { 
+  border-left: 3px solid var(--level-error); 
+}
+
+.log-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.log-row:hover {
+  background: var(--surface-2);
+}
+
+.log-time {
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-size: 11px;
+  min-width: 80px;
+}
+
+.log-level {
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  min-width: 24px;
+  text-align: center;
+}
+
+.log-level.verbose {
+  background: rgba(100, 116, 139, 0.2);
+  color: var(--level-verbose);
+}
+
+.log-level.message {
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--level-message);
+}
+
+.log-level.warning {
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--level-warning);
+}
+
+.log-level.error {
+  background: rgba(248, 113, 113, 0.2);
+  color: var(--level-error);
+}
+
+.log-component {
+  padding: 2px 6px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.log-component:hover {
+  background: var(--accent);
+  color: white;
+  transform: scale(1.05);
+}
+
+.log-message {
+  flex: 1;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Logs Status Bar */
+.logs-status {
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  text-align: center;
+}
+
+/* Scroll FAB */
+.scroll-fab {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.scroll-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes errorPulse {
+  0% { background: rgba(248, 113, 113, 0.1); }
+  50% { background: rgba(248, 113, 113, 0.3); }
+  100% { background: rgba(248, 113, 113, 0.1); }
+}
+
+.log-row.error.new {
+  animation: errorPulse 2s ease-in-out;
+}

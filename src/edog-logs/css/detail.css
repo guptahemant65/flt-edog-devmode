@@ -1,0 +1,235 @@
+.correlation-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+#clear-correlation {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  margin-left: 4px;
+}
+
+/* Detail Panel */
+.detail-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  max-height: 40vh;
+  z-index: 200;
+  animation: slideUp 0.3s ease-out;
+  display: none;
+}
+
+.detail-panel.visible {
+  display: block;
+}
+
+/* Copy buttons */
+.copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: all 0.15s;
+  margin-left: 8px;
+}
+.copy-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.copy-btn.copied {
+  border-color: var(--status-succeeded);
+  color: var(--status-succeeded);
+}
+
+/* Collapsible JSON sections */
+.json-details {
+  margin-top: 4px;
+}
+.json-details summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+.json-details summary:hover {
+  color: var(--accent);
+}
+.json-content {
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  font-size: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.detail-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.detail-body {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(40vh - 48px);
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+  align-items: flex-start;
+}
+
+.detail-row.full-width {
+  grid-template-columns: 120px 1fr;
+}
+
+.detail-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.detail-value {
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.detail-value.mono {
+  font-family: var(--font-mono);
+}
+
+.detail-value.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  color: var(--accent);
+}
+
+.detail-value.json {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* JSON Syntax Highlighting */
+.json-key {
+  color: var(--accent);
+}
+
+.json-string {
+  color: var(--status-succeeded);
+}
+
+.json-number {
+  color: var(--level-message);
+}
+
+.json-boolean {
+  color: var(--level-warning);
+}
+
+.json-null {
+  color: var(--text-dim);
+}
+
+/* Detail Panel Specific Styles */
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section h4 {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-field label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.detail-field span, .detail-message {
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.json-container {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.clickable-id {
+  cursor: pointer;
+  color: var(--accent) !important;
+  text-decoration: underline;
+}
+
+.clickable-id:hover {
+  color: var(--text) !important;
+}
