@@ -384,39 +384,51 @@ class EdogLogViewer {
   }
   
   handleWebSocketMessage = (type, data) => {
-    if (type === 'log') {
-      this.state.addLog(data);
-      this.autoDetector.processLog(data);
-      this.anomaly.processLog(data);
-      this.extractEndpointFromLog(data);
-      this.extractComponentFromLog(data);
-      this.extractIterationIdFromLog(data);
-      this.renderer.scheduleRender();
-    } else if (type === 'telemetry') {
-      this.state.addTelemetry(data);
-      this.autoDetector.processTelemetry(data);
-      this.extractEndpointFromTelemetry(data);
-      this.extractIterationIdFromTelemetry(data);
-      this.renderer.scheduleRender();
+    try {
+      if (type === 'log') {
+        this.state.addLog(data);
+        this.autoDetector.processLog(data);
+        this.anomaly.processLog(data);
+        this.extractEndpointFromLog(data);
+        this.extractComponentFromLog(data);
+        this.extractIterationIdFromLog(data);
+        this.renderer.scheduleRender();
+      } else if (type === 'telemetry') {
+        this.state.addTelemetry(data);
+        this.autoDetector.processTelemetry(data);
+        this.extractEndpointFromTelemetry(data);
+        this.extractIterationIdFromTelemetry(data);
+        this.renderer.scheduleRender();
+      }
+    } catch (err) {
+      console.error('[ws-message] Failed to process:', type, err);
     }
   }
 
   // Batch handler: process entire batch, single render at end
   handleWebSocketBatch = (logs, telemetry) => {
     for (const log of logs) {
-      this.state.addLog(log);
-      this.autoDetector.processLog(log);
-      this.anomaly.processLog(log);
-      this.extractEndpointFromLog(log);
-      this.extractComponentFromLog(log);
-      this.extractIterationIdFromLog(log);
+      try {
+        this.state.addLog(log);
+        this.autoDetector.processLog(log);
+        this.anomaly.processLog(log);
+        this.extractEndpointFromLog(log);
+        this.extractComponentFromLog(log);
+        this.extractIterationIdFromLog(log);
+      } catch (err) {
+        console.error('[ws-batch] Failed to process log entry:', err);
+      }
     }
 
     for (const evt of telemetry) {
-      this.state.addTelemetry(evt);
-      this.autoDetector.processTelemetry(evt);
-      this.extractEndpointFromTelemetry(evt);
-      this.extractIterationIdFromTelemetry(evt);
+      try {
+        this.state.addTelemetry(evt);
+        this.autoDetector.processTelemetry(evt);
+        this.extractEndpointFromTelemetry(evt);
+        this.extractIterationIdFromTelemetry(evt);
+      } catch (err) {
+        console.error('[ws-batch] Failed to process telemetry entry:', err);
+      }
     }
 
     if (logs.length > 0 || telemetry.length > 0) {
@@ -465,13 +477,17 @@ class EdogLogViewer {
         const logs = await logsResponse.json();
         logs.reverse();
         logs.forEach(log => {
-          this.state.logBuffer.push(log);
-          this.state.stats.totalLogs++;
-          const level = (log.level || '').toLowerCase();
-          if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
-          this.extractEndpointFromLog(log);
-          this.extractComponentFromLog(log);
-          this.extractIterationIdFromLog(log);
+          try {
+            this.state.logBuffer.push(log);
+            this.state.stats.totalLogs++;
+            const level = (log.level || '').toLowerCase();
+            if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
+            this.extractEndpointFromLog(log);
+            this.extractComponentFromLog(log);
+            this.extractIterationIdFromLog(log);
+          } catch (err) {
+            console.error('[load] Failed to process log entry:', err);
+          }
         });
       }
       
@@ -615,6 +631,7 @@ class EdogLogViewer {
   // ===== ENDPOINT FILTER (W0.2) =====
 
   extractEndpointFromLog = (entry) => {
+    if (!entry) return;
     const component = entry.component || '';
     const match = component.match(/-([A-Za-z]+)$/);
     if (match) {
@@ -655,6 +672,7 @@ class EdogLogViewer {
   }
 
   extractComponentFromLog = (entry) => {
+    if (!entry) return;
     const component = entry.component || '';
     if (!component || component === 'Unknown') return;
     // Normalize: strip trailing endpoint suffix (e.g. "OneLake-GetLatestDag" → "OneLake")
