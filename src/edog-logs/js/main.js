@@ -114,6 +114,18 @@ class EdogLogViewer {
     this.execSummary = new ExecutionSummary(this.state, this.renderer);
     this.scrollTimeout = null;
     this.raidDebounceTimeout = null;
+
+    // Smart feature modules
+    this.autoDetector = new AutoDetector(this.state);
+    this.smartContext = new SmartContextBar(this.autoDetector);
+    this.errorIntel = new ErrorIntelligence(this.autoDetector);
+    this.anomaly = new AnomalyDetector(this.state);
+
+    // Wire error-intel jump-to-error to renderer
+    this.errorIntel.onJumpToError = (errorMsg) => {
+      this.filter.setSearch(errorMsg.substring(0, 60));
+      this.switchTab('logs');
+    };
     
     // Set up WebSocket callbacks
     this.ws.onStatusChange = this.updateConnectionStatus;
@@ -366,11 +378,14 @@ class EdogLogViewer {
   handleWebSocketMessage = (type, data) => {
     if (type === 'log') {
       this.state.addLog(data);
+      this.autoDetector.processLog(data);
+      this.anomaly.processLog(data);
       this.extractEndpointFromLog(data);
       this.extractIterationIdFromLog(data);
       this.renderer.scheduleRender();
     } else if (type === 'telemetry') {
       this.state.addTelemetry(data);
+      this.autoDetector.processTelemetry(data);
       this.extractEndpointFromTelemetry(data);
       this.extractIterationIdFromTelemetry(data);
       this.renderer.scheduleRender();
@@ -394,6 +409,8 @@ class EdogLogViewer {
         const logs = await logsResponse.json();
         logs.forEach(log => {
           this.state.addLog(log);
+          this.autoDetector.processLog(log);
+          this.anomaly.processLog(log);
           this.extractEndpointFromLog(log);
           this.extractIterationIdFromLog(log);
         });
@@ -405,6 +422,7 @@ class EdogLogViewer {
         const events = await telemetryResponse.json();
         events.forEach(event => {
           this.state.addTelemetry(event);
+          this.autoDetector.processTelemetry(event);
           this.extractEndpointFromTelemetry(event);
           this.extractIterationIdFromTelemetry(event);
         });
