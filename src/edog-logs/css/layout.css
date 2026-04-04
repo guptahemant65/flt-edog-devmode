@@ -14,7 +14,7 @@ body {
 }
 
 /* Header */
-#header {
+#header, header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -53,10 +53,11 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 500;
+  opacity: 0.85;
 }
 
 .status-badge.connected {
@@ -105,6 +106,19 @@ h1 {
 .stat.succeeded b { color: var(--status-succeeded); }
 .stat.failed b { color: var(--status-failed); }
 
+/* Stats bar — colored numbers for quick scanning */
+#stat-errors { color: var(--level-error); font-weight: 600; }
+#stat-ssr { color: var(--level-message); }
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+.stats-bar strong { font-weight: 600; }
+
 .stat-divider {
   color: var(--border-bright);
   margin: 0 4px;
@@ -135,18 +149,29 @@ h1 {
   color: var(--text);
 }
 
-/* Toolbar / Global Filter Bar */
+/* Toolbar / Global Filter Bar — 2-row layout */
 #toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px 12px;
   padding: 8px 16px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--toolbar-shadow);
   position: sticky;
   top: 102px;
   z-index: 98;
   flex-wrap: wrap;
+}
+
+/* Row break between primary (search/levels/presets) and secondary controls */
+#toolbar::before {
+  content: '';
+  order: 10;
+  flex-basis: 100%;
+  height: 0;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
 }
 
 /* Tab Bar */
@@ -245,6 +270,11 @@ h1 {
   color: var(--text);
 }
 
+/* Hide redundant "Application Logs" header — the tab already shows context */
+#logs-panel > .panel-header {
+  display: none;
+}
+
 .panel-divider {
   background: var(--border);
   width: 1px;
@@ -309,7 +339,7 @@ mark {
 }
 
 @media (max-width: 768px) {
-  #header {
+  #header, header {
     padding: 8px 12px;
   }
 

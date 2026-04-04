@@ -1,7 +1,8 @@
 .search-wrapper {
   position: relative;
   flex: 1;
-  max-width: 400px;
+  max-width: 480px;
+  order: 1;
 }
 
 .search-icon {
@@ -16,11 +17,11 @@
 #search-input {
   width: 100%;
   padding: 8px 12px 8px 36px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
   border-radius: 8px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   font-family: var(--font-body);
   outline: none;
   transition: all 0.2s ease;
@@ -48,6 +49,7 @@
 .level-filters {
   display: flex;
   gap: 4px;
+  order: 2;
 }
 
 .level-btn {
@@ -98,6 +100,7 @@
   margin-left: 12px; 
   padding-left: 12px; 
   border-left: 1px solid var(--border); 
+  order: 3;
 }
 
 .preset-btn { 
@@ -129,6 +132,7 @@
   margin-right: 12px; 
   padding-right: 12px; 
   border-right: 1px solid var(--border); 
+  order: 11;
 }
 
 .time-btn { 
@@ -157,6 +161,8 @@
 .toolbar-actions {
   display: flex;
   gap: 8px;
+  order: 16;
+  margin-left: auto;
 }
 
 .action-btn {
@@ -203,6 +209,7 @@
   outline: none;
   transition: all 0.2s ease;
   min-width: 140px;
+  order: 12;
 }
 
 #endpoint-filter:focus {
@@ -227,6 +234,7 @@
   outline: none;
   transition: all 0.2s ease;
   min-width: 140px;
+  order: 13;
 }
 
 #component-filter:focus {
@@ -243,6 +251,7 @@
 .raid-filter-wrapper {
   position: relative;
   min-width: 260px;
+  order: 14;
 }
 
 #raid-filter-input {
@@ -357,6 +366,7 @@
   font-family: var(--font-mono);
   color: var(--accent);
   white-space: nowrap;
+  order: 15;
 }
 
 #execution-badge.visible {

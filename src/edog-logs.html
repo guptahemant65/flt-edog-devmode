@@ -38,6 +38,25 @@
   --status-failed: #f87171;
   --status-cancelled: #fbbf24;
   --status-pending: #64748b;
+  /* Component category colors */
+  --comp-controller: #60a5fa;
+  --comp-controller-bg: rgba(96, 165, 250, 0.15);
+  --comp-dag: #34d399;
+  --comp-dag-bg: rgba(52, 211, 153, 0.15);
+  --comp-onelake: #2dd4bf;
+  --comp-onelake-bg: rgba(45, 212, 191, 0.15);
+  --comp-dq: #a78bfa;
+  --comp-dq-bg: rgba(167, 139, 250, 0.15);
+  --comp-retry: #fbbf24;
+  --comp-retry-bg: rgba(251, 191, 36, 0.15);
+  --comp-default: #94a3b8;
+  --comp-default-bg: rgba(148, 163, 184, 0.12);
+  /* Row tints */
+  --row-error-tint: rgba(248, 113, 113, 0.07);
+  --row-warning-tint: rgba(251, 191, 36, 0.05);
+  --row-stripe: rgba(255, 255, 255, 0.018);
+  /* Toolbar */
+  --toolbar-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 [data-theme="light"] {
@@ -52,6 +71,25 @@
   --text-muted: #94a3b8;
   --accent: #7c3aed;
   --accent-dim: rgba(124,58,237,0.08);
+  /* Component category colors — light */
+  --comp-controller: #2563eb;
+  --comp-controller-bg: rgba(37, 99, 235, 0.1);
+  --comp-dag: #059669;
+  --comp-dag-bg: rgba(5, 150, 105, 0.1);
+  --comp-onelake: #0d9488;
+  --comp-onelake-bg: rgba(13, 148, 136, 0.1);
+  --comp-dq: #7c3aed;
+  --comp-dq-bg: rgba(124, 58, 237, 0.1);
+  --comp-retry: #d97706;
+  --comp-retry-bg: rgba(217, 119, 6, 0.1);
+  --comp-default: #64748b;
+  --comp-default-bg: rgba(100, 116, 139, 0.08);
+  /* Row tints — light */
+  --row-error-tint: rgba(239, 68, 68, 0.05);
+  --row-warning-tint: rgba(245, 158, 11, 0.04);
+  --row-stripe: rgba(0, 0, 0, 0.018);
+  /* Toolbar */
+  --toolbar-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
     /* === css/layout.css === */
@@ -71,7 +109,7 @@ body {
 }
 
 /* Header */
-#header {
+#header, header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -110,10 +148,11 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 500;
+  opacity: 0.85;
 }
 
 .status-badge.connected {
@@ -162,6 +201,19 @@ h1 {
 .stat.succeeded b { color: var(--status-succeeded); }
 .stat.failed b { color: var(--status-failed); }
 
+/* Stats bar — colored numbers for quick scanning */
+#stat-errors { color: var(--level-error); font-weight: 600; }
+#stat-ssr { color: var(--level-message); }
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+.stats-bar strong { font-weight: 600; }
+
 .stat-divider {
   color: var(--border-bright);
   margin: 0 4px;
@@ -192,18 +244,29 @@ h1 {
   color: var(--text);
 }
 
-/* Toolbar / Global Filter Bar */
+/* Toolbar / Global Filter Bar — 2-row layout */
 #toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px 12px;
   padding: 8px 16px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--toolbar-shadow);
   position: sticky;
   top: 102px;
   z-index: 98;
   flex-wrap: wrap;
+}
+
+/* Row break between primary (search/levels/presets) and secondary controls */
+#toolbar::before {
+  content: '';
+  order: 10;
+  flex-basis: 100%;
+  height: 0;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
 }
 
 /* Tab Bar */
@@ -302,6 +365,11 @@ h1 {
   color: var(--text);
 }
 
+/* Hide redundant "Application Logs" header — the tab already shows context */
+#logs-panel > .panel-header {
+  display: none;
+}
+
 .panel-divider {
   background: var(--border);
   width: 1px;
@@ -366,7 +434,7 @@ mark {
 }
 
 @media (max-width: 768px) {
-  #header {
+  #header, header {
     padding: 8px 12px;
   }
 
@@ -429,7 +497,8 @@ mark {
 .search-wrapper {
   position: relative;
   flex: 1;
-  max-width: 400px;
+  max-width: 480px;
+  order: 1;
 }
 
 .search-icon {
@@ -444,11 +513,11 @@ mark {
 #search-input {
   width: 100%;
   padding: 8px 12px 8px 36px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
   border-radius: 8px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   font-family: var(--font-body);
   outline: none;
   transition: all 0.2s ease;
@@ -476,6 +545,7 @@ mark {
 .level-filters {
   display: flex;
   gap: 4px;
+  order: 2;
 }
 
 .level-btn {
@@ -526,6 +596,7 @@ mark {
   margin-left: 12px; 
   padding-left: 12px; 
   border-left: 1px solid var(--border); 
+  order: 3;
 }
 
 .preset-btn { 
@@ -557,6 +628,7 @@ mark {
   margin-right: 12px; 
   padding-right: 12px; 
   border-right: 1px solid var(--border); 
+  order: 11;
 }
 
 .time-btn { 
@@ -585,6 +657,8 @@ mark {
 .toolbar-actions {
   display: flex;
   gap: 8px;
+  order: 16;
+  margin-left: auto;
 }
 
 .action-btn {
@@ -631,6 +705,7 @@ mark {
   outline: none;
   transition: all 0.2s ease;
   min-width: 140px;
+  order: 12;
 }
 
 #endpoint-filter:focus {
@@ -655,6 +730,7 @@ mark {
   outline: none;
   transition: all 0.2s ease;
   min-width: 140px;
+  order: 13;
 }
 
 #component-filter:focus {
@@ -671,6 +747,7 @@ mark {
 .raid-filter-wrapper {
   position: relative;
   min-width: 260px;
+  order: 14;
 }
 
 #raid-filter-input {
@@ -785,6 +862,7 @@ mark {
   font-family: var(--font-mono);
   color: var(--accent);
   white-space: nowrap;
+  order: 15;
 }
 
 #execution-badge.visible {
@@ -854,26 +932,42 @@ mark {
   animation-delay: 0.4s;
 }
 
+/* NOTE: height changed from 32px to 34px — update JS ROW_HEIGHT constant to match */
 .log-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  height: 32px;
+  padding: 0 14px;
+  height: 34px;
   box-sizing: border-box;
   font-size: 12px;
   font-family: var(--font-mono);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   overflow: hidden;
+  transition: background 0.1s ease;
 }
 
 .log-row.error-row { 
-  border-left: 3px solid var(--level-error); 
+  border-left: 3px solid var(--level-error);
+  background: var(--row-error-tint);
+}
+
+.log-row.warning-row {
+  border-left: 3px solid var(--level-warning);
+  background: var(--row-warning-tint);
 }
 
 .log-row.stripe {
-  background: rgba(255, 255, 255, 0.01);
+  background: var(--row-stripe);
+}
+
+.log-row.stripe.error-row {
+  background: var(--row-error-tint);
+}
+
+.log-row.stripe.warning-row {
+  background: var(--row-warning-tint);
 }
 
 .log-row:hover {
@@ -881,61 +975,92 @@ mark {
 }
 
 .log-time {
-  color: var(--text-dim);
+  color: var(--text-muted);
   white-space: nowrap;
   font-size: 11px;
   width: 90px;
   flex-shrink: 0;
   letter-spacing: -0.2px;
+  opacity: 0.7;
 }
 
 .log-level {
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 10px;
   font-size: 10px;
-  font-weight: 500;
-  min-width: 24px;
+  font-weight: 600;
+  min-width: 28px;
   text-align: center;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .log-level.verbose {
-  background: rgba(100, 116, 139, 0.2);
+  background: rgba(100, 116, 139, 0.15);
   color: var(--level-verbose);
 }
 
 .log-level.message {
-  background: rgba(56, 189, 248, 0.2);
+  background: rgba(56, 189, 248, 0.18);
   color: var(--level-message);
 }
 
 .log-level.warning {
   background: rgba(251, 191, 36, 0.2);
   color: var(--level-warning);
+  font-weight: 700;
 }
 
 .log-level.error {
-  background: rgba(248, 113, 113, 0.2);
+  background: rgba(248, 113, 113, 0.22);
   color: var(--level-error);
+  font-weight: 700;
 }
 
 .log-component {
   padding: 2px 8px;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--comp-default-bg);
+  color: var(--comp-default);
   border-radius: 4px;
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  max-width: 140px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   flex-shrink: 0;
 }
 
 .log-component:hover {
-  background: var(--accent);
-  color: white;
+  filter: brightness(1.3);
+}
+
+/* Component category colors (apply via data-category attribute on .log-component) */
+.log-component[data-category="controller"] {
+  background: var(--comp-controller-bg);
+  color: var(--comp-controller);
+}
+.log-component[data-category="dag"],
+.log-component[data-category="execution"] {
+  background: var(--comp-dag-bg);
+  color: var(--comp-dag);
+}
+.log-component[data-category="onelake"],
+.log-component[data-category="lakehouse"] {
+  background: var(--comp-onelake-bg);
+  color: var(--comp-onelake);
+}
+.log-component[data-category="dq"],
+.log-component[data-category="insights"] {
+  background: var(--comp-dq-bg);
+  color: var(--comp-dq);
+}
+.log-component[data-category="retry"],
+.log-component[data-category="error"] {
+  background: var(--comp-retry-bg);
+  color: var(--comp-retry);
 }
 
 .log-message {
@@ -944,7 +1069,8 @@ mark {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-left: 4px;
+  padding-left: 8px;
+  color: var(--text);
 }
 
 /* Logs Status Bar */
@@ -961,24 +1087,28 @@ mark {
 /* Scroll FAB */
 .scroll-fab {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
+  bottom: 12px;
+  right: 16px;
+  left: auto;
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: 20px;
-  padding: 8px 12px;
-  font-size: 12px;
+  border-radius: 16px;
+  padding: 6px 12px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.25);
   transition: all 0.2s ease;
   z-index: 10;
+  opacity: 0.85;
+  backdrop-filter: blur(8px);
 }
 
 .scroll-fab:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
 }
 
 @keyframes pulse {
@@ -2337,7 +2467,7 @@ class RowPool {
 class Renderer {
   constructor(state) {
     this.state = state;
-    this.ROW_HEIGHT = 32;
+    this.ROW_HEIGHT = 34;
     this.OVERSCAN = 8;
     this.MAX_VISIBLE = 80;
     this.rowPool = new RowPool(this.MAX_VISIBLE);
@@ -2357,6 +2487,15 @@ class Renderer {
     this.containerReady = false;
 
     this._levelLetters = { verbose: 'V', message: 'I', warning: 'W', error: 'E' };
+
+    // Component category classifier — matches CSS data-category selectors
+    this._categoryRules = [
+      [/^LiveTableController|^LiveTablePublicController|^LiveTable-ArtifactHandler|^LTWorkload/i, 'controller'],
+      [/^DagExecution|^DagCancellation|^DagHook|^NodeExecution|^LiveTableSchedulerRun|^LiveTableMaintanance|^LiveTableRefreshTriggers|^Multischedule/i, 'dag'],
+      [/^OneLake|^LiveTable-OL-|^Workload\.LiveTable\.OneLake/i, 'onelake'],
+      [/^DqMetrics|^Insights|^GetDataQuality|^sys_/i, 'dq'],
+      [/^Retry|^StandardRetry|^ErrorMessage|^Cancellation$/i, 'retry'],
+    ];
   }
 
   // ===== INITIALIZATION =====
@@ -2601,6 +2740,15 @@ class Renderer {
     this.updateLogsStatus();
   }
 
+  // ===== COMPONENT CATEGORY =====
+
+  _getComponentCategory(component) {
+    for (const [regex, category] of this._categoryRules) {
+      if (regex.test(component)) return category;
+    }
+    return 'default';
+  }
+
   // ===== ROW POPULATION (zero innerHTML — textContent only) =====
 
   _populateRow(row, entry, seq, filteredIdx) {
@@ -2620,16 +2768,22 @@ class Renderer {
     const component = entry.component || 'Unknown';
     row._component.textContent = component;
     row._component.title = 'Click to exclude this component';
+    row._component.dataset.category = this._getComponentCategory(component);
 
     // Message (truncated via textContent — no HTML parsing)
     const msg = entry.message || '';
     row._message.textContent = msg.length > 500 ? msg.substring(0, 500) + '\u2026' : msg;
 
-    // Error row styling
+    // Error/warning row styling
     if (levelLower === 'error') {
       row.classList.add('error-row');
+      row.classList.remove('warning-row');
+    } else if (levelLower === 'warning') {
+      row.classList.add('warning-row');
+      row.classList.remove('error-row');
     } else {
       row.classList.remove('error-row');
+      row.classList.remove('warning-row');
     }
 
     // Class-based striping (replaces :nth-child CSS)

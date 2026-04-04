@@ -89,7 +89,7 @@ class RowPool {
 class Renderer {
   constructor(state) {
     this.state = state;
-    this.ROW_HEIGHT = 32;
+    this.ROW_HEIGHT = 34;
     this.OVERSCAN = 8;
     this.MAX_VISIBLE = 80;
     this.rowPool = new RowPool(this.MAX_VISIBLE);
@@ -109,6 +109,15 @@ class Renderer {
     this.containerReady = false;
 
     this._levelLetters = { verbose: 'V', message: 'I', warning: 'W', error: 'E' };
+
+    // Component category classifier — matches CSS data-category selectors
+    this._categoryRules = [
+      [/^LiveTableController|^LiveTablePublicController|^LiveTable-ArtifactHandler|^LTWorkload/i, 'controller'],
+      [/^DagExecution|^DagCancellation|^DagHook|^NodeExecution|^LiveTableSchedulerRun|^LiveTableMaintanance|^LiveTableRefreshTriggers|^Multischedule/i, 'dag'],
+      [/^OneLake|^LiveTable-OL-|^Workload\.LiveTable\.OneLake/i, 'onelake'],
+      [/^DqMetrics|^Insights|^GetDataQuality|^sys_/i, 'dq'],
+      [/^Retry|^StandardRetry|^ErrorMessage|^Cancellation$/i, 'retry'],
+    ];
   }
 
   // ===== INITIALIZATION =====
@@ -353,6 +362,15 @@ class Renderer {
     this.updateLogsStatus();
   }
 
+  // ===== COMPONENT CATEGORY =====
+
+  _getComponentCategory(component) {
+    for (const [regex, category] of this._categoryRules) {
+      if (regex.test(component)) return category;
+    }
+    return 'default';
+  }
+
   // ===== ROW POPULATION (zero innerHTML — textContent only) =====
 
   _populateRow(row, entry, seq, filteredIdx) {
@@ -372,16 +390,22 @@ class Renderer {
     const component = entry.component || 'Unknown';
     row._component.textContent = component;
     row._component.title = 'Click to exclude this component';
+    row._component.dataset.category = this._getComponentCategory(component);
 
     // Message (truncated via textContent — no HTML parsing)
     const msg = entry.message || '';
     row._message.textContent = msg.length > 500 ? msg.substring(0, 500) + '\u2026' : msg;
 
-    // Error row styling
+    // Error/warning row styling
     if (levelLower === 'error') {
       row.classList.add('error-row');
+      row.classList.remove('warning-row');
+    } else if (levelLower === 'warning') {
+      row.classList.add('warning-row');
+      row.classList.remove('error-row');
     } else {
       row.classList.remove('error-row');
+      row.classList.remove('warning-row');
     }
 
     // Class-based striping (replaces :nth-child CSS)
