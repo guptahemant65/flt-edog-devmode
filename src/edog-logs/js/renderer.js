@@ -371,19 +371,14 @@ class Renderer {
   
   updateStats = () => {
     const elements = {
-      'stat-total-logs': this.state.stats.totalLogs,
-      'stat-verbose': this.state.stats.verbose,
-      'stat-message': this.state.stats.message,
-      'stat-warning': this.state.stats.warning,
-      'stat-error': this.state.stats.error,
-      'stat-total-events': this.state.stats.totalEvents,
-      'stat-succeeded': this.state.stats.succeeded,
-      'stat-failed': this.state.stats.failed
+      'stat-logs': this.state.stats.totalLogs,
+      'stat-ssr': this.state.stats.totalEvents,
+      'stat-errors': this.state.stats.error
     };
     
     Object.entries(elements).forEach(([id, value]) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = value.toLocaleString();
+      if (el) el.textContent = (value || 0).toLocaleString();
     });
   }
   

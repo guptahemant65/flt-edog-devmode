@@ -60,8 +60,9 @@ class FilterManager {
   
   showCorrelationBadge = (id) => {
     const badge = document.getElementById('correlation-badge');
-    if (badge) {
-      badge.textContent = `Correlation: ${id.substring(0, 8)}...`;
+    const idSpan = document.getElementById('correlation-id');
+    if (badge && idSpan) {
+      idSpan.textContent = id.substring(0, 8) + '...';
       badge.style.display = 'block';
     }
   }
