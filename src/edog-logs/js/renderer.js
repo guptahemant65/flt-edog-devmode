@@ -186,9 +186,10 @@ class Renderer {
     // only scheduleRender() (timer-driven from new data) should trigger renders.
     // This prevents the feedback loop: render→scrollTop→scroll event→render.
     if (this.state.autoScroll) return;
+    // Manual scroll: go through flush() so stats update and renderScheduled resets
     if (!this.renderScheduled) {
       this.renderScheduled = true;
-      requestAnimationFrame(() => this._renderVirtualScroll());
+      requestAnimationFrame(() => this.flush());
     }
   }
 
