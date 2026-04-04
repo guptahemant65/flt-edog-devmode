@@ -499,14 +499,16 @@ class Renderer {
   // ===== FILTER (all existing logic preserved) =====
 
   passesFilter = (entry) => {
+    const component = entry.component || 'Unknown';
+
     // Level filter — but allow Verbose from FLT-relevant components
     const level = entry.level || 'Message';
     if (!this.state.activeLevels.has(level)) {
       // If Verbose is off but preset is FLT, still show Verbose from non-excluded components
       if (level !== 'Verbose' || this.state.activePreset !== 'flt') return false;
-      const component = entry.component || 'Unknown';
-      const preset = FilterManager.COMPONENT_PRESETS.flt;
-      if (preset.exclude && preset.exclude.some(p => p.test(component))) return false;
+      if (this.state.excludedComponents.has(component)) return false;
+      const fltPreset = FilterManager.COMPONENT_PRESETS.flt;
+      if (fltPreset.exclude && fltPreset.exclude.some(p => p.test(component))) return false;
       // Falls through — this is a Verbose log from an FLT-relevant component
     }
 
@@ -516,7 +518,6 @@ class Renderer {
     }
 
     // Component filter — check explicit exclusions AND active preset patterns
-    const component = entry.component || 'Unknown';
     if (this.state.excludedComponents.has(component)) return false;
 
     const preset = FilterManager.COMPONENT_PRESETS[this.state.activePreset];

@@ -515,9 +515,10 @@ class EdogLogViewer {
       }
       
       this.updateEndpointDropdown();
+      this.updateComponentDropdown();
       
-      // Single full render (bypasses pendingLogs for speed)
-      this.filter.applyFilters();
+      // Apply FLT preset (populates excludedComponents from loaded logs, then renders)
+      this.filter.applyPreset('flt');
       
       // Auto-populate RAID with latest execution
       if (this.state.recentExecutions.length > 0) {

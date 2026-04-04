@@ -2750,14 +2750,16 @@ class Renderer {
   // ===== FILTER (all existing logic preserved) =====
 
   passesFilter = (entry) => {
+    const component = entry.component || 'Unknown';
+
     // Level filter — but allow Verbose from FLT-relevant components
     const level = entry.level || 'Message';
     if (!this.state.activeLevels.has(level)) {
       // If Verbose is off but preset is FLT, still show Verbose from non-excluded components
       if (level !== 'Verbose' || this.state.activePreset !== 'flt') return false;
-      const component = entry.component || 'Unknown';
-      const preset = FilterManager.COMPONENT_PRESETS.flt;
-      if (preset.exclude && preset.exclude.some(p => p.test(component))) return false;
+      if (this.state.excludedComponents.has(component)) return false;
+      const fltPreset = FilterManager.COMPONENT_PRESETS.flt;
+      if (fltPreset.exclude && fltPreset.exclude.some(p => p.test(component))) return false;
       // Falls through — this is a Verbose log from an FLT-relevant component
     }
 
@@ -2767,7 +2769,6 @@ class Renderer {
     }
 
     // Component filter — check explicit exclusions AND active preset patterns
-    const component = entry.component || 'Unknown';
     if (this.state.excludedComponents.has(component)) return false;
 
     const preset = FilterManager.COMPONENT_PRESETS[this.state.activePreset];
@@ -3156,7 +3157,6 @@ class FilterManager {
     
     // Reset component filters to FLT preset
     this.state.excludedComponents.clear();
-    this.state.activePreset = 'flt';
     document.querySelectorAll('.preset-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.preset === 'flt');
     });
@@ -3170,7 +3170,8 @@ class FilterManager {
     // Clear correlation
     this.clearCorrelationFilter();
     
-    this.applyFilters();
+    // Apply FLT preset (populates excludedComponents and triggers applyFilters)
+    this.applyPreset('flt');
   }
 }
 
@@ -4659,9 +4660,10 @@ class EdogLogViewer {
       }
       
       this.updateEndpointDropdown();
+      this.updateComponentDropdown();
       
-      // Single full render (bypasses pendingLogs for speed)
-      this.filter.applyFilters();
+      // Apply FLT preset (populates excludedComponents from loaded logs, then renders)
+      this.filter.applyPreset('flt');
       
       // Auto-populate RAID with latest execution
       if (this.state.recentExecutions.length > 0) {

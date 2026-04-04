@@ -147,7 +147,6 @@ class FilterManager {
     
     // Reset component filters to FLT preset
     this.state.excludedComponents.clear();
-    this.state.activePreset = 'flt';
     document.querySelectorAll('.preset-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.preset === 'flt');
     });
@@ -161,6 +160,7 @@ class FilterManager {
     // Clear correlation
     this.clearCorrelationFilter();
     
-    this.applyFilters();
+    // Apply FLT preset (populates excludedComponents and triggers applyFilters)
+    this.applyPreset('flt');
   }
 }
