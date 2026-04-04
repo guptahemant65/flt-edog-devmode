@@ -279,13 +279,15 @@ class Renderer {
     startIdx = Math.max(0, startIdx);
     endIdx = Math.min(totalFiltered, endIdx);
 
-    // Auto-scroll: pin to bottom
+    // Auto-scroll: pin to bottom only when scrollTop actually needs to move
     if (this.state.autoScroll) {
       const newScrollTop = Math.max(0, totalHeight - viewportHeight);
       endIdx = totalFiltered;
       startIdx = Math.max(0, endIdx - Math.ceil(viewportHeight / this.ROW_HEIGHT) - this.OVERSCAN);
-      this._scrollPinUntil = Date.now() + 80;
-      this.scrollContainer.scrollTop = newScrollTop;
+      if (Math.abs(this.scrollContainer.scrollTop - newScrollTop) > 1) {
+        this._scrollPinUntil = Date.now() + 80;
+        this.scrollContainer.scrollTop = newScrollTop;
+      }
     }
 
     // Determine which filtered indices need to be on screen
