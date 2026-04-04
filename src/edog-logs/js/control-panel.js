@@ -26,9 +26,9 @@ class ControlPanel {
 
   // === Lifecycle ===
 
-  activate() {
+  async activate() {
     this._isActive = true;
-    this._fetchConfigAndRender();
+    await this._fetchConfigAndRender();
     this._fetchDagIfStale();
     this._fetchAndRenderHistory();
   }
@@ -49,6 +49,13 @@ class ControlPanel {
     throw { status: resp.status, body: body };
   }
 
+  _fabricHeaders() {
+    return {
+      'Authorization': 'Bearer ' + this._config.mwcToken,
+      'X-CORRELATION-ID': crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()
+    };
+  }
+
   async _fetchConfig() {
     const resp = await fetch('/api/flt/config');
     if (!resp.ok) await this._safeJsonError(resp);
@@ -56,21 +63,29 @@ class ControlPanel {
   }
 
   async _fetchLatestDag() {
-    const resp = await fetch('/api/flt/getlatestdag');
+    var url = this._config.fabricBaseUrl + '/liveTable/getLatestDag?showExtendedLineage=true';
+    const resp = await fetch(url, { headers: this._fabricHeaders() });
     if (!resp.ok) await this._safeJsonError(resp);
     return await resp.json();
   }
 
   async _runDag() {
-    const resp = await fetch('/api/flt/rundag', { method: 'POST' });
+    var iterationId = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    var url = this._config.fabricBaseUrl + '/liveTableSchedule/runDAG/' + iterationId;
+    const resp = await fetch(url, { method: 'POST', headers: this._fabricHeaders() });
     if (!resp.ok) await this._safeJsonError(resp);
-    return await resp.json();
+    return { iterationId: iterationId, statusCode: resp.status };
   }
 
   async _cancelDag(iterationId) {
-    const resp = await fetch('/api/flt/canceldag/' + encodeURIComponent(iterationId), { method: 'POST' });
+    var url = this._config.fabricBaseUrl + '/liveTableSchedule/cancelDAG/' + encodeURIComponent(iterationId);
+    const resp = await fetch(url, { method: 'POST', headers: this._fabricHeaders() });
     if (!resp.ok) await this._safeJsonError(resp);
-    return await resp.json();
+    var body = {};
+    try { body = await resp.json(); } catch (_) {}
+    return body;
   }
 
   async _fetchHistory() {
@@ -86,11 +101,17 @@ class ControlPanel {
       this._config = await this._fetchConfig();
       this._renderConnectionBar(this._config);
     } catch (err) {
+      this._config = null;
       this._renderConnectionError(err);
     }
   }
 
   async _fetchDagIfStale() {
+    // Need config with valid token to call Fabric directly
+    if (!this._config || !this._config.fabricBaseUrl || this._config.tokenExpired) {
+      if (!this._activeIterationId) this._renderExecutionIdle();
+      return;
+    }
     if (Date.now() - this._lastDagFetch < 30000) {
       if (this._dagData) this._renderDagOverview(this._dagData);
       if (!this._activeIterationId) this._renderExecutionIdle();

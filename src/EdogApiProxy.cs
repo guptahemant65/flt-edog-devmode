@@ -9,19 +9,17 @@ namespace Microsoft.LiveTable.Service.DevMode
 {
     using System;
     using System.IO;
-    using System.Net.Http;
     using System.Text;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Microsoft.AspNetCore.Http;
 
     /// <summary>
-    /// Proxies FLT API calls from the EDOG log viewer to Fabric infrastructure.
-    /// Reads config and token from edog.py's on-disk files.
+    /// Serves EDOG config and MWC token to the Command Center frontend.
+    /// The browser calls Fabric APIs directly with the provided token.
     /// </summary>
     internal sealed class EdogApiProxy
     {
-        private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
         private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         private readonly string configDir;
@@ -46,11 +44,15 @@ namespace Microsoft.LiveTable.Service.DevMode
                 var token = ReadToken();
                 double expiryMinutes = 0;
                 bool tokenExpired = true;
+                string mwcToken = null;
+                string fabricBaseUrl = null;
 
                 if (token != null)
                 {
                     expiryMinutes = Math.Max(0, Math.Floor((token.Value.ExpiryUtc - DateTime.UtcNow).TotalMinutes));
                     tokenExpired = false;
+                    mwcToken = token.Value.Token;
+                    fabricBaseUrl = BuildBaseUrl(config);
                 }
 
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new
@@ -59,7 +61,9 @@ namespace Microsoft.LiveTable.Service.DevMode
                     artifactId = config.ArtifactId,
                     capacityId = config.CapacityId,
                     tokenExpiryMinutes = (int)expiryMinutes,
-                    tokenExpired
+                    tokenExpired,
+                    mwcToken,
+                    fabricBaseUrl
                 }, JsonOpts));
             }
             catch (Exception ex)
@@ -67,118 +71,6 @@ namespace Microsoft.LiveTable.Service.DevMode
                 Console.WriteLine($"[EDOG] HandleConfig error: {ex}");
                 await WriteError(context, 500, "internal_error", ex.Message);
             }
-        }
-
-        public async Task HandleGetLatestDag(HttpContext context)
-        {
-            await ProxyFabricRequest(context, "HandleGetLatestDag", async (baseUrl, token) =>
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/liveTable/getLatestDag?showExtendedLineage=true");
-                request.Headers.Add("Authorization", $"Bearer {token}");
-                request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
-                return await Http.SendAsync(request);
-            });
-        }
-
-        public async Task HandleRunDag(HttpContext context)
-        {
-            await ProxyFabricRequest(context, "HandleRunDag", async (baseUrl, token) =>
-            {
-                var iterationId = Guid.NewGuid().ToString();
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/liveTableSchedule/runDAG/{iterationId}");
-                request.Headers.Add("Authorization", $"Bearer {token}");
-                request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
-
-                var response = await Http.SendAsync(request);
-
-                // Wrap RunDAG response with the generated iterationId
-                context.Response.StatusCode = (int)response.StatusCode;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new
-                {
-                    iterationId,
-                    statusCode = (int)response.StatusCode
-                }, JsonOpts));
-                return null; // Signal that response was already written
-            });
-        }
-
-        public async Task HandleCancelDag(HttpContext context)
-        {
-            var iterationId = context.Request.RouteValues["iterationId"]?.ToString();
-            if (string.IsNullOrEmpty(iterationId))
-            {
-                context.Response.ContentType = "application/json";
-                await WriteError(context, 400, "missing_iteration_id", "iterationId is required");
-                return;
-            }
-
-            await ProxyFabricRequest(context, "HandleCancelDag", async (baseUrl, token) =>
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/liveTableSchedule/cancelDAG/{iterationId}");
-                request.Headers.Add("Authorization", $"Bearer {token}");
-                request.Headers.Add("X-CORRELATION-ID", Guid.NewGuid().ToString());
-                return await Http.SendAsync(request);
-            });
-        }
-
-        /// <summary>
-        /// Shared proxy pipeline: validate config+token, execute the Fabric request, forward the response.
-        /// When the callback returns null, the response has already been written (e.g., RunDAG's custom body).
-        /// </summary>
-        private async Task ProxyFabricRequest(
-            HttpContext context,
-            string handlerName,
-            Func<string, string, Task<HttpResponseMessage>> executeRequest)
-        {
-            context.Response.ContentType = "application/json";
-            try
-            {
-                var credentials = await ValidateAndGetCredentials(context);
-                if (credentials == null) return; // Error response already written
-
-                var (config, token) = credentials.Value;
-                var baseUrl = BuildBaseUrl(config);
-
-                var response = await executeRequest(baseUrl, token.Token);
-                if (response == null) return; // Response already written by callback
-
-                var body = await response.Content.ReadAsStringAsync();
-                context.Response.StatusCode = (int)response.StatusCode;
-                await context.Response.WriteAsync(body);
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.WriteLine($"[EDOG] {handlerName} service error: {ex}");
-                await WriteError(context, 502, "service_unreachable", ex.Message);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[EDOG] {handlerName} error: {ex}");
-                await WriteError(context, 500, "internal_error", ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Reads and validates config + token. Returns null and writes error response if either is missing.
-        /// </summary>
-        private async Task<(EdogConfig Config, TokenInfo Token)?> ValidateAndGetCredentials(HttpContext context)
-        {
-            var config = await ReadConfig();
-            if (config == null)
-            {
-                await WriteError(context, 503, "config_not_found", "edog-config.json not found");
-                return null;
-            }
-
-            var token = ReadToken();
-            if (token == null)
-            {
-                await WriteError(context, 401, "token_expired", "Run edog --refresh-token in terminal");
-                return null;
-            }
-
-            return (config, token.Value);
         }
 
         private static async Task WriteError(HttpContext context, int statusCode, string error, string message)

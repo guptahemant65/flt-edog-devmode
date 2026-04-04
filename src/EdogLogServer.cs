@@ -499,9 +499,6 @@ namespace Microsoft.LiveTable.Service.DevMode
         if (apiProxy != null)
         {
             app.MapGet("/api/flt/config", apiProxy.HandleConfig);
-            app.MapGet("/api/flt/getlatestdag", apiProxy.HandleGetLatestDag);
-            app.MapPost("/api/flt/rundag", apiProxy.HandleRunDag);
-            app.MapPost("/api/flt/canceldag/{iterationId}", apiProxy.HandleCancelDag);
         }
 
         // WebSocket endpoint
