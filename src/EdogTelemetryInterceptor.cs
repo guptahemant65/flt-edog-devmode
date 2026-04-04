@@ -10,6 +10,7 @@ namespace Microsoft.LiveTable.Service.DevMode
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using Microsoft.LiveTable.Service.Telemetry;
     using Microsoft.ServicePlatform.Telemetry;
     /// <summary>
@@ -18,6 +19,10 @@ namespace Microsoft.LiveTable.Service.DevMode
     /// </summary>
     internal sealed class EdogTelemetryInterceptor : ICustomLiveTableTelemetryReporter
     {
+        private static readonly Regex GuidSuffixRegex = new Regex(
+            @"[|\-]([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$",
+            RegexOptions.Compiled);
+
         private readonly ICustomLiveTableTelemetryReporter inner;
         private readonly EdogLogServer edogLogServer;
 
@@ -65,17 +70,25 @@ namespace Microsoft.LiveTable.Service.DevMode
                     }
                 }
 
+                var effectiveCorrelationId = string.IsNullOrEmpty(correlationId)
+                    ? MonitoredScope.RootActivityId.ToString()
+                    : correlationId;
+
                 var telemetryEvent = new TelemetryEvent(
                     operationStartTime,
                     activityName ?? string.Empty,
                     activityStatus ?? string.Empty,
                     durationMs,
                     resultCode,
-                    string.IsNullOrEmpty(correlationId)
-                        ? MonitoredScope.RootActivityId.ToString()
-                        : correlationId,
+                    effectiveCorrelationId,
                     attributes,
                     executingUserObjectId.ToString());
+
+                var guidMatch = GuidSuffixRegex.Match(effectiveCorrelationId);
+                if (guidMatch.Success)
+                {
+                    telemetryEvent.IterationId = guidMatch.Groups[1].Value;
+                }
 
                 // Forward to EdogLogServer
                 this.edogLogServer.AddTelemetry(telemetryEvent);

@@ -190,17 +190,18 @@
       color: var(--text);
     }
 
-    /* Toolbar */
+    /* Toolbar / Global Filter Bar */
     #toolbar {
       display: flex;
       align-items: center;
-      gap: 16px;
-      padding: 12px 16px;
-      background: var(--surface);
+      gap: 12px;
+      padding: 8px 16px;
+      background: var(--surface-2);
       border-bottom: 1px solid var(--border);
       position: sticky;
-      top: 60px;
-      z-index: 99;
+      top: 102px;
+      z-index: 98;
+      flex-wrap: wrap;
     }
 
     .search-wrapper {
@@ -395,13 +396,77 @@
       color: white; 
     }
 
+    /* Tab Bar */
+    #tab-bar {
+      display: flex;
+      gap: 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      position: sticky;
+      top: 60px;
+      z-index: 99;
+    }
+
+    .tab-btn {
+      padding: 10px 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-shortcut {
+      display: inline-block;
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--surface-2);
+      border-radius: 3px;
+      padding: 1px 4px;
+      margin-left: 6px;
+      font-family: var(--font-mono);
+    }
+
     /* Main Content */
     #main-content {
       flex: 1;
-      display: grid;
-      grid-template-columns: 65% 1px 35%;
-      height: calc(100vh - 136px);
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
+    }
+
+    .tab-panel {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      background: var(--surface);
+      overflow: hidden;
+      animation: tabFadeIn 0.15s ease-out;
+    }
+
+    .tab-panel.active {
+      display: flex;
+    }
+
+    @keyframes tabFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     .panel {
@@ -409,6 +474,7 @@
       flex-direction: column;
       background: var(--surface);
       overflow: hidden;
+      flex: 1;
     }
 
     .panel-header {
@@ -429,6 +495,400 @@
     .panel-divider {
       background: var(--border);
       width: 1px;
+    }
+
+    /* Endpoint Filter */
+    #endpoint-filter {
+      padding: 6px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+      min-width: 140px;
+    }
+
+    #endpoint-filter:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    #endpoint-filter option {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    /* RAID / IterationId Filter */
+    .raid-filter-wrapper {
+      position: relative;
+      min-width: 260px;
+    }
+
+    #raid-filter-input {
+      width: 100%;
+      padding: 6px 10px 6px 28px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    #raid-filter-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    #raid-filter-input::placeholder {
+      color: var(--text-muted);
+      font-family: var(--font-body);
+    }
+
+    .raid-filter-icon {
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .raid-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      border-radius: 8px;
+      margin-top: 4px;
+      z-index: 200;
+      max-height: 320px;
+      overflow-y: auto;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      display: none;
+    }
+
+    .raid-dropdown.visible {
+      display: block;
+    }
+
+    .raid-dropdown-header {
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .raid-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.1s;
+    }
+
+    .raid-item:hover {
+      background: var(--surface-2);
+    }
+
+    .raid-status-dot {
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .raid-item-id {
+      font-family: var(--font-mono);
+      color: var(--text);
+      font-size: 11px;
+    }
+
+    .raid-item-meta {
+      color: var(--text-dim);
+      font-size: 10px;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+
+    .raid-item-dag {
+      color: var(--accent);
+      font-size: 10px;
+    }
+
+    /* Execution filter active badge */
+    #execution-badge {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      background: rgba(139, 92, 246, 0.1);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      border-radius: 20px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    #execution-badge.visible {
+      display: inline-flex;
+    }
+
+    #execution-badge .badge-clear {
+      cursor: pointer;
+      margin-left: 4px;
+      font-size: 14px;
+      opacity: 0.7;
+    }
+
+    #execution-badge .badge-clear:hover {
+      opacity: 1;
+    }
+
+    /* Execution Summary Tab */
+    .exec-summary {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .exec-summary-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .exec-metrics {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .exec-metrics h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .exec-metric-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .exec-metric-row:last-child {
+      border-bottom: none;
+    }
+
+    .exec-metric-label {
+      color: var(--text-dim);
+    }
+
+    .exec-metric-value {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .exec-metric-value.success { color: #4ade80; }
+    .exec-metric-value.error { color: #f87171; }
+    .exec-metric-value.warning { color: #fbbf24; }
+    .exec-metric-value.running { color: #60a5fa; }
+
+    /* Node breakdown table */
+    .node-table {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .node-table h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      padding: 12px 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .node-table table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .node-table th {
+      text-align: left;
+      padding: 8px 12px;
+      color: var(--text-dim);
+      font-weight: 500;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: var(--surface-3);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .node-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-mono);
+    }
+
+    .node-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .node-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    /* Error summary section */
+    .exec-errors {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .exec-errors h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .exec-error-item {
+      padding: 10px 12px;
+      background: rgba(248, 113, 113, 0.05);
+      border: 1px solid rgba(248, 113, 113, 0.15);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .exec-error-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .exec-error-code {
+      color: #f87171;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+    .exec-error-msg {
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .exec-error-meta {
+      color: var(--text-muted);
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    /* Key moments timeline */
+    .exec-timeline {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .exec-timeline h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .timeline-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 6px 0;
+      font-size: 12px;
+      border-left: 2px solid var(--border);
+      padding-left: 12px;
+      margin-left: 4px;
+    }
+
+    .timeline-item.start { border-left-color: #4ade80; }
+    .timeline-item.end-success { border-left-color: #4ade80; }
+    .timeline-item.end-fail { border-left-color: #f87171; }
+    .timeline-item.error { border-left-color: #f87171; }
+    .timeline-item.skip { border-left-color: #9ca3af; }
+
+    .timeline-time {
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+      white-space: nowrap;
+      font-size: 11px;
+      min-width: 80px;
+    }
+
+    .timeline-icon {
+      flex-shrink: 0;
+    }
+
+    .timeline-text {
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    /* DAG Timeline placeholder */
+    .dag-timeline-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      text-align: center;
+      gap: 12px;
+    }
+
+    .dag-timeline-placeholder .placeholder-icon {
+      font-size: 48px;
+      opacity: 0.4;
+    }
+
+    .dag-timeline-placeholder .placeholder-text {
+      font-size: 16px;
+    }
+
+    .dag-timeline-placeholder .placeholder-sub {
+      font-size: 13px;
+      color: var(--text-muted);
     }
 
     .correlation-badge {
@@ -783,6 +1243,11 @@
       max-height: 40vh;
       z-index: 200;
       animation: slideUp 0.3s ease-out;
+      display: none;
+    }
+
+    .detail-panel.visible {
+      display: block;
     }
 
     /* Copy buttons */
@@ -990,17 +1455,12 @@
 
     /* Responsive Design */
     @media (max-width: 1024px) {
-      #main-content {
-        grid-template-columns: 100%;
-        grid-template-rows: 1fr;
+      .exec-summary-grid {
+        grid-template-columns: 1fr;
       }
 
-      #telemetry-panel {
-        display: none;
-      }
-
-      .panel-divider {
-        display: none;
+      .raid-filter-wrapper {
+        min-width: 180px;
       }
     }
 
@@ -1171,6 +1631,13 @@
     </div>
   </header>
 
+  <nav id="tab-bar">
+    <button class="tab-btn active" data-tab="logs">📋 Logs <span class="tab-shortcut">1</span></button>
+    <button class="tab-btn" data-tab="ssr">📡 SSR Telemetry <span class="tab-shortcut">2</span></button>
+    <button class="tab-btn" data-tab="summary">📊 Execution Summary <span class="tab-shortcut">3</span></button>
+    <button class="tab-btn" data-tab="timeline">📈 DAG Timeline <span class="tab-shortcut">4</span></button>
+  </nav>
+
   <div id="toolbar">
     <div class="time-filter">
       <button class="time-btn active" data-range="0" title="All time">All</button>
@@ -1184,6 +1651,18 @@
       <input type="text" id="search-input" placeholder="Search logs... (Ctrl+K)" />
       <span id="search-count" class="search-count"></span>
     </div>
+    <select id="endpoint-filter" title="Filter by API endpoint">
+      <option value="">All Endpoints</option>
+    </select>
+    <div class="raid-filter-wrapper">
+      <span class="raid-filter-icon">🔍</span>
+      <input type="text" id="raid-filter-input" placeholder="Filter by RAID or IterationId..." autocomplete="off" />
+      <div id="raid-dropdown" class="raid-dropdown">
+        <div class="raid-dropdown-header">Recent Executions</div>
+        <div id="raid-dropdown-list"></div>
+      </div>
+    </div>
+    <span id="execution-badge">🔒 Execution: <span id="exec-badge-id"></span> — <span id="exec-badge-counts"></span> <span class="badge-clear" id="exec-badge-clear" title="Clear execution filter">✕</span></span>
     <div class="level-filters">
       <button class="level-btn active" data-level="Verbose">V</button>
       <button class="level-btn active" data-level="Message">M</button>
@@ -1205,40 +1684,64 @@
   </div>
 
   <div id="main-content">
-    <div id="logs-panel" class="panel">
-      <div class="panel-header">
-        <h2>📋 Application Logs</h2>
-        <span id="correlation-badge" class="correlation-badge" style="display:none">
-          Filtered: <span id="correlation-id"></span> <button id="correlation-close">✕</button>
-        </span>
-      </div>
-      <div id="logs-container" class="log-scroll">
-        <div id="empty-state" class="empty-state">
-          <div class="empty-icon">📡</div>
-          <div class="empty-text">Waiting for logs...</div>
-          <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
+    <!-- TAB 1: Logs -->
+    <div id="tab-logs" class="tab-panel active">
+      <div id="logs-panel" class="panel">
+        <div class="panel-header">
+          <h2>📋 Application Logs</h2>
+          <span id="correlation-badge" class="correlation-badge" style="display:none">
+            Filtered: <span id="correlation-id"></span> <button id="correlation-close">✕</button>
+          </span>
         </div>
-        <!-- Log rows will be inserted here -->
+        <div id="logs-container" class="log-scroll">
+          <div id="empty-state" class="empty-state">
+            <div class="empty-icon">📡</div>
+            <div class="empty-text">Waiting for logs...</div>
+            <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
+          </div>
+        </div>
+        <div class="logs-status" id="logs-status-bar">
+          Showing <span id="visible-count">0</span> of <span id="total-count">0</span> logs
+        </div>
+        <button id="resume-scroll-btn" class="scroll-fab" style="display:none">↓ Resume auto-scroll</button>
       </div>
-      <div class="logs-status" id="logs-status-bar">
-        Showing <span id="visible-count">0</span> of <span id="total-count">0</span> logs
-      </div>
-      <button id="resume-scroll-btn" class="scroll-fab" style="display:none">↓ Resume auto-scroll</button>
     </div>
 
-    <div class="panel-divider"></div>
-
-    <div id="telemetry-panel" class="panel">
-      <div class="panel-header">
-        <h2>📡 SSR Telemetry</h2>
+    <!-- TAB 2: SSR Telemetry -->
+    <div id="tab-ssr" class="tab-panel">
+      <div id="telemetry-panel" class="panel">
+        <div class="panel-header">
+          <h2>📡 SSR Telemetry</h2>
+        </div>
+        <div id="telemetry-container" class="telemetry-scroll">
+        </div>
       </div>
-      <div id="telemetry-container" class="telemetry-scroll">
-        <!-- Telemetry cards will be inserted here -->
+    </div>
+
+    <!-- TAB 3: Execution Summary -->
+    <div id="tab-summary" class="tab-panel">
+      <div id="exec-summary-panel" class="panel">
+        <div id="exec-summary-content" class="exec-summary">
+          <div class="empty-state" id="exec-summary-empty">
+            <div class="empty-icon">📊</div>
+            <div class="empty-text">Select an execution from the filter bar to see its summary</div>
+          </div>
+          <div id="exec-summary-data" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: DAG Timeline -->
+    <div id="tab-timeline" class="tab-panel">
+      <div class="dag-timeline-placeholder">
+        <div class="placeholder-icon">📈</div>
+        <div class="placeholder-text">DAG Timeline Visualization</div>
+        <div class="placeholder-sub">Coming soon in Wave 3</div>
       </div>
     </div>
   </div>
 
-  <div id="detail-panel" class="detail-panel" style="display:none">
+  <div id="detail-panel" class="detail-panel">
     <div class="detail-header">
       <h3 id="detail-title">Log Detail</h3>
       <button id="detail-close" class="icon-btn">✕</button>
@@ -1298,6 +1801,18 @@ class LogViewerState {
     };
     this.pendingLogs = [];    // Buffer for batched rendering
     this.pendingTelemetry = [];
+
+    // W0.1 — Tab state
+    this.activeTab = localStorage.getItem('edog-active-tab') || 'logs';
+
+    // W0.2 — Endpoint filter
+    this.endpointFilter = '';        // Currently selected endpoint
+    this.knownEndpoints = new Set(); // Auto-discovered endpoints
+
+    // W0.3 — RAID / IterationId filter
+    this.raidFilter = '';             // Active RAID/IterationId filter
+    this.knownIterationIds = new Map(); // id → { id, firstSeen, dagName, status, logCount, ssrCount }
+    this.recentExecutions = [];       // Last 10 unique IterationIds (ordered)
   }
   
   addLog = (entry) => {
@@ -1748,6 +2263,25 @@ class Renderer {
       if (logTime < cutoff) return false;
     }
     
+    // Endpoint filter (W0.2)
+    if (this.state.endpointFilter) {
+      const comp = entry.component || '';
+      const match = comp.match(/-([A-Za-z]+)$/);
+      const endpoint = match ? match[1] : '';
+      if (endpoint.toLowerCase() !== this.state.endpointFilter.toLowerCase()) return false;
+    }
+    
+    // RAID / IterationId filter (W0.3)
+    if (this.state.raidFilter) {
+      const raidLower = this.state.raidFilter.toLowerCase();
+      const iterationId = (entry.iterationId || '').toLowerCase();
+      const message = (entry.message || '').toLowerCase();
+      const rootId = (entry.rootActivityId || '').toLowerCase();
+      if (!iterationId.includes(raidLower) && !message.includes(raidLower) && !rootId.includes(raidLower)) {
+        return false;
+      }
+    }
+    
     // Text search
     if (this.state.searchText) {
       const searchLower = this.state.searchText.toLowerCase();
@@ -1815,7 +2349,7 @@ class Renderer {
   updateSearchCount = () => {
     const countEl = document.getElementById('search-count');
     if (countEl) {
-      if (this.state.searchText || this.state.correlationFilter) {
+      if (this.state.searchText || this.state.correlationFilter || this.state.raidFilter) {
         const count = this.state.filteredLogs.length;
         countEl.textContent = `${count.toLocaleString()} matches`;
         countEl.style.display = 'block';
@@ -1823,6 +2357,35 @@ class Renderer {
         countEl.style.display = 'none';
       }
     }
+  }
+
+  passesTelemetryFilter = (event) => {
+    // Endpoint filter (W0.2)
+    if (this.state.endpointFilter) {
+      const name = event.activityName || '';
+      if (!name.toLowerCase().includes(this.state.endpointFilter.toLowerCase())) return false;
+    }
+    // RAID / IterationId filter (W0.3)
+    if (this.state.raidFilter) {
+      const raidLower = this.state.raidFilter.toLowerCase();
+      const iterationId = ((event.attributes && event.attributes.IterationId) || '').toLowerCase();
+      const corrId = (event.correlationId || '').toLowerCase();
+      if (!iterationId.includes(raidLower) && !corrId.includes(raidLower)) return false;
+    }
+    return true;
+  }
+
+  rerenderTelemetry = () => {
+    const container = document.getElementById('telemetry-container');
+    if (!container) return;
+    container.innerHTML = '';
+    const filtered = this.state.telemetry.filter(e => this.passesTelemetryFilter(e));
+    const toRender = filtered.slice(-100).reverse();
+    toRender.forEach(event => {
+      const card = this.createTelemetryCard(event);
+      card.classList.add('fade-in-complete');
+      container.appendChild(card);
+    });
   }
 }
 
@@ -1899,6 +2462,7 @@ class FilterManager {
   
   applyFilters = () => {
     this.renderer.rerenderAllLogs();
+    this.renderer.rerenderTelemetry();
   }
   
   // Component presets — regex patterns to EXCLUDE
@@ -2010,12 +2574,12 @@ class DetailPanel {
     this.isVisible = true;
     
     // Focus close button for accessibility
-    const closeBtn = panel.querySelector('.detail-close');
+    const closeBtn = panel.querySelector('#detail-close');
     if (closeBtn) closeBtn.focus();
   }
   
   showLogDetail = (panel, entry) => {
-    const title = panel.querySelector('.detail-title');
+    const title = panel.querySelector('#detail-title');
     const content = panel.querySelector('.detail-content');
     
     if (title) title.textContent = 'Log Entry Details';
@@ -2092,7 +2656,7 @@ class DetailPanel {
   }
   
   showTelemetryDetail = (panel, event) => {
-    const title = panel.querySelector('.detail-title');
+    const title = panel.querySelector('#detail-title');
     const content = panel.querySelector('.detail-content');
     
     if (title) title.textContent = 'Telemetry Event Details';
@@ -2214,6 +2778,265 @@ class DetailPanel {
   }
 }
 
+// ===== EXECUTION SUMMARY (W0.4) =====
+
+class ExecutionSummary {
+  constructor(state, renderer) {
+    this.state = state;
+    this.renderer = renderer;
+  }
+
+  compute = (iterationId) => {
+    if (!iterationId) return null;
+    const idLower = iterationId.toLowerCase();
+
+    // Gather matching logs
+    const logs = this.state.logs.filter(l => {
+      const lid = (l.iterationId || '').toLowerCase();
+      const msg = (l.message || '').toLowerCase();
+      const rid = (l.rootActivityId || '').toLowerCase();
+      return lid.includes(idLower) || msg.includes(idLower) || rid.includes(idLower);
+    });
+
+    // Gather matching SSR events
+    const ssrEvents = this.state.telemetry.filter(e => {
+      const eid = ((e.attributes && e.attributes.IterationId) || '').toLowerCase();
+      const cid = (e.correlationId || '').toLowerCase();
+      return eid.includes(idLower) || cid.includes(idLower);
+    });
+
+    // Extract DAG metrics
+    const metrics = this.extractMetrics(logs, ssrEvents);
+    const nodes = this.extractNodes(logs, ssrEvents);
+    const errors = this.extractErrors(logs);
+    const timeline = this.extractTimeline(logs);
+
+    return { metrics, nodes, errors, timeline, logCount: logs.length, ssrCount: ssrEvents.length };
+  }
+
+  extractMetrics = (logs, ssrEvents) => {
+    const result = { status: 'Unknown', duration: '—', started: '—', refreshMode: '—', nodeCount: '—', errorCount: 0, parallelLimit: '—' };
+
+    // Find DAG status from logs
+    for (const log of logs) {
+      const msg = log.message || '';
+      if (msg.includes('[DAG STATUS]')) {
+        if (msg.includes('Completed') || msg.includes('completed')) {
+          result.status = msg.includes('error') || msg.includes('Error') || msg.includes('fault') ? 'Failed' : 'Completed';
+        } else if (msg.includes('Started') || msg.includes('started') || msg.includes('Starting')) {
+          if (result.status === 'Unknown') result.status = 'Running';
+        }
+      }
+    }
+
+    // Check SSR for RunDag activity
+    const runDagEvents = ssrEvents.filter(e => (e.activityName || '').toLowerCase().includes('rundag'));
+    if (runDagEvents.length > 0) {
+      const last = runDagEvents[runDagEvents.length - 1];
+      if (last.activityStatus) result.status = last.activityStatus;
+      if (last.durationMs) result.duration = this.renderer.formatDuration(last.durationMs);
+      if (last.timestamp) result.started = this.renderer.formatTime(last.timestamp);
+    }
+
+    // Extract from log messages
+    for (const log of logs) {
+      const msg = log.message || '';
+      const refreshMatch = msg.match(/refresh\s*(?:mode|type)?\s*[=:]\s*(\w+)/i);
+      if (refreshMatch) result.refreshMode = refreshMatch[1];
+      const nodeCountMatch = msg.match(/(\d+)\s*nodes?/i);
+      if (nodeCountMatch && result.nodeCount === '—') result.nodeCount = nodeCountMatch[1];
+      const parallelMatch = msg.match(/parallel\s*(?:limit|degree)?\s*[=:]\s*(\d+)/i);
+      if (parallelMatch) result.parallelLimit = parallelMatch[1];
+      if (log.timestamp && result.started === '—') result.started = this.renderer.formatTime(log.timestamp);
+    }
+
+    // Count errors
+    result.errorCount = logs.filter(l => l.level === 'Error').length;
+
+    return result;
+  }
+
+  extractNodes = (logs, ssrEvents) => {
+    const nodeMap = new Map();
+
+    // From SSR NodeExecution activities
+    ssrEvents.filter(e => (e.activityName || '').toLowerCase().includes('nodeexecution')).forEach(e => {
+      const nodeName = (e.attributes && (e.attributes.NodeName || e.attributes.nodeName)) || e.activityName || 'Unknown';
+      nodeMap.set(nodeName, {
+        name: nodeName,
+        status: e.activityStatus || 'Unknown',
+        duration: e.durationMs ? this.renderer.formatDuration(e.durationMs) : '—',
+        error: e.resultCode && e.resultCode !== 'OK' ? e.resultCode : ''
+      });
+    });
+
+    // From log messages about node execution
+    for (const log of logs) {
+      const msg = log.message || '';
+      const execMatch = msg.match(/Executed node\s+['"]?(\w+)['"]?\s+with final status\s+(\w+)/i);
+      if (execMatch) {
+        const name = execMatch[1];
+        const existing = nodeMap.get(name) || { name, status: 'Unknown', duration: '—', error: '' };
+        existing.status = execMatch[2];
+        nodeMap.set(name, existing);
+      }
+      const startMatch = msg.match(/Executing node\s+['"]?(\w+)['"]?/i);
+      if (startMatch && !nodeMap.has(startMatch[1])) {
+        nodeMap.set(startMatch[1], { name: startMatch[1], status: 'Running', duration: '—', error: '' });
+      }
+    }
+
+    // Faulted/skipped nodes
+    for (const log of logs) {
+      const msg = log.message || '';
+      if (msg.includes('[DAG_FAULTED_NODES]')) {
+        const faultedMatch = msg.match(/\[DAG_FAULTED_NODES\]\s*(.*)/i);
+        if (faultedMatch) {
+          const names = faultedMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+          names.forEach(name => {
+            if (!nodeMap.has(name)) {
+              nodeMap.set(name, { name, status: 'Skipped', duration: '—', error: 'upstream' });
+            }
+          });
+        }
+      }
+    }
+
+    return Array.from(nodeMap.values());
+  }
+
+  extractErrors = (logs) => {
+    const errorMap = new Map();
+    logs.filter(l => l.level === 'Error').forEach(log => {
+      const msg = log.message || '';
+      const codeMatch = msg.match(/\b(MLV_\w+|ERR_\w+|ERROR_\w+)\b/);
+      const code = codeMatch ? codeMatch[1] : 'UNKNOWN_ERROR';
+      const existing = errorMap.get(code) || { code, message: msg.substring(0, 120), count: 0, node: '' };
+      existing.count++;
+      // Try to extract node name from context
+      const nodeMatch = msg.match(/[Nn]ode[:\s]+['"]?(\w+)['"]?/);
+      if (nodeMatch) existing.node = nodeMatch[1];
+      errorMap.set(code, existing);
+    });
+    return Array.from(errorMap.values());
+  }
+
+  extractTimeline = (logs) => {
+    const events = [];
+    for (const log of logs) {
+      const msg = log.message || '';
+      const time = this.renderer.formatTime(log.timestamp);
+      if (msg.includes('[DAG STATUS]')) {
+        let icon = '🟢', type = 'start';
+        if (msg.toLowerCase().includes('completed') || msg.toLowerCase().includes('finished')) {
+          icon = msg.toLowerCase().includes('error') || msg.toLowerCase().includes('fault') ? '🔴' : '🟢';
+          type = msg.toLowerCase().includes('error') ? 'end-fail' : 'end-success';
+        }
+        events.push({ time, icon, text: msg.replace('[DAG STATUS]', '').trim(), type });
+      } else if (msg.match(/Executing node\s+['"]?(\w+)['"]?/i)) {
+        const m = msg.match(/Executing node\s+['"]?(\w+)['"]?/i);
+        events.push({ time, icon: '▶️', text: `Node ${m[1]} started`, type: 'start' });
+      } else if (msg.match(/Executed node\s+['"]?(\w+)['"]?\s+with final status\s+(\w+)/i)) {
+        const m = msg.match(/Executed node\s+['"]?(\w+)['"]?\s+with final status\s+(\w+)/i);
+        const ok = m[2].toLowerCase() === 'succeeded' || m[2].toLowerCase() === 'completed';
+        events.push({ time, icon: ok ? '✅' : '❌', text: `${m[1]} ${m[2]}`, type: ok ? 'end-success' : 'end-fail' });
+      } else if (log.level === 'Error') {
+        events.push({ time, icon: '❌', text: msg.substring(0, 100), type: 'error' });
+      } else if (msg.includes('[DAG_FAULTED_NODES]')) {
+        events.push({ time, icon: '⊘', text: msg.replace('[DAG_FAULTED_NODES]', 'Skipped nodes:').trim(), type: 'skip' });
+      }
+    }
+    return events.slice(0, 50); // Cap at 50 events
+  }
+
+  render = (data) => {
+    if (!data) return;
+    const container = document.getElementById('exec-summary-data');
+    const emptyEl = document.getElementById('exec-summary-empty');
+    if (!container) return;
+
+    if (emptyEl) emptyEl.style.display = 'none';
+    container.style.display = 'block';
+
+    const statusIcon = { 'Completed': '🟢', 'Succeeded': '🟢', 'Failed': '🔴', 'Running': '🟡', 'Cancelled': '🟠' }[data.metrics.status] || '⚪';
+    const statusClass = { 'Completed': 'success', 'Succeeded': 'success', 'Failed': 'error', 'Running': 'running', 'Cancelled': 'warning' }[data.metrics.status] || '';
+
+    const nodesSucceeded = data.nodes.filter(n => n.status.toLowerCase() === 'succeeded' || n.status.toLowerCase() === 'completed').length;
+
+    let nodesHtml = '';
+    if (data.nodes.length > 0) {
+      nodesHtml = `<table><thead><tr><th>Node</th><th>Status</th><th>Duration</th><th>Error</th></tr></thead><tbody>`;
+      data.nodes.forEach(n => {
+        const icon = { 'Succeeded': '✅', 'Completed': '✅', 'Failed': '❌', 'Running': '🟡', 'Skipped': '⊘' }[n.status] || '⚪';
+        nodesHtml += `<tr><td>${this.esc(n.name)}</td><td>${icon} ${this.esc(n.status)}</td><td>${this.esc(n.duration)}</td><td style="color:#f87171">${this.esc(n.error)}</td></tr>`;
+      });
+      nodesHtml += `</tbody></table>`;
+    } else {
+      nodesHtml = `<div style="padding:16px;color:var(--text-dim);text-align:center">No node data found</div>`;
+    }
+
+    let errorsHtml = '';
+    if (data.errors.length > 0) {
+      errorsHtml = data.errors.map(e => `
+        <div class="exec-error-item">
+          <span class="exec-error-code">❌ ${this.esc(e.code)}</span> — "${this.esc(e.message)}"
+          <div class="exec-error-meta">${e.node ? `Node: ${this.esc(e.node)} │ ` : ''}Count: ${e.count}</div>
+        </div>
+      `).join('');
+    }
+
+    let timelineHtml = '';
+    if (data.timeline.length > 0) {
+      timelineHtml = data.timeline.map(e => `
+        <div class="timeline-item ${e.type}">
+          <span class="timeline-time">${this.esc(e.time)}</span>
+          <span class="timeline-icon">${e.icon}</span>
+          <span class="timeline-text">${this.esc(e.text)}</span>
+        </div>
+      `).join('');
+    } else {
+      timelineHtml = `<div style="padding:12px;color:var(--text-dim)">No key moments detected</div>`;
+    }
+
+    container.innerHTML = `
+      <div class="exec-summary-grid">
+        <div class="exec-metrics">
+          <h3>Key Metrics</h3>
+          <div class="exec-metric-row"><span class="exec-metric-label">Status</span><span class="exec-metric-value ${statusClass}">${statusIcon} ${this.esc(data.metrics.status)}</span></div>
+          <div class="exec-metric-row"><span class="exec-metric-label">Duration</span><span class="exec-metric-value">${this.esc(data.metrics.duration)}</span></div>
+          <div class="exec-metric-row"><span class="exec-metric-label">Started</span><span class="exec-metric-value">${this.esc(data.metrics.started)}</span></div>
+          <div class="exec-metric-row"><span class="exec-metric-label">Refresh</span><span class="exec-metric-value">${this.esc(data.metrics.refreshMode)}</span></div>
+          <div class="exec-metric-row"><span class="exec-metric-label">Nodes</span><span class="exec-metric-value">${nodesSucceeded}/${data.nodes.length} ✅</span></div>
+          <div class="exec-metric-row"><span class="exec-metric-label">Errors</span><span class="exec-metric-value ${data.metrics.errorCount > 0 ? 'error' : ''}">${data.metrics.errorCount}</span></div>
+          <div class="exec-metric-row"><span class="exec-metric-label">Parallel</span><span class="exec-metric-value">${this.esc(data.metrics.parallelLimit)}</span></div>
+        </div>
+        <div class="node-table">
+          <h3>Node Breakdown</h3>
+          ${nodesHtml}
+        </div>
+      </div>
+      ${data.errors.length > 0 ? `<div class="exec-errors"><h3>Errors</h3>${errorsHtml}</div>` : ''}
+      <div class="exec-timeline">
+        <h3>Key Moments Timeline</h3>
+        ${timelineHtml}
+      </div>
+    `;
+  }
+
+  clearSummary = () => {
+    const container = document.getElementById('exec-summary-data');
+    const emptyEl = document.getElementById('exec-summary-empty');
+    if (container) container.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'flex';
+  }
+
+  esc = (text) => {
+    const d = document.createElement('div');
+    d.textContent = String(text || '');
+    return d.innerHTML;
+  }
+}
+
 // ===== UTILITY FUNCTIONS FOR DETAIL PANEL =====
 
 // Copy to clipboard function
@@ -2251,6 +3074,9 @@ function copyToClipboard(btn, text) {
 function filterSSRByCorrelation(rootActivityId) {
   if (!rootActivityId || !window.edogViewer) return;
   
+  // Switch to SSR tab
+  window.edogViewer.switchTab('ssr');
+  
   const telemetryContainer = document.getElementById('telemetry-container');
   if (!telemetryContainer) return;
   
@@ -2274,21 +3100,14 @@ function filterSSRByCorrelation(rootActivityId) {
       }
     });
   });
-  
-  // Also scroll to telemetry panel if match found
-  if (foundMatch) {
-    const telemetryPanel = document.getElementById('telemetry-panel');
-    if (telemetryPanel) {
-      setTimeout(() => {
-        telemetryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 300);
-    }
-  }
 }
 
 // Filter logs by correlation ID
 function filterLogsByCorrelation(correlationId) {
   if (!correlationId || !window.edogViewer || !window.edogViewer.filter) return;
+  
+  // Switch to logs tab
+  window.edogViewer.switchTab('logs');
   
   window.edogViewer.filter.setCorrelationFilter(correlationId);
   
@@ -2327,7 +3146,9 @@ class EdogLogViewer {
     this.ws = new WebSocketManager();
     this.filter = new FilterManager(this.state, this.renderer);
     this.detail = new DetailPanel();
+    this.execSummary = new ExecutionSummary(this.state, this.renderer);
     this.scrollTimeout = null;
+    this.raidDebounceTimeout = null;
     
     // Set up WebSocket callbacks
     this.ws.onStatusChange = this.updateConnectionStatus;
@@ -2335,10 +3156,13 @@ class EdogLogViewer {
   }
   
   init = () => {
-    console.log('Initializing EDOG Log Viewer');
+    console.log('Initializing EDOG Log Viewer V2');
     
     // Make globally accessible
     window.edogViewer = this;
+    
+    // Restore active tab from localStorage
+    this.switchTab(this.state.activeTab);
     
     this.bindEventListeners();
     this.loadInitialData();
@@ -2346,6 +3170,14 @@ class EdogLogViewer {
   }
   
   bindEventListeners = () => {
+    // Tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        if (tab) this.switchTab(tab);
+      });
+    });
+
     // Search input
     const searchInput = document.getElementById('search-input');
     if (searchInput) {
@@ -2354,6 +3186,52 @@ class EdogLogViewer {
       });
     }
     
+    // Endpoint filter (W0.2)
+    const endpointFilter = document.getElementById('endpoint-filter');
+    if (endpointFilter) {
+      endpointFilter.addEventListener('change', (e) => {
+        this.state.endpointFilter = e.target.value;
+        this.filter.applyFilters();
+      });
+    }
+
+    // RAID filter (W0.3)
+    const raidInput = document.getElementById('raid-filter-input');
+    if (raidInput) {
+      raidInput.addEventListener('input', (e) => {
+        clearTimeout(this.raidDebounceTimeout);
+        const val = e.target.value.trim();
+        this.updateRaidDropdown(val);
+        this.raidDebounceTimeout = setTimeout(() => {
+          this.applyRaidFilter(val);
+        }, 200);
+      });
+      raidInput.addEventListener('focus', () => {
+        this.updateRaidDropdown(raidInput.value.trim());
+        this.showRaidDropdown();
+      });
+      raidInput.addEventListener('paste', (e) => {
+        setTimeout(() => {
+          const val = raidInput.value.trim();
+          if (/^[0-9a-fA-F-]{36}$/.test(val)) {
+            this.applyRaidFilter(val);
+          }
+        }, 0);
+      });
+      // Close dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.raid-filter-wrapper')) {
+          this.hideRaidDropdown();
+        }
+      });
+    }
+
+    // Execution badge clear
+    const execBadgeClear = document.getElementById('exec-badge-clear');
+    if (execBadgeClear) {
+      execBadgeClear.addEventListener('click', () => this.clearRaidFilter());
+    }
+
     // Level buttons
     document.querySelectorAll('.level-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2385,7 +3263,13 @@ class EdogLogViewer {
     // Clear button
     const clearBtn = document.getElementById('clear-btn');
     if (clearBtn) {
-      clearBtn.addEventListener('click', this.filter.clearAll);
+      clearBtn.addEventListener('click', () => {
+        this.clearRaidFilter();
+        this.state.endpointFilter = '';
+        const ef = document.getElementById('endpoint-filter');
+        if (ef) ef.value = '';
+        this.filter.clearAll();
+      });
     }
     
     // Export button
@@ -2404,9 +3288,10 @@ class EdogLogViewer {
     const nextErrorBtn = document.getElementById('btn-next-error');
     if (nextErrorBtn) {
       nextErrorBtn.addEventListener('click', () => {
+        // Ensure we're on the logs tab
+        this.switchTab('logs');
         const container = document.getElementById('logs-container');
         const errorRows = container.querySelectorAll('.error-row');
-        // Find next error below current scroll position
         const scrollTop = container.scrollTop;
         for (const row of errorRows) {
           if (row.offsetTop > scrollTop + 50) {
@@ -2454,8 +3339,16 @@ class EdogLogViewer {
   
   handleKeydown = (e) => {
     // Skip if typing in input field
-    if (e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     
+    // Tab switching: 1/2/3/4
+    const tabMap = { 'Digit1': 'logs', 'Digit2': 'ssr', 'Digit3': 'summary', 'Digit4': 'timeline' };
+    if (tabMap[e.code]) {
+      e.preventDefault();
+      this.switchTab(tabMap[e.code]);
+      return;
+    }
+
     switch (e.code) {
       case 'Escape':
         if (this.detail.isVisible) {
@@ -2508,9 +3401,13 @@ class EdogLogViewer {
   handleWebSocketMessage = (type, data) => {
     if (type === 'log') {
       this.state.addLog(data);
+      this.extractEndpointFromLog(data);
+      this.extractIterationIdFromLog(data);
       this.renderer.scheduleRender();
     } else if (type === 'telemetry') {
       this.state.addTelemetry(data);
+      this.extractEndpointFromTelemetry(data);
+      this.extractIterationIdFromTelemetry(data);
       this.renderer.scheduleRender();
     }
   }
@@ -2518,8 +3415,9 @@ class EdogLogViewer {
   updateConnectionStatus = (status) => {
     const badge = document.getElementById('connection-status');
     if (badge) {
-      badge.textContent = status;
-      badge.className = `connection-badge ${status}`;
+      const labels = { 'connected': '● Connected', 'disconnected': '● Disconnected', 'connecting': '● Connecting', 'reconnecting': '● Reconnecting' };
+      badge.textContent = labels[status] || `● ${status}`;
+      badge.className = `status-badge ${status}`;
     }
   }
   
@@ -2529,14 +3427,22 @@ class EdogLogViewer {
       const logsResponse = await fetch('/api/logs');
       if (logsResponse.ok) {
         const logs = await logsResponse.json();
-        logs.forEach(log => this.state.addLog(log));
+        logs.forEach(log => {
+          this.state.addLog(log);
+          this.extractEndpointFromLog(log);
+          this.extractIterationIdFromLog(log);
+        });
       }
       
       // Load telemetry
       const telemetryResponse = await fetch('/api/telemetry');
       if (telemetryResponse.ok) {
         const events = await telemetryResponse.json();
-        events.forEach(event => this.state.addTelemetry(event));
+        events.forEach(event => {
+          this.state.addTelemetry(event);
+          this.extractEndpointFromTelemetry(event);
+          this.extractIterationIdFromTelemetry(event);
+        });
       }
       
       // Load stats
@@ -2545,6 +3451,9 @@ class EdogLogViewer {
         const stats = await statsResponse.json();
         Object.assign(this.state.stats, stats);
       }
+      
+      // Update endpoint dropdown with initial data
+      this.updateEndpointDropdown();
       
       // Render initial data
       this.renderer.scheduleRender();
@@ -2594,6 +3503,235 @@ class EdogLogViewer {
     if (btn) btn.style.display = 'none';
   }
   
+  // ===== TAB MANAGEMENT (W0.1) =====
+  
+  switchTab = (tabId) => {
+    this.state.activeTab = tabId;
+    localStorage.setItem('edog-active-tab', tabId);
+
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+
+    // Update tab panels
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+      panel.classList.toggle('active', panel.id === `tab-${tabId}`);
+    });
+
+    // If switching to summary and a RAID is active, refresh summary
+    if (tabId === 'summary' && this.state.raidFilter) {
+      this.refreshExecutionSummary();
+    }
+  }
+
+  // ===== ENDPOINT FILTER (W0.2) =====
+
+  extractEndpointFromLog = (entry) => {
+    const component = entry.component || '';
+    const match = component.match(/-([A-Za-z]+)$/);
+    if (match) {
+      const endpoint = match[1];
+      if (!this.state.knownEndpoints.has(endpoint)) {
+        this.state.knownEndpoints.add(endpoint);
+        this.updateEndpointDropdown();
+      }
+    }
+  }
+
+  extractEndpointFromTelemetry = (event) => {
+    const name = event.activityName || '';
+    // Known patterns: RunDag, GetLatestDag, CancelDAG, etc.
+    const endpointPatterns = ['RunDag', 'GetLatestDag', 'CancelDAG', 'RunDAG', 'GetDag'];
+    for (const pat of endpointPatterns) {
+      if (name.includes(pat) && !this.state.knownEndpoints.has(pat)) {
+        this.state.knownEndpoints.add(pat);
+        this.updateEndpointDropdown();
+      }
+    }
+  }
+
+  updateEndpointDropdown = () => {
+    const select = document.getElementById('endpoint-filter');
+    if (!select) return;
+    const current = select.value;
+    // Keep "All Endpoints" as first option
+    select.innerHTML = '<option value="">All Endpoints</option>';
+    const sorted = Array.from(this.state.knownEndpoints).sort();
+    sorted.forEach(ep => {
+      const opt = document.createElement('option');
+      opt.value = ep;
+      opt.textContent = ep;
+      select.appendChild(opt);
+    });
+    select.value = current; // Preserve selection
+  }
+
+  // ===== RAID / ITERATION ID FILTER (W0.3) =====
+
+  extractIterationIdFromLog = (entry) => {
+    let id = entry.iterationId || '';
+    if (!id) {
+      const msg = entry.message || '';
+      const match = msg.match(/IterationId[=: ]+([0-9a-fA-F-]{36})/);
+      if (match) id = match[1];
+    }
+    if (!id) return;
+
+    const existing = this.state.knownIterationIds.get(id);
+    if (existing) {
+      existing.logCount++;
+      if (entry.level === 'Error') existing.status = 'Failed';
+      // Extract DAG name
+      const msg = entry.message || '';
+      if (msg.includes('Creating Dag from Catalog') && !existing.dagName) {
+        const dagMatch = msg.match(/Creating Dag from Catalog[^"]*"([^"]+)"/i) || msg.match(/Creating Dag from Catalog\s*[:-]?\s*(\S+)/i);
+        if (dagMatch) existing.dagName = dagMatch[1];
+      }
+    } else {
+      const info = {
+        id,
+        firstSeen: entry.timestamp || new Date().toISOString(),
+        dagName: '',
+        status: entry.level === 'Error' ? 'Failed' : 'Unknown',
+        logCount: 1,
+        ssrCount: 0
+      };
+      this.state.knownIterationIds.set(id, info);
+      // Update recent executions (keep last 10)
+      this.state.recentExecutions = [id, ...this.state.recentExecutions.filter(x => x !== id)].slice(0, 10);
+    }
+  }
+
+  extractIterationIdFromTelemetry = (event) => {
+    const id = (event.attributes && event.attributes.IterationId) || '';
+    if (!id) return;
+
+    const existing = this.state.knownIterationIds.get(id);
+    if (existing) {
+      existing.ssrCount++;
+      if (event.activityStatus === 'Failed') existing.status = 'Failed';
+      else if (event.activityStatus === 'Succeeded' && existing.status !== 'Failed') existing.status = 'Completed';
+    } else {
+      this.state.knownIterationIds.set(id, {
+        id,
+        firstSeen: event.timestamp || new Date().toISOString(),
+        dagName: '',
+        status: event.activityStatus || 'Unknown',
+        logCount: 0,
+        ssrCount: 1
+      });
+      this.state.recentExecutions = [id, ...this.state.recentExecutions.filter(x => x !== id)].slice(0, 10);
+    }
+  }
+
+  applyRaidFilter = (value) => {
+    this.state.raidFilter = value;
+    if (value) {
+      this.showExecutionBadge(value);
+      this.filter.applyFilters();
+      this.refreshExecutionSummary();
+    } else {
+      this.clearRaidFilter();
+    }
+    this.hideRaidDropdown();
+  }
+
+  clearRaidFilter = () => {
+    this.state.raidFilter = '';
+    const raidInput = document.getElementById('raid-filter-input');
+    if (raidInput) raidInput.value = '';
+    this.hideExecutionBadge();
+    this.execSummary.clearSummary();
+    this.filter.applyFilters();
+  }
+
+  showExecutionBadge = (id) => {
+    const badge = document.getElementById('execution-badge');
+    const badgeId = document.getElementById('exec-badge-id');
+    const badgeCounts = document.getElementById('exec-badge-counts');
+    if (!badge) return;
+
+    const shortId = id.length > 8 ? '…' + id.slice(-8) : id;
+    const info = this.state.knownIterationIds.get(id);
+    const logCount = info ? info.logCount : '?';
+    const ssrCount = info ? info.ssrCount : '?';
+
+    if (badgeId) badgeId.textContent = shortId;
+    if (badgeCounts) badgeCounts.textContent = `${logCount} logs, ${ssrCount} SSR`;
+    badge.classList.add('visible');
+  }
+
+  hideExecutionBadge = () => {
+    const badge = document.getElementById('execution-badge');
+    if (badge) badge.classList.remove('visible');
+  }
+
+  showRaidDropdown = () => {
+    const dd = document.getElementById('raid-dropdown');
+    if (dd) dd.classList.add('visible');
+  }
+
+  hideRaidDropdown = () => {
+    const dd = document.getElementById('raid-dropdown');
+    if (dd) dd.classList.remove('visible');
+  }
+
+  updateRaidDropdown = (filterText) => {
+    const list = document.getElementById('raid-dropdown-list');
+    if (!list) return;
+
+    const ids = this.state.recentExecutions;
+    const filtered = filterText
+      ? ids.filter(id => id.toLowerCase().includes(filterText.toLowerCase()))
+      : ids;
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<div style="padding:12px;color:var(--text-dim);text-align:center;font-size:12px">No recent executions</div>';
+      this.showRaidDropdown();
+      return;
+    }
+
+    list.innerHTML = filtered.map(id => {
+      const info = this.state.knownIterationIds.get(id) || {};
+      const statusDot = { 'Completed': '🟢', 'Succeeded': '🟢', 'Failed': '🔴', 'Running': '🟡' }[info.status] || '⚪';
+      const shortId = id.slice(-8);
+      const time = info.firstSeen ? this.renderer.formatTime(info.firstSeen) : '';
+      const dagName = info.dagName || '';
+      return `<div class="raid-item" data-id="${id}">
+        <span class="raid-status-dot">${statusDot}</span>
+        <span class="raid-item-id">…${shortId}</span>
+        ${dagName ? `<span class="raid-item-dag">${dagName}</span>` : ''}
+        <span class="raid-item-meta">${time}</span>
+      </div>`;
+    }).join('');
+
+    // Bind click handlers
+    list.querySelectorAll('.raid-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const id = item.dataset.id;
+        const raidInput = document.getElementById('raid-filter-input');
+        if (raidInput) raidInput.value = id;
+        this.applyRaidFilter(id);
+      });
+    });
+
+    this.showRaidDropdown();
+  }
+
+  refreshExecutionSummary = () => {
+    if (!this.state.raidFilter) {
+      this.execSummary.clearSummary();
+      return;
+    }
+    const data = this.execSummary.compute(this.state.raidFilter);
+    if (data) {
+      this.execSummary.render(data);
+      // Update badge counts
+      this.showExecutionBadge(this.state.raidFilter);
+    }
+  }
+
   exportLogs = () => {
     const dataToExport = {
       exportedAt: new Date().toISOString(),

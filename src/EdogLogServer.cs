@@ -268,6 +268,66 @@ namespace Microsoft.LiveTable.Service.DevMode
             }
         });
 
+        // Executions API endpoint
+        app.MapGet("/api/executions", async context =>
+        {
+            try
+            {
+                var logs = logBuffer.ToArray();
+                var events = telemetryBuffer.ToArray();
+
+                var logsByIteration = logs
+                    .Where(l => !string.IsNullOrEmpty(l.IterationId))
+                    .GroupBy(l => l.IterationId)
+                    .ToDictionary(g => g.Key, g => g.ToArray());
+
+                var eventsByIteration = events
+                    .Where(e => !string.IsNullOrEmpty(e.IterationId))
+                    .GroupBy(e => e.IterationId)
+                    .ToDictionary(g => g.Key, g => g.ToArray());
+
+                var allIterationIds = logsByIteration.Keys
+                    .Union(eventsByIteration.Keys)
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                var executions = allIterationIds.Select(id =>
+                {
+                    logsByIteration.TryGetValue(id, out var iterLogs);
+                    eventsByIteration.TryGetValue(id, out var iterEvents);
+                    iterLogs ??= Array.Empty<LogEntry>();
+                    iterEvents ??= Array.Empty<TelemetryEvent>();
+
+                    var firstSeen = iterLogs.Select(l => l.Timestamp)
+                        .Concat(iterEvents.Select(e => e.Timestamp))
+                        .DefaultIfEmpty(DateTime.MinValue)
+                        .Min();
+
+                    var hasFailure = iterLogs.Any(l => l.Level.Equals("Error", StringComparison.OrdinalIgnoreCase))
+                        || iterEvents.Any(e => e.ActivityStatus.Equals("Failed", StringComparison.OrdinalIgnoreCase));
+
+                    return new
+                    {
+                        iterationId = id,
+                        firstSeen,
+                        status = hasFailure ? "Failed" : "Succeeded",
+                        logCount = iterLogs.Length,
+                        eventCount = iterEvents.Length
+                    };
+                })
+                .OrderByDescending(x => x.firstSeen)
+                .ToArray();
+
+                var json = JsonSerializer.Serialize(executions, JsonOptions);
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error serving executions API: {ex}");
+                context.Response.StatusCode = 500;
+            }
+        });
+
         // WebSocket endpoint
         app.MapGet("/ws/logs", async context =>
         {

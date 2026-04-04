@@ -39,6 +39,10 @@ namespace Microsoft.LiveTable.Service.DevMode
         public string EventId { get; }
 
         public Dictionary<string, string> CustomData { get; }
+
+        public string IterationId { get; set; }
+
+        public string CodeMarkerName { get; set; }
     }
 
     /// <summary>
@@ -73,5 +77,7 @@ namespace Microsoft.LiveTable.Service.DevMode
         public Dictionary<string, string> Attributes { get; }
 
         public string UserId { get; }
+
+        public string IterationId { get; set; }
     }
 }

@@ -11,6 +11,7 @@ namespace Microsoft.LiveTable.Service.DevMode
     using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using Microsoft.ServicePlatform.Telemetry;
     /// <summary>
     /// Intercepts all Tracer.LogSanitized* calls and forwards them to EdogLogServer for dev-time analysis.
@@ -18,6 +19,10 @@ namespace Microsoft.LiveTable.Service.DevMode
     /// </summary>
     internal sealed class EdogLogInterceptor : IStructuredTestLogger
     {
+        private static readonly Regex IterationIdRegex = new Regex(
+            @"(?:\[IterationId\s+|\bIterationId[=: ]+)([0-9a-fA-F-]{36})\b",
+            RegexOptions.Compiled);
+
         private readonly EdogLogServer edogLogServer;
 
         /// <summary>
@@ -62,6 +67,14 @@ namespace Microsoft.LiveTable.Service.DevMode
 
                 // Create log entry and forward to server
                 var entry = new LogEntry(timestamp, level, message, component, rootActivityId, eventId, customData);
+                entry.CodeMarkerName = MonitoredScope.CurrentCodeMarkerName;
+
+                var iterMatch = IterationIdRegex.Match(message);
+                if (iterMatch.Success)
+                {
+                    entry.IterationId = iterMatch.Groups[1].Value;
+                }
+
                 this.edogLogServer.AddLog(entry);
 
                 // Write colored console output for developer visibility
