@@ -1,28 +1,30 @@
 /**
  * SmartContextBar — Renders and updates the auto-detected execution context bar.
- * Appears automatically when a DAG execution OR any FLT API call is detected.
+ * Appears automatically when a DAG execution is detected. No user action needed.
+ * 
+ * API calls are displayed as data-rich toast cards (not in the context bar).
  */
 class SmartContextBar {
   constructor(autoDetector) {
     this.autoDetector = autoDetector;
     this.element = document.getElementById('smart-context-bar');
+    this.toastEl = document.getElementById('api-toast');
     this.updateInterval = null;
-    this.mode = null; // 'execution' | 'apicall'
+    this.toastTimeout = null;
 
-    // Wire up auto-detector callbacks — iteration-based executions
+    // Wire up auto-detector callbacks — iteration-based executions → context bar
     autoDetector.onExecutionDetected = (exec, id) => this.showExecution(exec, id);
     autoDetector.onExecutionUpdated = (exec, id) => this.updateExecution(exec, id);
 
-    // Wire up auto-detector callbacks — RAID-based API calls
-    autoDetector.onApiCallDetected = (call, id) => this.showApiCall(call, id);
-    autoDetector.onApiCallUpdated = (call, id) => this.updateApiCall(call, id);
+    // Wire up auto-detector callbacks — RAID-based API calls → toast card
+    autoDetector.onApiCallDetected = (call, id) => this.showApiToast(call, id);
+    autoDetector.onApiCallUpdated = (call, id) => this.updateApiToast(call, id);
   }
 
-  // === Iteration-based execution display ===
+  // === Iteration-based execution → persistent context bar ===
 
   showExecution = (exec, iterationId) => {
     if (!this.element) return;
-    this.mode = 'execution';
     this.element.classList.add('active');
     this.updateExecution(exec, iterationId);
     if (this.updateInterval) clearInterval(this.updateInterval);
@@ -35,8 +37,6 @@ class SmartContextBar {
 
   updateExecution = (exec, iterationId) => {
     if (!this.element) return;
-    // Execution takes priority over API call
-    this.mode = 'execution';
     const statusClass = (exec.status || 'unknown').toLowerCase();
     const completedTotal = exec.nodeCount || '?';
     const completed = exec.completedNodes || 0;
@@ -57,35 +57,74 @@ class SmartContextBar {
     this.element.classList.add('active');
   }
 
-  // === RAID-based API call display ===
+  // === RAID-based API calls → floating toast card ===
 
-  showApiCall = (call, raidId) => {
-    if (!this.element) return;
-    // Don't override active execution context
-    if (this.mode === 'execution') return;
-    this.mode = 'apicall';
-    this.element.classList.add('active');
-    this.updateApiCall(call, raidId);
+  showApiToast = (call, raidId) => {
+    if (!this.toastEl) return;
+    this._renderToast(call, raidId);
+    this.toastEl.classList.add('active');
+    // Auto-dismiss after 12 seconds
+    if (this.toastTimeout) clearTimeout(this.toastTimeout);
+    this.toastTimeout = setTimeout(() => this.hideApiToast(), 12000);
   }
 
-  updateApiCall = (call, raidId) => {
-    if (!this.element || this.mode === 'execution') return;
-    const statusClass = (call.status || 'unknown').toLowerCase();
-    const shortRaid = raidId.substring(0, 8) + '…';
-    const duration = call.duration ? this._formatDuration(call.duration) : '—';
-    const statusIcon = statusClass === 'succeeded' ? '✓' : statusClass === 'failed' ? '✗' : '●';
+  updateApiToast = (call, raidId) => {
+    if (!this.toastEl || !this.toastEl.classList.contains('active')) return;
+    this._renderToast(call, raidId);
+    // Extend the auto-dismiss timer
+    if (this.toastTimeout) clearTimeout(this.toastTimeout);
+    this.toastTimeout = setTimeout(() => this.hideApiToast(), 12000);
+  }
 
-    this.element.innerHTML = `
-      <span class="ctx-type">📡 API</span>
-      <span class="dag-status ${statusClass}">${statusIcon} ${call.status}</span>
-      <span class="dag-name">${call.endpointName}</span>
-      <span class="elapsed">${duration}</span>
-      ${call.resultCode && call.resultCode !== 'OK' ? '<span class="endpoint">' + call.resultCode + '</span>' : ''}
-      <span class="iter-id" title="${raidId}">${shortRaid}</span>
-      ${call.eventCount > 1 ? '<span class="node-progress">' + call.eventCount + ' events</span>' : ''}
-      <span class="dismiss" onclick="document.getElementById('smart-context-bar').classList.remove('active')">✕</span>
+  _renderToast = (call, raidId) => {
+    const statusClass = (call.status || 'unknown').toLowerCase();
+    const statusIcon = statusClass === 'succeeded' ? '✓' : statusClass === 'failed' ? '✗' : '●';
+    const duration = call.duration ? this._formatDuration(call.duration) : '—';
+    const shortRaid = raidId.substring(0, 8) + '…' + raidId.substring(raidId.length - 4);
+    const attrs = call.attributes || {};
+    // Extract key attributes to display
+    const keyAttrs = [];
+    if (attrs.WorkspaceId) keyAttrs.push(['Workspace', attrs.WorkspaceId.substring(0, 8) + '…']);
+    if (attrs.ArtifactId) keyAttrs.push(['Artifact', attrs.ArtifactId.substring(0, 8) + '…']);
+    if (attrs.DagNodesCount) keyAttrs.push(['Nodes', attrs.DagNodesCount]);
+    if (attrs.ShowExtendedLineage) keyAttrs.push(['Extended', attrs.ShowExtendedLineage]);
+    if (attrs.RefreshMode) keyAttrs.push(['Mode', attrs.RefreshMode]);
+    if (attrs.ErrorCode) keyAttrs.push(['Error', attrs.ErrorCode]);
+    // Show up to 4 attributes
+    const attrCount = Object.keys(attrs).length;
+    const extraCount = attrCount - keyAttrs.length;
+
+    this.toastEl.innerHTML = `
+      <div class="toast-header">
+        <span class="toast-endpoint">${call.endpointName || call.activityName}</span>
+        <span class="toast-status ${statusClass}">${statusIcon} ${call.status}</span>
+        <span class="toast-duration">${duration}</span>
+        <span class="toast-dismiss" onclick="document.getElementById('api-toast').classList.remove('active')">✕</span>
+      </div>
+      <div class="toast-body">
+        <div class="toast-raid">
+          <span class="toast-label">RAID</span>
+          <span class="toast-value">${shortRaid}</span>
+        </div>
+        ${call.resultCode && call.resultCode !== 'OK' ? `
+        <div class="toast-attr">
+          <span class="toast-label">Result</span>
+          <span class="toast-value toast-error">${call.resultCode}</span>
+        </div>` : ''}
+        ${keyAttrs.map(([k, v]) => `
+        <div class="toast-attr">
+          <span class="toast-label">${k}</span>
+          <span class="toast-value">${v}</span>
+        </div>`).join('')}
+        ${extraCount > 0 ? `<div class="toast-more">+${extraCount} more attributes</div>` : ''}
+      </div>
+      ${call.eventCount > 1 ? `<div class="toast-footer">${call.eventCount} telemetry events</div>` : ''}
     `;
-    this.element.classList.add('active');
+  }
+
+  hideApiToast = () => {
+    if (this.toastEl) this.toastEl.classList.remove('active');
+    if (this.toastTimeout) { clearTimeout(this.toastTimeout); this.toastTimeout = null; }
   }
 
   _formatDuration = (ms) => {
@@ -97,6 +136,6 @@ class SmartContextBar {
   hide = () => {
     if (this.element) this.element.classList.remove('active');
     if (this.updateInterval) clearInterval(this.updateInterval);
-    this.mode = null;
+    this.hideApiToast();
   }
 }
