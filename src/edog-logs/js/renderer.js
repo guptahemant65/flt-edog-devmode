@@ -21,7 +21,7 @@ class RowPool {
     row.style.position = 'absolute';
     row.style.left = '0';
     row.style.right = '0';
-    row.style.height = '32px';
+    row.style.height = '34px';
     row.style.boxSizing = 'border-box';
     row.style.willChange = 'transform';
 

@@ -1336,15 +1336,29 @@ mark {
   left: 0;
   right: 0;
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  max-height: 40vh;
+  border-top: 2px solid var(--accent);
+  max-height: 45vh;
   z-index: 200;
-  animation: slideUp 0.3s ease-out;
   display: none;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .detail-panel.visible {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.25s ease-out;
+}
+
+.detail-content {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(45vh - 50px);
+  flex: 1;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 /* Copy buttons */
@@ -1398,9 +1412,22 @@ mark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.detail-header::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+  background: var(--border-bright);
+  border-radius: 2px;
 }
 
 .detail-header h3 {
@@ -1541,6 +1568,35 @@ mark {
 
 .clickable-id:hover {
   color: var(--text) !important;
+}
+
+.cross-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cross-link:hover {
+  background: var(--surface-3);
+}
+
+.detail-message {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 150px;
+  overflow-y: auto;
 }
 
     /* === css/summary.css === */
@@ -2399,7 +2455,7 @@ class RowPool {
     row.style.position = 'absolute';
     row.style.left = '0';
     row.style.right = '0';
-    row.style.height = '32px';
+    row.style.height = '34px';
     row.style.boxSizing = 'border-box';
     row.style.willChange = 'transform';
 
