@@ -28,6 +28,7 @@ CSS_MODULES = [
     "css/detail.css",
     "css/summary.css",
     "css/smart.css",
+    "css/control.css",
 ]
 
 # JS modules — order matters (dependencies first, then features, then main)
@@ -42,6 +43,7 @@ JS_MODULES = [
     "js/smart-context.js",
     "js/error-intel.js",
     "js/anomaly.js",
+    "js/control-panel.js",
     "js/main.js",
 ]
 

@@ -120,6 +120,10 @@ class EdogLogViewer {
     this.smartContext = new SmartContextBar(this.autoDetector);
     this.errorIntel = new ErrorIntelligence(this.autoDetector);
     this.anomaly = new AnomalyDetector(this.state);
+    this.controlPanel = new ControlPanel(
+      document.getElementById('control-panel'),
+      { autoDetector: this.autoDetector, stateManager: this.state }
+    );
 
     // Wire error-intel jump-to-error to renderer
     this.errorIntel.onJumpToError = (errorMsg) => {
@@ -617,6 +621,13 @@ class EdogLogViewer {
     // If switching to summary and a RAID is active, refresh summary
     if (tabId === 'summary' && this.state.raidFilter) {
       this.refreshExecutionSummary();
+    }
+
+    // Command Center lifecycle
+    if (tabId === 'timeline') {
+      this.controlPanel.activate();
+    } else {
+      this.controlPanel.deactivate();
     }
   }
 

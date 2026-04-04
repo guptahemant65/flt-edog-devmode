@@ -47,7 +47,7 @@
     <button class="tab-btn active" data-tab="logs">📋 Logs <span class="tab-shortcut">1</span></button>
     <button class="tab-btn" data-tab="ssr">📡 SSR Telemetry <span class="tab-shortcut">2</span></button>
     <button class="tab-btn" data-tab="summary">📊 Execution Summary <span class="tab-shortcut">3</span></button>
-    <button class="tab-btn" data-tab="timeline">📈 DAG Timeline <span class="tab-shortcut">4</span></button>
+    <button class="tab-btn" data-tab="timeline">🎮 Command Center <span class="tab-shortcut">4</span></button>
   </nav>
 
   <div id="toolbar">
@@ -146,12 +146,19 @@
       </div>
     </div>
 
-    <!-- TAB 4: DAG Timeline -->
+    <!-- TAB 4: Command Center -->
     <div id="tab-timeline" class="tab-panel">
-      <div class="dag-timeline-placeholder">
-        <div class="placeholder-icon">📈</div>
-        <div class="placeholder-text">DAG Timeline Visualization</div>
-        <div class="placeholder-sub">Coming soon in Wave 3</div>
+      <div id="control-panel" class="control-panel">
+        <div id="cp-connection-bar" class="connection-bar loading">
+          <div class="conn-status-row">
+            <span class="conn-dot"></span>
+            <span class="conn-status-text">Checking connection...</span>
+          </div>
+          <div class="conn-ids"></div>
+        </div>
+        <div id="cp-dag-overview" class="dag-overview"></div>
+        <div id="cp-execution" class="execution-card idle"></div>
+        <div id="cp-history" class="exec-history"></div>
       </div>
     </div>
   </div>

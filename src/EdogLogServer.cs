@@ -10,6 +10,7 @@ namespace Microsoft.LiveTable.Service.DevMode
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net.WebSockets;
     using System.Text;
@@ -58,6 +59,7 @@ namespace Microsoft.LiveTable.Service.DevMode
     private Task hostTask;
     private string htmlContent = "<html><body><h1>EDOG Log Server</h1><p>WebSocket endpoint: /ws/logs</p></body></html>";
     private bool disposed;
+    private EdogApiProxy apiProxy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EdogLogServer"/> class.
@@ -87,6 +89,19 @@ namespace Microsoft.LiveTable.Service.DevMode
             builder.WebHost.UseKestrel(options => options.AllowSynchronousIO = true);
 
             app = builder.Build();
+
+            // Initialize API proxy — look for edog-config.json near the HTML source
+            var configDir = FindEdogConfigDir();
+            if (configDir != null)
+            {
+                apiProxy = new EdogApiProxy(configDir);
+                Console.WriteLine($"[EDOG] API proxy enabled, config: {configDir}");
+            }
+            else
+            {
+                Console.WriteLine("[EDOG] API proxy disabled — edog-config.json not found");
+            }
+
             ConfigureRoutes();
 
             // Start the batch flush timer — fires every 150 ms on a ThreadPool thread
@@ -480,6 +495,15 @@ namespace Microsoft.LiveTable.Service.DevMode
             }
         });
 
+        // FLT API Proxy routes (Command Center)
+        if (apiProxy != null)
+        {
+            app.MapGet("/api/flt/config", apiProxy.HandleConfig);
+            app.MapGet("/api/flt/getlatestdag", apiProxy.HandleGetLatestDag);
+            app.MapPost("/api/flt/rundag", apiProxy.HandleRunDag);
+            app.MapPost("/api/flt/canceldag/{iterationId}", apiProxy.HandleCancelDag);
+        }
+
         // WebSocket endpoint
         app.MapGet("/ws/logs", async context =>
         {
@@ -510,6 +534,54 @@ namespace Microsoft.LiveTable.Service.DevMode
                 Console.WriteLine($"WebSocket error: {ex}");
             }
         });
+    }
+
+    private static string FindEdogConfigDir()
+    {
+        const string configFileName = "edog-config.json";
+
+        // 1. Check EDOG_CONFIG_PATH environment variable first
+        var envPath = Environment.GetEnvironmentVariable("EDOG_CONFIG_PATH");
+        if (!string.IsNullOrEmpty(envPath))
+        {
+            var envDir = File.Exists(envPath) ? Path.GetDirectoryName(envPath) : envPath;
+            if (envDir != null && File.Exists(Path.Combine(envDir, configFileName)))
+            {
+                return envDir;
+            }
+        }
+
+        // 2. Walk up from current working directory
+        try
+        {
+            var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, configFileName)))
+                {
+                    return dir.FullName;
+                }
+
+                dir = dir.Parent;
+            }
+        }
+        catch
+        {
+            // Ignore directory access errors
+        }
+
+        // 3. Check %USERPROFILE%\flt-edog-devmode\
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(userProfile))
+        {
+            var knownDir = Path.Combine(userProfile, "flt-edog-devmode");
+            if (File.Exists(Path.Combine(knownDir, configFileName)))
+            {
+                return knownDir;
+            }
+        }
+
+        return null;
     }
 
     private async Task HandleWebSocket(WebSocket webSocket)
