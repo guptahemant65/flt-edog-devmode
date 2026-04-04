@@ -832,15 +832,16 @@ mark {
 
 .log-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 0 16px;
   height: 28px;
   box-sizing: border-box;
   font-size: 12px;
   font-family: var(--font-mono);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+  overflow: hidden;
 }
 
 .log-row.error-row { 
@@ -4618,7 +4619,10 @@ class EdogLogViewer {
       btn.classList.toggle('paused', this.state.paused);
     }
     if (!this.state.paused) {
+      this.state.autoScroll = true;
+      this.hideResumeButton();
       this.filter.applyFilters();
+      this.renderer.scrollToBottom();
     }
   }
   

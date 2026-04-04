@@ -51,15 +51,16 @@
 
 .log-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 0 16px;
   height: 28px;
   box-sizing: border-box;
   font-size: 12px;
   font-family: var(--font-mono);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+  overflow: hidden;
 }
 
 .log-row.error-row { 

@@ -554,7 +554,10 @@ class EdogLogViewer {
       btn.classList.toggle('paused', this.state.paused);
     }
     if (!this.state.paused) {
+      this.state.autoScroll = true;
+      this.hideResumeButton();
       this.filter.applyFilters();
+      this.renderer.scrollToBottom();
     }
   }
   
