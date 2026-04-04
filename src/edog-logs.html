@@ -2506,12 +2506,9 @@ class Renderer {
 
     // Auto-scroll: pin to latest entries
     if (this.state.autoScroll) {
-      const isAtBottom = (scrollTop + viewportHeight) >= (totalHeight - this.ROW_HEIGHT * 2);
-      if (isAtBottom || totalHeight <= viewportHeight) {
-        endIdx = totalFiltered;
-        startIdx = Math.max(0, endIdx - Math.ceil(viewportHeight / this.ROW_HEIGHT) - this.OVERSCAN);
-        this.scrollContainer.scrollTop = totalHeight - viewportHeight;
-      }
+      endIdx = totalFiltered;
+      startIdx = Math.max(0, endIdx - Math.ceil(viewportHeight / this.ROW_HEIGHT) - this.OVERSCAN);
+      this.scrollContainer.scrollTop = totalHeight - viewportHeight;
     }
 
     // Determine which filtered indices need to be on screen
