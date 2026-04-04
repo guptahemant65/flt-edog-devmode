@@ -141,6 +141,10 @@ class EdogLogViewer {
     // Set up WebSocket callbacks
     this.ws.onStatusChange = this.updateConnectionStatus;
     this.ws.onMessage = this.handleWebSocketMessage;
+
+    // Batch-aware callbacks (preferred path when server sends batched frames)
+    this.ws.onBatch = this.handleWebSocketBatch;
+    this.ws.onSummary = this.handleWebSocketSummary;
   }
   
   init = async () => {
@@ -402,6 +406,52 @@ class EdogLogViewer {
       this.renderer.scheduleRender();
     }
   }
+
+  // Batch handler: process entire batch, single render at end
+  handleWebSocketBatch = (logs, telemetry) => {
+    for (const log of logs) {
+      this.state.addLog(log);
+      this.autoDetector.processLog(log);
+      this.anomaly.processLog(log);
+      this.extractEndpointFromLog(log);
+      this.extractIterationIdFromLog(log);
+    }
+
+    for (const evt of telemetry) {
+      this.state.addTelemetry(evt);
+      this.autoDetector.processTelemetry(evt);
+      this.extractEndpointFromTelemetry(evt);
+      this.extractIterationIdFromTelemetry(evt);
+    }
+
+    if (logs.length > 0 || telemetry.length > 0) {
+      this.renderer.scheduleRender();
+    }
+  }
+
+  // Backpressure summary handler
+  handleWebSocketSummary = (summary) => {
+    if (summary.levels) {
+      for (const [level, count] of Object.entries(summary.levels)) {
+        const key = level.toLowerCase();
+        if (this.state.stats[key] !== undefined) {
+          this.state.stats[key] += count;
+        }
+        this.state.stats.totalLogs += count;
+      }
+    }
+
+    if (summary.droppedTelemetry) {
+      this.state.stats.totalEvents += summary.droppedTelemetry;
+    }
+
+    console.warn(
+      '[backpressure] ' + summary.dropped + ' entries summarized. ' +
+      'Levels: ' + JSON.stringify(summary.levels)
+    );
+
+    this.renderer.scheduleRender();
+  }
   
   updateConnectionStatus = (status) => {
     const badge = document.getElementById('connection-status');
@@ -419,7 +469,7 @@ class EdogLogViewer {
       if (logsResponse.ok) {
         const logs = await logsResponse.json();
         logs.forEach(log => {
-          this.state.logs.push(log);
+          this.state.logBuffer.push(log);
           this.state.stats.totalLogs++;
           const level = (log.level || '').toLowerCase();
           if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
@@ -433,7 +483,7 @@ class EdogLogViewer {
       if (telemetryResponse.ok) {
         const events = await telemetryResponse.json();
         events.forEach(event => {
-          this.state.telemetry.push(event);
+          this.state.telemetryBuffer.push(event);
           this.state.stats.totalEvents++;
           const status = (event.activityStatus || '').toLowerCase();
           if (status === 'succeeded') this.state.stats.succeeded++;
@@ -473,7 +523,8 @@ class EdogLogViewer {
   
   deferredSmartProcessing = () => {
     const logs = this.state.logs;
-    const telemetry = this.state.telemetry;
+    const telemetryArr = [];
+    this.state.telemetry.forEach(e => telemetryArr.push(e));
     let logIdx = 0;
     let telIdx = 0;
     const CHUNK = 200;
@@ -484,11 +535,11 @@ class EdogLogViewer {
         this.autoDetector.processLog(logs[logIdx]);
         this.anomaly.processLog(logs[logIdx]);
       }
-      const telEnd = Math.min(telIdx + CHUNK, telemetry.length);
+      const telEnd = Math.min(telIdx + CHUNK, telemetryArr.length);
       for (; telIdx < telEnd; telIdx++) {
-        this.autoDetector.processTelemetry(telemetry[telIdx]);
+        this.autoDetector.processTelemetry(telemetryArr[telIdx]);
       }
-      if (logIdx < logs.length || telIdx < telemetry.length) {
+      if (logIdx < logs.length || telIdx < telemetryArr.length) {
         setTimeout(processChunk, 0);
       }
     };
@@ -768,10 +819,12 @@ class EdogLogViewer {
   }
 
   exportLogs = () => {
+    const telemetryArr = [];
+    this.state.telemetry.forEach(e => telemetryArr.push(e));
     const dataToExport = {
       exportedAt: new Date().toISOString(),
       logs: this.state.filteredLogs.length > 0 ? this.state.filteredLogs : this.state.logs,
-      telemetry: this.state.telemetry,
+      telemetry: telemetryArr,
       stats: this.state.stats,
       filters: {
         searchText: this.state.searchText,

@@ -4,6 +4,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
+  contain: strict;
 }
 
 .empty-state {
@@ -53,18 +54,19 @@
   align-items: flex-start;
   gap: 12px;
   padding: 8px 16px;
+  height: 28px;
+  box-sizing: border-box;
   font-size: 12px;
   font-family: var(--font-mono);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
-  transition: all 0.1s ease;
 }
 
 .log-row.error-row { 
   border-left: 3px solid var(--level-error); 
 }
 
-.log-row:nth-child(even) {
+.log-row.stripe {
   background: rgba(255, 255, 255, 0.01);
 }
 
@@ -117,7 +119,6 @@
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .log-component:hover {

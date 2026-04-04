@@ -1,19 +1,184 @@
 /**
  * EDOG Real-Time Log Viewer - DOM Renderer
+ * V2: Virtual scroll, DOM recycling pool, event delegation, zero innerHTML for log rows
  */
 
-// ===== RENDERER =====
+// ===== ROW POOL =====
+
+class RowPool {
+  constructor(poolSize) {
+    this.pool = [];
+    this.poolSize = poolSize;
+
+    for (let i = 0; i < poolSize; i++) {
+      this.pool.push(this._createRowTemplate());
+    }
+  }
+
+  _createRowTemplate() {
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    row.style.position = 'absolute';
+    row.style.left = '0';
+    row.style.right = '0';
+    row.style.height = '28px';
+    row.style.boxSizing = 'border-box';
+    row.style.willChange = 'transform';
+
+    const time = document.createElement('span');
+    time.className = 'log-time';
+
+    const level = document.createElement('span');
+    level.className = 'level-badge';
+
+    const component = document.createElement('span');
+    component.className = 'log-component';
+
+    const message = document.createElement('span');
+    message.className = 'log-message';
+
+    row.appendChild(time);
+    row.appendChild(level);
+    row.appendChild(component);
+    row.appendChild(message);
+
+    row._time = time;
+    row._level = level;
+    row._component = component;
+    row._message = message;
+    row._seq = -1;
+    row._inUse = false;
+
+    return row;
+  }
+
+  acquire() {
+    for (let i = 0; i < this.pool.length; i++) {
+      if (!this.pool[i]._inUse) {
+        this.pool[i]._inUse = true;
+        return this.pool[i];
+      }
+    }
+    const row = this._createRowTemplate();
+    row._inUse = true;
+    this.pool.push(row);
+    return row;
+  }
+
+  release(row) {
+    row._inUse = false;
+    row._seq = -1;
+    if (row.parentNode) {
+      row.parentNode.removeChild(row);
+    }
+  }
+
+  releaseAll() {
+    for (let i = 0; i < this.pool.length; i++) {
+      this.pool[i]._inUse = false;
+      this.pool[i]._seq = -1;
+      if (this.pool[i].parentNode) {
+        this.pool[i].parentNode.removeChild(this.pool[i]);
+      }
+    }
+  }
+}
+
+// ===== VIRTUAL SCROLL RENDERER =====
 
 class Renderer {
   constructor(state) {
     this.state = state;
+    this.ROW_HEIGHT = 28;
+    this.OVERSCAN = 8;
+    this.MAX_VISIBLE = 80;
+    this.rowPool = new RowPool(this.MAX_VISIBLE);
     this.renderScheduled = false;
-    this.maxDomRows = 300;
-    this.renderThrottleMs = 250;
+    this.renderThrottleMs = 100;
     this.lastRenderTime = 0;
     this.pendingTimer = null;
+
+    // Virtual scroll state
+    this.scrollContainer = null;
+    this.sentinel = null;
+    this.visibleStart = 0;
+    this.visibleEnd = 0;
+    this.renderedRows = new Map();
+    this.containerReady = false;
+
+    this._levelLetters = { verbose: 'V', message: 'I', warning: 'W', error: 'E' };
   }
-  
+
+  // ===== INITIALIZATION =====
+
+  initVirtualScroll() {
+    this.scrollContainer = document.getElementById('logs-container');
+    if (!this.scrollContainer) return;
+
+    this.scrollContainer.style.contain = 'strict';
+    this.scrollContainer.style.position = 'relative';
+
+    this.sentinel = document.createElement('div');
+    this.sentinel.id = 'vscroll-sentinel';
+    this.sentinel.style.position = 'absolute';
+    this.sentinel.style.top = '0';
+    this.sentinel.style.left = '0';
+    this.sentinel.style.width = '1px';
+    this.sentinel.style.height = '0px';
+    this.sentinel.style.visibility = 'hidden';
+    this.sentinel.style.pointerEvents = 'none';
+    this.scrollContainer.appendChild(this.sentinel);
+
+    // Event delegation: single click handler for entire container
+    this.scrollContainer.addEventListener('click', this._onContainerClick);
+
+    // Scroll handler drives virtual scroll
+    this.scrollContainer.addEventListener('scroll', this._onScroll, { passive: true });
+
+    this.containerReady = true;
+  }
+
+  // ===== EVENT DELEGATION =====
+
+  _onContainerClick = (e) => {
+    let target = e.target;
+    let row = null;
+    while (target && target !== this.scrollContainer) {
+      if (target.classList && target.classList.contains('log-row') && target._seq !== undefined) {
+        row = target;
+        break;
+      }
+      target = target.parentNode;
+    }
+    if (!row) return;
+
+    const entry = this.state.logBuffer.getBySeq(row._seq);
+    if (!entry) return;
+
+    // Component pill click → exclude
+    if (e.target.classList.contains('log-component')) {
+      e.stopPropagation();
+      if (window.edogViewer && window.edogViewer.filter) {
+        window.edogViewer.filter.excludeComponent(entry.component || 'Unknown');
+      }
+      return;
+    }
+
+    // Row click → detail panel
+    if (window.edogViewer && window.edogViewer.detail) {
+      window.edogViewer.detail.show(entry, 'log');
+    }
+  }
+
+  _onScroll = () => {
+    if (!this.renderScheduled) {
+      this.renderScheduled = true;
+      requestAnimationFrame(() => this._renderVirtualScroll());
+    }
+  }
+
+  // ===== SCHEDULE / FLUSH =====
+
   scheduleRender = () => {
     if (this.renderScheduled) return;
     const now = Date.now();
@@ -29,171 +194,264 @@ class Renderer {
       }, this.renderThrottleMs - elapsed);
     }
   }
-  
+
   flush = () => {
     this.renderScheduled = false;
     this.lastRenderTime = Date.now();
-    
-    // Process pending logs
-    if (this.state.pendingLogs.length > 0) {
-      this.renderPendingLogs();
-      this.state.pendingLogs = [];
+
+    if (!this.containerReady) {
+      this.initVirtualScroll();
     }
-    
-    // Process pending telemetry
+
+    // Incremental filter index update (only new logs)
+    if (this.state.newLogsSinceRender > 0) {
+      this.state.filterIndex.updateIncremental(
+        this.state.logBuffer,
+        (entry) => this.passesFilter(entry)
+      );
+      this.state.newLogsSinceRender = 0;
+    }
+
+    this._renderVirtualScroll();
+
+    // Telemetry (low volume, keep simple)
     if (this.state.pendingTelemetry.length > 0) {
       this.renderPendingTelemetry();
       this.state.pendingTelemetry = [];
     }
-    
-    // Update stats
+
     this.updateStats();
   }
-  
-  renderPendingLogs = () => {
-    const container = document.getElementById('logs-container');
-    if (!container) return;
-    
-    const wasAtBottom = this.isScrolledToBottom(container);
-    
-    // Filter pending logs — cap batch to prevent DOM overload
-    const filtered = this.state.pendingLogs.filter(entry => 
-      !this.state.paused && this.passesFilter(entry)
-    );
-    const batch = filtered.slice(-100); // Max 100 rows per render frame
-    
-    if (batch.length > 0) {
-      const fragment = document.createDocumentFragment();
-      batch.forEach(entry => {
-        const row = this.createLogRow(entry);
-        row.classList.add('fade-in-complete');
-        fragment.appendChild(row);
-      });
-      container.appendChild(fragment);
+
+  // ===== VIRTUAL SCROLL CORE =====
+
+  _renderVirtualScroll = () => {
+    this.renderScheduled = false;
+    if (!this.scrollContainer || !this.sentinel) return;
+
+    const totalFiltered = this.state.filterIndex.length;
+    const totalHeight = totalFiltered * this.ROW_HEIGHT;
+
+    this.sentinel.style.height = totalHeight + 'px';
+
+    // Hide/show empty state
+    const emptyState = document.getElementById('empty-state');
+    if (emptyState) {
+      emptyState.style.display = totalFiltered === 0 ? '' : 'none';
     }
-    
-    // Cap DOM rows with scroll position preservation
-    this.capDomRows(container);
-    
-    // Update status counter
+
+    if (totalFiltered === 0) {
+      this.rowPool.releaseAll();
+      this.renderedRows.clear();
+      this.updateLogsStatus();
+      return;
+    }
+
+    const scrollTop = this.scrollContainer.scrollTop;
+    const viewportHeight = this.scrollContainer.clientHeight;
+
+    let startIdx = Math.floor(scrollTop / this.ROW_HEIGHT) - this.OVERSCAN;
+    let endIdx = Math.ceil((scrollTop + viewportHeight) / this.ROW_HEIGHT) + this.OVERSCAN;
+    startIdx = Math.max(0, startIdx);
+    endIdx = Math.min(totalFiltered, endIdx);
+
+    // Auto-scroll: pin to latest entries
+    if (this.state.autoScroll) {
+      const isAtBottom = (scrollTop + viewportHeight) >= (totalHeight - this.ROW_HEIGHT * 2);
+      if (isAtBottom || totalHeight <= viewportHeight) {
+        endIdx = totalFiltered;
+        startIdx = Math.max(0, endIdx - Math.ceil(viewportHeight / this.ROW_HEIGHT) - this.OVERSCAN);
+        this.scrollContainer.scrollTop = totalHeight - viewportHeight;
+      }
+    }
+
+    // Determine which filtered indices need to be on screen
+    const neededSet = new Set();
+    for (let i = startIdx; i < endIdx; i++) {
+      neededSet.add(i);
+    }
+
+    // Release rows no longer in viewport
+    for (const [filtIdx, row] of this.renderedRows) {
+      if (!neededSet.has(filtIdx)) {
+        this.rowPool.release(row);
+        this.renderedRows.delete(filtIdx);
+      }
+    }
+
+    // Add/update visible rows
+    const fragment = document.createDocumentFragment();
+    let addedToFragment = false;
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const seq = this.state.filterIndex.seqAt(i);
+      if (seq === undefined) continue;
+
+      let row = this.renderedRows.get(i);
+      if (row && row._seq === seq) {
+        row.style.transform = 'translateY(' + (i * this.ROW_HEIGHT) + 'px)';
+        continue;
+      }
+
+      if (!row) {
+        row = this.rowPool.acquire();
+        this.renderedRows.set(i, row);
+      }
+
+      const entry = this.state.logBuffer.getBySeq(seq);
+      if (!entry) continue;
+
+      this._populateRow(row, entry, seq, i);
+      row.style.transform = 'translateY(' + (i * this.ROW_HEIGHT) + 'px)';
+
+      if (!row.parentNode) {
+        fragment.appendChild(row);
+        addedToFragment = true;
+      }
+    }
+
+    if (addedToFragment) {
+      this.scrollContainer.appendChild(fragment);
+    }
+
+    this.visibleStart = startIdx;
+    this.visibleEnd = endIdx;
+
     this.updateLogsStatus();
-    
-    // Auto-scroll if was at bottom and auto-scroll enabled
-    if (this.state.autoScroll && wasAtBottom) {
-      this.scrollToBottom(container);
+  }
+
+  // ===== ROW POPULATION (zero innerHTML — textContent only) =====
+
+  _populateRow(row, entry, seq, filteredIdx) {
+    row._seq = seq;
+
+    const level = entry.level || 'Message';
+    const levelLower = level.toLowerCase();
+
+    // Time
+    row._time.textContent = this._formatTimeFast(entry.timestamp);
+
+    // Level badge
+    row._level.textContent = this._levelLetters[levelLower] || 'I';
+    row._level.className = 'level-badge ' + levelLower;
+
+    // Component
+    const component = entry.component || 'Unknown';
+    row._component.textContent = component;
+    row._component.title = 'Click to exclude this component';
+
+    // Message (truncated via textContent — no HTML parsing)
+    const msg = entry.message || '';
+    row._message.textContent = msg.length > 200 ? msg.substring(0, 200) + '\u2026' : msg;
+
+    // Error row styling
+    if (levelLower === 'error') {
+      row.classList.add('error-row');
+    } else {
+      row.classList.remove('error-row');
+    }
+
+    // Class-based striping (replaces :nth-child CSS)
+    if (filteredIdx & 1) {
+      row.classList.add('stripe');
+    } else {
+      row.classList.remove('stripe');
+    }
+
+    row.dataset.rootActivityId = entry.rootActivityId || '';
+  }
+
+  // Fast time formatting (avoids toLocaleTimeString overhead)
+  _formatTimeFast(isoString) {
+    if (!isoString) return '00:00:00.000';
+    const tIdx = isoString.indexOf('T');
+    if (tIdx === -1) return '00:00:00.000';
+    const timeStr = isoString.substring(tIdx + 1);
+    const dotIdx = timeStr.indexOf('.');
+    if (dotIdx >= 8) {
+      const hms = timeStr.substring(0, 8);
+      let ms = timeStr.substring(dotIdx + 1, dotIdx + 4);
+      while (ms.length < 3) ms += '0';
+      return hms + '.' + ms;
+    }
+    try {
+      const d = new Date(isoString);
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      const s = String(d.getSeconds()).padStart(2, '0');
+      const ms = String(d.getMilliseconds()).padStart(3, '0');
+      return h + ':' + m + ':' + s + '.' + ms;
+    } catch (e) {
+      return '00:00:00.000';
     }
   }
-  
+
+  // ===== TELEMETRY (low volume, keep simple) =====
+
   renderPendingTelemetry = () => {
     const container = document.getElementById('telemetry-container');
     if (!container) return;
-    
+
     this.state.pendingTelemetry.forEach(event => {
       if (!this.state.paused) {
         const card = this.createTelemetryCard(event);
-        container.insertBefore(card, container.firstChild); // Add to top
-        
-        // Trigger animation
+        container.insertBefore(card, container.firstChild);
         requestAnimationFrame(() => card.classList.add('fade-in-complete'));
       }
     });
-    
-    // Cap telemetry cards (keep latest 100)
+
     while (container.children.length > 100) {
       container.removeChild(container.lastChild);
     }
   }
-  
-  createLogRow = (entry) => {
-    const row = document.createElement('div');
-    row.className = 'log-row fade-in';
-    row.dataset.rootActivityId = entry.rootActivityId || '';
-    
-    const level = entry.level || 'Message';
-    if (level === 'Error') row.classList.add('error-row');
-    const levelLetter = this.getLevelLetter(level);
-    const time = this.formatTime(entry.timestamp);
-    const component = entry.component || 'Unknown';
-    const message = this.truncateMessage(entry.message || '', 200);
-    
-    row.innerHTML = `
-      <span class="log-time">${time}</span>
-      <span class="level-badge ${level.toLowerCase()}">${levelLetter}</span>
-      <span class="log-component" title="Click to exclude this component">${this.escapeHtml(component)}</span>
-      <span class="log-message">${this.escapeHtml(message)}</span>
-    `;
-    
-    // Click handler for detail panel
-    row.addEventListener('click', () => {
-      if (window.edogViewer && window.edogViewer.detail) {
-        window.edogViewer.detail.show(entry, 'log');
-      }
-    });
-    
-    // Click handler for component pill exclusion
-    const componentSpan = row.querySelector('.log-component');
-    if (componentSpan) {
-      componentSpan.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (window.edogViewer && window.edogViewer.filter) {
-          window.edogViewer.filter.excludeComponent(component);
-        }
-      });
-    }
-    
-    return row;
-  }
-  
+
   createTelemetryCard = (event) => {
     const card = document.createElement('div');
-    card.className = `telemetry-card fade-in ${(event.activityStatus || 'unknown').toLowerCase()}`;
-    
+    card.className = 'telemetry-card fade-in ' + (event.activityStatus || 'unknown').toLowerCase();
+
     const status = event.activityStatus || 'Unknown';
     const icon = this.getStatusIcon(status);
     const duration = this.formatDuration(event.durationMs);
     const time = this.formatTime(event.timestamp);
     const resultCode = event.resultCode || 'OK';
     const correlationId = event.correlationId || '';
-    
+
     let resultHtml = '';
     if (resultCode !== 'OK' && resultCode) {
-      resultHtml = `<div class="telem-result">${this.escapeHtml(resultCode)}</div>`;
+      resultHtml = '<div class="telem-result">' + this.escapeHtml(resultCode) + '</div>';
     }
-    
+
     let correlationHtml = '';
     if (correlationId) {
       const shortCorr = correlationId.substring(0, 8);
-      correlationHtml = `<div class="telem-correlation" data-correlation="${this.escapeHtml(correlationId)}" title="Filter by ${this.escapeHtml(correlationId)}">${this.escapeHtml(shortCorr)}</div>`;
+      correlationHtml = '<div class="telem-correlation" data-correlation="' + this.escapeHtml(correlationId) + '" title="Filter by ' + this.escapeHtml(correlationId) + '">' + this.escapeHtml(shortCorr) + '</div>';
     }
-    
+
     let attributesHtml = '';
     if (event.attributes) {
       const attrs = [];
-      if (event.attributes.WorkspaceId) attrs.push(`<span class="attr-pill">WS: ${this.escapeHtml(event.attributes.WorkspaceId.substring(0, 6))}</span>`);
-      if (event.attributes.ArtifactId) attrs.push(`<span class="attr-pill">Art: ${this.escapeHtml(event.attributes.ArtifactId.substring(0, 6))}</span>`);
-      if (event.attributes.IterationId) attrs.push(`<span class="attr-pill">Iter: ${this.escapeHtml(event.attributes.IterationId.substring(0, 6))}</span>`);
+      if (event.attributes.WorkspaceId) attrs.push('<span class="attr-pill">WS: ' + this.escapeHtml(event.attributes.WorkspaceId.substring(0, 6)) + '</span>');
+      if (event.attributes.ArtifactId) attrs.push('<span class="attr-pill">Art: ' + this.escapeHtml(event.attributes.ArtifactId.substring(0, 6)) + '</span>');
+      if (event.attributes.IterationId) attrs.push('<span class="attr-pill">Iter: ' + this.escapeHtml(event.attributes.IterationId.substring(0, 6)) + '</span>');
       if (attrs.length > 0) {
-        attributesHtml = `<div class="telem-attrs">${attrs.join('')}</div>`;
+        attributesHtml = '<div class="telem-attrs">' + attrs.join('') + '</div>';
       }
     }
-    
-    card.innerHTML = `
-      <div class="telem-header">
-        <span class="telem-activity">${this.escapeHtml(event.activityName || 'Unknown')}</span>
-        <span class="status-badge ${status.toLowerCase()}">${icon} ${status}</span>
-      </div>
-      <div class="telem-meta">
-        <span class="telem-duration">${duration}</span>
-        <span class="telem-time">${time}</span>
-      </div>
-      ${resultHtml}
-      ${correlationHtml}
-      ${attributesHtml}
-    `;
-    
-    // Click handler for detail panel
+
+    card.innerHTML =
+      '<div class="telem-header">' +
+        '<span class="telem-activity">' + this.escapeHtml(event.activityName || 'Unknown') + '</span>' +
+        '<span class="status-badge ' + status.toLowerCase() + '">' + icon + ' ' + status + '</span>' +
+      '</div>' +
+      '<div class="telem-meta">' +
+        '<span class="telem-duration">' + duration + '</span>' +
+        '<span class="telem-time">' + time + '</span>' +
+      '</div>' +
+      resultHtml +
+      correlationHtml +
+      attributesHtml;
+
     card.addEventListener('click', (e) => {
-      // Handle correlation click
       if (e.target.classList.contains('telem-correlation')) {
         e.stopPropagation();
         const corrId = e.target.dataset.correlation;
@@ -202,139 +460,42 @@ class Renderer {
         }
         return;
       }
-      
       if (window.edogViewer && window.edogViewer.detail) {
         window.edogViewer.detail.show(event, 'telemetry');
       }
     });
-    
+
     return card;
   }
-  
-  formatDuration = (ms) => {
-    if (ms < 1000) {
-      return `${Math.round(ms)}ms`;
-    } else if (ms < 60000) {
-      return `${(ms / 1000).toFixed(1)}s`;
-    } else {
-      const minutes = Math.floor(ms / 60000);
-      const seconds = Math.round((ms % 60000) / 1000);
-      return `${minutes}m ${seconds}s`;
-    }
-  }
-  
-  formatTime = (isoString) => {
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit' 
-      }) + '.' + String(date.getMilliseconds()).padStart(3, '0');
-    } catch {
-      return '00:00:00.000';
-    }
-  }
-  
-  getLevelLetter = (level) => {
-    const mapping = {
-      'verbose': 'V',
-      'message': 'I', 
-      'warning': 'W',
-      'error': 'E'
-    };
-    return mapping[level.toLowerCase()] || 'I';
-  }
-  
-  getStatusIcon = (status) => {
-    const mapping = {
-      'succeeded': '✓',
-      'failed': '✗',
-      'cancelled': '◌',
-      'pending': '⋯'
-    };
-    return mapping[status.toLowerCase()] || '?';
-  }
-  
-  truncateMessage = (message, maxLength) => {
-    if (message.length <= maxLength) return message;
-    return message.substring(0, maxLength) + '...';
-  }
-  
-  escapeHtml = (text) => {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
 
-  updateLogsStatus = () => {
-    const container = document.getElementById('logs-container');
-    const visibleCountEl = document.getElementById('visible-count');
-    const totalCountEl = document.getElementById('total-count');
-    
-    if (container && visibleCountEl && totalCountEl) {
-      // Count visible rows (excluding empty state)
-      const visibleRows = Array.from(container.children).filter(child => 
-        !child.id || child.id !== 'empty-state'
-      ).length;
-      
-      visibleCountEl.textContent = visibleRows;
-      totalCountEl.textContent = this.state.logs.length;
-    }
-  }
-  
-  capDomRows = (container) => {
-    const maxRows = this.maxDomRows;
-    const currentCount = container.children.length;
-    
-    if (currentCount > maxRows + 50) {
-      const toRemove = Math.min(50, currentCount - maxRows);
-      for (let i = 0; i < toRemove; i++) {
-        let child = container.firstChild;
-        while (child && child.id === 'empty-state') {
-          child = child.nextSibling;
-        }
-        if (child) container.removeChild(child);
-      }
-    }
-  }
-  
-  isScrolledToBottom = (container) => {
-    return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
-  }
-  
-  scrollToBottom = (container) => {
-    container.scrollTop = container.scrollHeight;
-  }
-  
+  // ===== FILTER (all existing logic preserved) =====
+
   passesFilter = (entry) => {
     // Level filter
     if (!this.state.activeLevels.has(entry.level)) return false;
-    
+
     // Correlation filter
     if (this.state.correlationFilter && entry.rootActivityId !== this.state.correlationFilter) {
       return false;
     }
-    
+
     // Component filter — check explicit exclusions AND active preset patterns
     const component = entry.component || 'Unknown';
-    if (this.state.excludedComponents.has(component)) {
-      return false;
-    }
+    if (this.state.excludedComponents.has(component)) return false;
+
     const preset = FilterManager.COMPONENT_PRESETS[this.state.activePreset];
     if (preset) {
       if (preset.exclude && preset.exclude.some(p => p.test(component))) return false;
       if (preset.include && !preset.include.some(p => p.test(component))) return false;
     }
-    
+
     // Time range filter
     if (this.state.timeRangeSeconds > 0) {
       const cutoff = new Date(Date.now() - this.state.timeRangeSeconds * 1000);
       const logTime = new Date(entry.timestamp);
       if (logTime < cutoff) return false;
     }
-    
+
     // Endpoint filter (W0.2)
     if (this.state.endpointFilter) {
       const comp = entry.component || '';
@@ -342,7 +503,7 @@ class Renderer {
       const endpoint = match ? match[1] : '';
       if (endpoint.toLowerCase() !== this.state.endpointFilter.toLowerCase()) return false;
     }
-    
+
     // RAID / IterationId filter (W0.3)
     if (this.state.raidFilter) {
       const raidLower = this.state.raidFilter.toLowerCase();
@@ -353,72 +514,92 @@ class Renderer {
         return false;
       }
     }
-    
+
     // Text search
     if (this.state.searchText) {
       const searchLower = this.state.searchText.toLowerCase();
-      const searchableText = [
-        entry.message || '',
-        entry.component || '',
-        entry.rootActivityId || '',
-        JSON.stringify(entry.customData || {})
-      ].join(' ').toLowerCase();
-      
-      if (!searchableText.includes(searchLower)) return false;
+      const msg = (entry.message || '').toLowerCase();
+      const comp2 = (entry.component || '').toLowerCase();
+      const raid = (entry.rootActivityId || '').toLowerCase();
+      if (!msg.includes(searchLower) && !comp2.includes(searchLower) && !raid.includes(searchLower)) {
+        const custom = entry.customData ? JSON.stringify(entry.customData).toLowerCase() : '';
+        if (!custom.includes(searchLower)) return false;
+      }
     }
-    
+
     return true;
   }
-  
-  updateStats = () => {
-    const elements = {
-      'stat-logs': this.state.stats.totalLogs,
-      'stat-ssr': this.state.stats.totalEvents,
-      'stat-errors': this.state.stats.error
-    };
-    
-    Object.entries(elements).forEach(([id, value]) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = (value || 0).toLocaleString();
-    });
-  }
-  
+
+  // ===== FULL RERENDER (on filter change) =====
+
   rerenderAllLogs = () => {
-    const container = document.getElementById('logs-container');
-    if (!container) return;
-    
-    // Clear container
-    container.innerHTML = '';
-    
-    // Re-filter logs
-    this.state.filteredLogs = this.state.logs.filter(entry => this.passesFilter(entry));
-    
-    // Render filtered logs (latest 500)
-    const logsToRender = this.state.filteredLogs.slice(-this.maxDomRows);
-    logsToRender.forEach(entry => {
-      const row = this.createLogRow(entry);
-      row.classList.add('fade-in-complete'); // Skip animation for bulk render
-      container.appendChild(row);
-    });
-    
-    // Update search count
+    this.state.filterIndex.rebuild(
+      this.state.logBuffer,
+      (entry) => this.passesFilter(entry)
+    );
+
+    this.rowPool.releaseAll();
+    this.renderedRows.clear();
+
+    if (this.containerReady) {
+      this._renderVirtualScroll();
+    }
+
     this.updateSearchCount();
-    
-    // Update logs status counter
     this.updateLogsStatus();
-    
-    // Auto-scroll to bottom
-    if (this.state.autoScroll) {
-      this.scrollToBottom(container);
+
+    if (this.state.autoScroll && this.scrollContainer) {
+      const totalHeight = this.state.filterIndex.length * this.ROW_HEIGHT;
+      this.scrollContainer.scrollTop = totalHeight;
     }
   }
-  
+
+  // ===== UTILITY =====
+
+  formatDuration = (ms) => {
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.round((ms % 60000) / 1000);
+    return minutes + 'm ' + seconds + 's';
+  }
+
+  formatTime = (isoString) => {
+    return this._formatTimeFast(isoString);
+  }
+
+  getLevelLetter = (level) => {
+    return this._levelLetters[(level || '').toLowerCase()] || 'I';
+  }
+
+  getStatusIcon = (status) => {
+    const mapping = { succeeded: '\u2713', failed: '\u2717', cancelled: '\u25CC', pending: '\u22EF' };
+    return mapping[(status || '').toLowerCase()] || '?';
+  }
+
+  // String-based escapeHtml (no DOM allocation)
+  escapeHtml = (text) => {
+    if (!text) return '';
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  truncateMessage = (message, maxLength) => {
+    if (message.length <= maxLength) return message;
+    return message.substring(0, maxLength) + '...';
+  }
+
+  updateLogsStatus = () => {
+    const visibleCountEl = document.getElementById('visible-count');
+    const totalCountEl = document.getElementById('total-count');
+    if (visibleCountEl) visibleCountEl.textContent = this.state.filterIndex.length;
+    if (totalCountEl) totalCountEl.textContent = this.state.logBuffer.count;
+  }
+
   updateSearchCount = () => {
     const countEl = document.getElementById('search-count');
     if (countEl) {
       if (this.state.searchText || this.state.correlationFilter || this.state.raidFilter) {
-        const count = this.state.filteredLogs.length;
-        countEl.textContent = `${count.toLocaleString()} matches`;
+        countEl.textContent = this.state.filterIndex.length.toLocaleString() + ' matches';
         countEl.style.display = 'block';
       } else {
         countEl.style.display = 'none';
@@ -426,13 +607,83 @@ class Renderer {
     }
   }
 
+  updateStats = () => {
+    const logEl = document.getElementById('stat-logs');
+    const ssrEl = document.getElementById('stat-ssr');
+    const errEl = document.getElementById('stat-errors');
+    if (logEl) logEl.textContent = (this.state.stats.totalLogs || 0).toLocaleString();
+    if (ssrEl) ssrEl.textContent = (this.state.stats.totalEvents || 0).toLocaleString();
+    if (errEl) errEl.textContent = (this.state.stats.error || 0).toLocaleString();
+  }
+
+  isScrolledToBottom = (container) => {
+    if (!container) container = this.scrollContainer;
+    if (!container) return true;
+    return container.scrollTop + container.clientHeight >= container.scrollHeight - 40;
+  }
+
+  scrollToBottom = (container) => {
+    if (!container) container = this.scrollContainer;
+    if (!container) return;
+    const totalHeight = this.state.filterIndex.length * this.ROW_HEIGHT;
+    container.scrollTop = totalHeight;
+  }
+
+  // Legacy public API: createLogRow (used by external callers like smart-context)
+  createLogRow = (entry) => {
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    row.style.height = this.ROW_HEIGHT + 'px';
+    row.style.boxSizing = 'border-box';
+
+    const time = document.createElement('span');
+    time.className = 'log-time';
+    time.textContent = this._formatTimeFast(entry.timestamp);
+
+    const level = document.createElement('span');
+    const levelLower = (entry.level || 'Message').toLowerCase();
+    level.className = 'level-badge ' + levelLower;
+    level.textContent = this._levelLetters[levelLower] || 'I';
+
+    const component = document.createElement('span');
+    component.className = 'log-component';
+    component.textContent = entry.component || 'Unknown';
+    component.title = 'Click to exclude this component';
+
+    const message = document.createElement('span');
+    message.className = 'log-message';
+    const msg = entry.message || '';
+    message.textContent = msg.length > 200 ? msg.substring(0, 200) + '\u2026' : msg;
+
+    row.appendChild(time);
+    row.appendChild(level);
+    row.appendChild(component);
+    row.appendChild(message);
+
+    if (levelLower === 'error') row.classList.add('error-row');
+
+    row.addEventListener('click', () => {
+      if (window.edogViewer && window.edogViewer.detail) {
+        window.edogViewer.detail.show(entry, 'log');
+      }
+    });
+
+    component.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (window.edogViewer && window.edogViewer.filter) {
+        window.edogViewer.filter.excludeComponent(entry.component || 'Unknown');
+      }
+    });
+
+    return row;
+  }
+
+  // Telemetry filter (unchanged)
   passesTelemetryFilter = (event) => {
-    // Endpoint filter (W0.2)
     if (this.state.endpointFilter) {
       const name = event.activityName || '';
       if (!name.toLowerCase().includes(this.state.endpointFilter.toLowerCase())) return false;
     }
-    // RAID / IterationId filter (W0.3)
     if (this.state.raidFilter) {
       const raidLower = this.state.raidFilter.toLowerCase();
       const iterationId = ((event.attributes && event.attributes.IterationId) || '').toLowerCase();
@@ -446,7 +697,9 @@ class Renderer {
     const container = document.getElementById('telemetry-container');
     if (!container) return;
     container.innerHTML = '';
-    const filtered = this.state.telemetry.filter(e => this.passesTelemetryFilter(e));
+    const telemetryArr = [];
+    this.state.telemetry.forEach(e => telemetryArr.push(e));
+    const filtered = telemetryArr.filter(e => this.passesTelemetryFilter(e));
     const toRender = filtered.slice(-100).reverse();
     toRender.forEach(event => {
       const card = this.createTelemetryCard(event);
