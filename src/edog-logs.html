@@ -4530,8 +4530,8 @@ class EdogLogViewer {
       this.state.addLog(data);
       this.autoDetector.processLog(data);
       this.anomaly.processLog(data);
-      this.extractEndpointFromLog();
-      this.extractComponentFromLog();
+      this.extractEndpointFromLog(data);
+      this.extractComponentFromLog(data);
       this.extractIterationIdFromLog(data);
       this.renderer.scheduleRender();
     } else if (type === 'telemetry') {
@@ -4549,8 +4549,8 @@ class EdogLogViewer {
       this.state.addLog(log);
       this.autoDetector.processLog(log);
       this.anomaly.processLog(log);
-      this.extractEndpointFromLog();
-      this.extractComponentFromLog();
+      this.extractEndpointFromLog(log);
+      this.extractComponentFromLog(log);
       this.extractIterationIdFromLog(log);
     }
 
@@ -4611,8 +4611,8 @@ class EdogLogViewer {
           this.state.stats.totalLogs++;
           const level = (log.level || '').toLowerCase();
           if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
-          this.extractEndpointFromLog();
-      this.extractComponentFromLog();
+          this.extractEndpointFromLog(log);
+          this.extractComponentFromLog(log);
           this.extractIterationIdFromLog(log);
         });
       }
