@@ -33,64 +33,56 @@ class DetailPanel {
     const title = panel.querySelector('#detail-title');
     const content = panel.querySelector('.detail-content');
     
-    if (title) title.textContent = 'Log Entry Details';
+    if (title) title.textContent = 'Log Entry';
     
     if (content) {
       const customDataJson = JSON.stringify(entry.customData || {}, null, 2);
-      const shouldCollapseJson = customDataJson.split('\n').length > 4;
+      const customDataKeys = Object.keys(entry.customData || {});
+      const levelLower = (entry.level || '').toLowerCase();
       
       content.innerHTML = `
         <div class="detail-section">
-          <h4>Basic Information</h4>
+          <h4>Properties</h4>
           <div class="detail-grid">
             <div class="detail-field">
-              <label>Timestamp:</label>
+              <label>Time</label>
               <span>${entry.timestamp || 'N/A'}</span>
             </div>
             <div class="detail-field">
-              <label>Level:</label>
-              <span class="level-badge ${(entry.level || '').toLowerCase()}">${entry.level || 'N/A'}</span>
+              <label>Level</label>
+              <span class="level-badge ${levelLower}">${entry.level || 'N/A'}</span>
             </div>
             <div class="detail-field">
-              <label>Component:</label>
+              <label>Component</label>
               <span>${this.escapeHtml(entry.component || 'N/A')}</span>
             </div>
             <div class="detail-field">
-              <label>Event ID:</label>
+              <label>Event ID</label>
               <span>${this.escapeHtml(entry.eventId || 'N/A')}</span>
             </div>
           </div>
         </div>
         
         <div class="detail-section">
-          <h4>Message 
-            <button class="copy-btn" data-copy="message" title="Copy message to clipboard">📋</button>
-          </h4>
+          <h4>Message <button class="copy-btn" data-copy="message" title="Copy">copy</button></h4>
           <div class="detail-message">${this.escapeHtml(entry.message || 'No message')}</div>
         </div>
         
         <div class="detail-section">
           <h4>Correlation</h4>
-          <div class="detail-field">
-            <label>Root Activity ID:</label>
+          <div class="detail-field" style="flex-direction:row;align-items:center;gap:8px;">
+            <label style="min-width:auto">RAID</label>
             <span class="clickable-id" data-id="${this.escapeHtml(entry.rootActivityId || '')}">${this.escapeHtml(entry.rootActivityId || 'N/A')}</span>
-            ${entry.rootActivityId ? `<button class="copy-btn" data-copy="activityId" title="Copy Activity ID to clipboard">📋</button>` : ''}
+            ${entry.rootActivityId ? `<button class="copy-btn" data-copy="activityId">copy</button>` : ''}
+            <div class="cross-link" data-action="filterSSR">→ Find in SSR</div>
           </div>
-          <div class="cross-link" data-action="filterSSR">🔗 Find in SSR</div>
         </div>
         
+        ${customDataKeys.length > 0 ? `
         <div class="detail-section">
-          <h4>Custom Data 
-            <button class="copy-btn" data-copy="customData" title="Copy JSON to clipboard">📋</button>
-          </h4>
-          ${shouldCollapseJson ? 
-            `<details class="json-details">
-              <summary>Custom Data (${Object.keys(entry.customData || {}).length} fields) ▸</summary>
-              <pre class="json-content">${syntaxHighlightJson(customDataJson)}</pre>
-            </details>` :
-            `<pre class="json-container">${syntaxHighlightJson(customDataJson)}</pre>`
-          }
-        </div>
+          <h4>Custom Data (${customDataKeys.length}) <button class="copy-btn" data-copy="customData">copy</button></h4>
+          <pre class="json-container">${syntaxHighlightJson(customDataJson)}</pre>
+        </div>` : ''}
       `;
 
       // Bind copy buttons safely via addEventListener (no inline onclick)
@@ -125,71 +117,59 @@ class DetailPanel {
     const title = panel.querySelector('#detail-title');
     const content = panel.querySelector('.detail-content');
     
-    if (title) title.textContent = 'Telemetry Event Details';
+    if (title) title.textContent = 'Telemetry Event';
     
     if (content) {
       const status = event.activityStatus || 'Unknown';
+      const statusClass = status.toLowerCase();
       const icon = this.getStatusIcon(status);
       const attributesJson = JSON.stringify(event.attributes || {}, null, 2);
-      const shouldCollapseJson = attributesJson.split('\n').length > 4;
+      const attrCount = Object.keys(event.attributes || {}).length;
       
       content.innerHTML = `
         <div class="detail-section">
-          <h4>Activity Information</h4>
+          <h4>Activity</h4>
           <div class="detail-grid">
             <div class="detail-field">
-              <label>Activity Name:</label>
+              <label>Name</label>
               <span>${this.escapeHtml(event.activityName || 'N/A')}</span>
             </div>
             <div class="detail-field">
-              <label>Status:</label>
-              <span class="status-badge ${status.toLowerCase()}">${icon} ${status}</span>
+              <label>Status</label>
+              <span class="status-badge ${statusClass}">${icon} ${status}</span>
             </div>
             <div class="detail-field">
-              <label>Duration:</label>
+              <label>Duration</label>
               <span>${this.formatDuration(event.durationMs)}</span>
             </div>
             <div class="detail-field">
-              <label>Result Code:</label>
+              <label>Result</label>
               <span>${this.escapeHtml(event.resultCode || 'OK')}</span>
             </div>
           </div>
         </div>
         
         <div class="detail-section">
-          <h4>Timing</h4>
-          <div class="detail-field">
-            <label>Timestamp:</label>
-            <span>${event.timestamp || 'N/A'}</span>
-          </div>
-        </div>
-        
-        <div class="detail-section">
           <h4>Correlation</h4>
-          <div class="detail-field">
-            <label>Correlation ID:</label>
-            <span class="clickable-id" data-id="${this.escapeHtml(event.correlationId || '')}">${this.escapeHtml(event.correlationId || 'N/A')}</span>
-            ${event.correlationId ? `<button class="copy-btn" data-copy="correlation" title="Copy Correlation ID to clipboard">📋</button>` : ''}
+          <div class="detail-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="detail-field" style="flex-direction:row;align-items:center;gap:8px;">
+              <label style="min-width:auto">ID</label>
+              <span class="clickable-id" data-id="${this.escapeHtml(event.correlationId || '')}">${this.escapeHtml(event.correlationId || 'N/A')}</span>
+              ${event.correlationId ? `<button class="copy-btn" data-copy="correlation">copy</button>` : ''}
+            </div>
+            <div class="detail-field" style="flex-direction:row;align-items:center;gap:8px;">
+              <label style="min-width:auto">Time</label>
+              <span>${event.timestamp || 'N/A'}</span>
+            </div>
           </div>
-          <div class="detail-field">
-            <label>User ID:</label>
-            <span>${event.userId || 'N/A'}</span>
-          </div>
-          <div class="cross-link" data-action="filter-correlation">🔗 Show related logs</div>
+          <div class="cross-link" data-action="filter-correlation">→ Show related logs</div>
         </div>
         
+        ${attrCount > 0 ? `
         <div class="detail-section">
-          <h4>Attributes
-            <button class="copy-btn" data-copy="attributes" title="Copy JSON to clipboard">📋</button>
-          </h4>
-          ${shouldCollapseJson ? 
-            `<details class="json-details">
-              <summary>Attributes (${Object.keys(event.attributes || {}).length} fields) ▸</summary>
-              <pre class="json-content">${syntaxHighlightJson(attributesJson)}</pre>
-            </details>` :
-            `<pre class="json-container">${syntaxHighlightJson(attributesJson)}</pre>`
-          }
-        </div>
+          <h4>Attributes (${attrCount}) <button class="copy-btn" data-copy="attributes">copy</button></h4>
+          <pre class="json-container">${syntaxHighlightJson(attributesJson)}</pre>
+        </div>` : ''}
       `;
 
       // Bind copy buttons safely via addEventListener
