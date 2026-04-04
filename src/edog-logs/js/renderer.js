@@ -425,11 +425,9 @@ class Renderer {
     if (!container) return;
 
     this.state.pendingTelemetry.forEach(event => {
-      if (!this.state.paused) {
-        const card = this.createTelemetryCard(event);
-        container.insertBefore(card, container.firstChild);
-        requestAnimationFrame(() => card.classList.add('fade-in-complete'));
-      }
+      const card = this.createTelemetryCard(event);
+      container.insertBefore(card, container.firstChild);
+      requestAnimationFrame(() => card.classList.add('fade-in-complete'));
     });
 
     while (container.children.length > 100) {

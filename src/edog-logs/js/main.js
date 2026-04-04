@@ -466,7 +466,7 @@ class EdogLogViewer {
       const logsResponse = await fetch('/api/logs');
       if (logsResponse.ok) {
         const logs = await logsResponse.json();
-        logs.reverse();
+        logs.reverse(); // API returns newest-first; reverse to push oldest-first into RingBuffer
         logs.forEach(log => {
           try {
             this.state.logBuffer.push(log);

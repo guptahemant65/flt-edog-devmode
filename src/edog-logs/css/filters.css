@@ -215,6 +215,30 @@
   color: var(--text);
 }
 
+#component-filter {
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  min-width: 140px;
+}
+
+#component-filter:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+#component-filter option {
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* RAID / IterationId Filter */
 .raid-filter-wrapper {
   position: relative;
