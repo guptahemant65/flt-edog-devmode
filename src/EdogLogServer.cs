@@ -584,6 +584,7 @@ namespace Microsoft.LiveTable.Service.DevMode
         try
         {
             batchFlushTimer?.Dispose();
+            batchFlushTimer = null;
             Stop().GetAwaiter().GetResult();
         }
         catch (Exception ex)
