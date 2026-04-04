@@ -139,17 +139,17 @@ class FilterManager {
     const searchInput = document.getElementById('search-input');
     if (searchInput) searchInput.value = '';
     
-    // Reset levels
-    this.state.activeLevels = new Set(['Verbose', 'Message', 'Warning', 'Error']);
+    // Reset levels (exclude Verbose by default)
+    this.state.activeLevels = new Set(['Message', 'Warning', 'Error']);
     document.querySelectorAll('.level-btn').forEach(btn => {
-      btn.classList.add('active');
+      btn.classList.toggle('active', btn.dataset.level !== 'Verbose');
     });
     
-    // Reset component filters
+    // Reset component filters to FLT preset
     this.state.excludedComponents.clear();
-    this.state.activePreset = 'all';
+    this.state.activePreset = 'flt';
     document.querySelectorAll('.preset-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.preset === 'all');
+      btn.classList.toggle('active', btn.dataset.preset === 'flt');
     });
     
     // Reset time filter

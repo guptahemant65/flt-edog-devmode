@@ -8,18 +8,31 @@ class Renderer {
   constructor(state) {
     this.state = state;
     this.renderScheduled = false;
-    this.maxDomRows = 300; // Max log rows in DOM
+    this.maxDomRows = 300;
+    this.renderThrottleMs = 250;
+    this.lastRenderTime = 0;
+    this.pendingTimer = null;
   }
   
   scheduleRender = () => {
-    if (!this.renderScheduled) {
+    if (this.renderScheduled) return;
+    const now = Date.now();
+    const elapsed = now - this.lastRenderTime;
+    if (elapsed >= this.renderThrottleMs) {
       this.renderScheduled = true;
       requestAnimationFrame(() => this.flush());
+    } else if (!this.pendingTimer) {
+      this.pendingTimer = setTimeout(() => {
+        this.pendingTimer = null;
+        this.renderScheduled = true;
+        requestAnimationFrame(() => this.flush());
+      }, this.renderThrottleMs - elapsed);
     }
   }
   
   flush = () => {
     this.renderScheduled = false;
+    this.lastRenderTime = Date.now();
     
     // Process pending logs
     if (this.state.pendingLogs.length > 0) {
@@ -43,25 +56,20 @@ class Renderer {
     
     const wasAtBottom = this.isScrolledToBottom(container);
     
-    // Filter pending logs first
-    const filteredPendingLogs = this.state.pendingLogs.filter(entry => 
+    // Filter pending logs — cap batch to prevent DOM overload
+    const filtered = this.state.pendingLogs.filter(entry => 
       !this.state.paused && this.passesFilter(entry)
     );
+    const batch = filtered.slice(-100); // Max 100 rows per render frame
     
-    // Add new log rows using DocumentFragment for better performance
-    if (filteredPendingLogs.length > 0) {
+    if (batch.length > 0) {
       const fragment = document.createDocumentFragment();
-      filteredPendingLogs.forEach(entry => {
+      batch.forEach(entry => {
         const row = this.createLogRow(entry);
+        row.classList.add('fade-in-complete');
         fragment.appendChild(row);
       });
       container.appendChild(fragment);
-      
-      // Trigger animations for new rows
-      const newRows = Array.from(container.children).slice(-filteredPendingLogs.length);
-      requestAnimationFrame(() => {
-        newRows.forEach(row => row.classList.add('fade-in-complete'));
-      });
     }
     
     // Cap DOM rows with scroll position preservation
@@ -281,29 +289,14 @@ class Renderer {
     const currentCount = container.children.length;
     
     if (currentCount > maxRows + 50) {
-      // Preserve scroll position
-      const scrollTop = container.scrollTop;
-      const scrollHeight = container.scrollHeight;
-      
-      // Remove 50 rows at once for better performance
       const toRemove = Math.min(50, currentCount - maxRows);
-      let removedHeight = 0;
-      
       for (let i = 0; i < toRemove; i++) {
-        let firstChild = container.firstChild;
-        while (firstChild && firstChild.id === 'empty-state') {
-          firstChild = firstChild.nextSibling;
+        let child = container.firstChild;
+        while (child && child.id === 'empty-state') {
+          child = child.nextSibling;
         }
-        if (firstChild) {
-          removedHeight += firstChild.offsetHeight;
-          container.removeChild(firstChild);
-        }
+        if (child) container.removeChild(child);
       }
-      
-      // Adjust scroll position to prevent jumping
-      const newScrollHeight = container.scrollHeight;
-      const heightDiff = scrollHeight - newScrollHeight;
-      container.scrollTop = Math.max(0, scrollTop - heightDiff);
     }
   }
   
@@ -324,10 +317,15 @@ class Renderer {
       return false;
     }
     
-    // Component filter
+    // Component filter — check explicit exclusions AND active preset patterns
     const component = entry.component || 'Unknown';
     if (this.state.excludedComponents.has(component)) {
       return false;
+    }
+    const preset = FilterManager.COMPONENT_PRESETS[this.state.activePreset];
+    if (preset) {
+      if (preset.exclude && preset.exclude.some(p => p.test(component))) return false;
+      if (preset.include && !preset.include.some(p => p.test(component))) return false;
     }
     
     // Time range filter

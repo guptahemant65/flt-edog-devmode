@@ -9,11 +9,11 @@ class LogViewerState {
     this.logs = [];           // All received log entries (max 5000)
     this.telemetry = [];      // All received telemetry events (max 2000)
     this.filteredLogs = [];   // After search/level/correlation filter
-    this.activeLevels = new Set(['Verbose', 'Message', 'Warning', 'Error']);
+    this.activeLevels = new Set(['Message', 'Warning', 'Error']);
     this.searchText = '';
     this.correlationFilter = null;  // rootActivityId to filter by
     this.excludedComponents = new Set();  // Components to exclude
-    this.activePreset = 'all';  // Current component preset
+    this.activePreset = 'flt';  // Default: filter out noise components
     this.autoScroll = true;
     this.paused = false;
     this.timeRangeSeconds = 0;  // 0 = all time, >0 = last N seconds
