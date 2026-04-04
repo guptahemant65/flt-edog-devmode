@@ -323,11 +323,7 @@ class EdogLogViewer {
     // Keyboard shortcuts
     document.addEventListener('keydown', this.handleKeydown);
     
-    // Scroll detection for auto-scroll pause
-    const logsContainer = document.getElementById('logs-container');
-    if (logsContainer) {
-      logsContainer.addEventListener('scroll', this.handleScroll);
-    }
+    // Auto-scroll detection is handled by renderer._onScroll
   }
   
   handleKeydown = (e) => {
@@ -376,11 +372,6 @@ class EdogLogViewer {
         }
         break;
     }
-  }
-  
-  handleScroll = (e) => {
-    // Auto-scroll detection is handled by renderer's _lastPinnedScrollTop tracking.
-    // This handler is intentionally empty — kept for potential future use.
   }
   
   handleWebSocketMessage = (type, data) => {

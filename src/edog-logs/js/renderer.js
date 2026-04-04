@@ -182,6 +182,10 @@ class Renderer {
         if (window.edogViewer) window.edogViewer.showResumeButton();
       }
     }
+    // When auto-scrolling, don't schedule renders from scroll events —
+    // only scheduleRender() (timer-driven from new data) should trigger renders.
+    // This prevents the feedback loop: render→scrollTop→scroll event→render.
+    if (this.state.autoScroll) return;
     if (!this.renderScheduled) {
       this.renderScheduled = true;
       requestAnimationFrame(() => this._renderVirtualScroll());
@@ -207,7 +211,6 @@ class Renderer {
   }
 
   flush = () => {
-    this.renderScheduled = false;
     this.lastRenderTime = Date.now();
 
     // When paused, still update filter index and stats but skip DOM rendering
@@ -220,6 +223,7 @@ class Renderer {
         this.state.newLogsSinceRender = 0;
       }
       this.updateStats();
+      this.renderScheduled = false;
       return;
     }
 
@@ -245,12 +249,12 @@ class Renderer {
     }
 
     this.updateStats();
+    this.renderScheduled = false;
   }
 
   // ===== VIRTUAL SCROLL CORE =====
 
   _renderVirtualScroll = () => {
-    this.renderScheduled = false;
     if (!this.scrollContainer || !this.sentinel) return;
 
     const totalFiltered = this.state.filterIndex.length;
