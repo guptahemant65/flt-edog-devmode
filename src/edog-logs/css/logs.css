@@ -52,9 +52,9 @@
 .log-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  height: 28px;
+  gap: 8px;
+  padding: 0 12px;
+  height: 32px;
   box-sizing: border-box;
   font-size: 12px;
   font-family: var(--font-mono);
@@ -79,7 +79,9 @@
   color: var(--text-dim);
   white-space: nowrap;
   font-size: 11px;
-  min-width: 80px;
+  width: 90px;
+  flex-shrink: 0;
+  letter-spacing: -0.2px;
 }
 
 .log-level {
@@ -112,26 +114,32 @@
 }
 
 .log-component {
-  padding: 2px 6px;
+  padding: 2px 8px;
   background: var(--accent-dim);
   color: var(--accent);
-  border-radius: 10px;
+  border-radius: 4px;
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .log-component:hover {
   background: var(--accent);
   color: white;
-  transform: scale(1.05);
 }
 
 .log-message {
   flex: 1;
-  line-height: 1.4;
-  word-break: break-word;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 4px;
 }
 
 /* Logs Status Bar */

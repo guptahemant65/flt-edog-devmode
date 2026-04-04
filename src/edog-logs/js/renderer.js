@@ -21,7 +21,7 @@ class RowPool {
     row.style.position = 'absolute';
     row.style.left = '0';
     row.style.right = '0';
-    row.style.height = '28px';
+    row.style.height = '32px';
     row.style.boxSizing = 'border-box';
     row.style.willChange = 'transform';
 
@@ -89,7 +89,7 @@ class RowPool {
 class Renderer {
   constructor(state) {
     this.state = state;
-    this.ROW_HEIGHT = 28;
+    this.ROW_HEIGHT = 32;
     this.OVERSCAN = 8;
     this.MAX_VISIBLE = 80;
     this.rowPool = new RowPool(this.MAX_VISIBLE);
@@ -368,7 +368,7 @@ class Renderer {
 
     // Message (truncated via textContent — no HTML parsing)
     const msg = entry.message || '';
-    row._message.textContent = msg.length > 200 ? msg.substring(0, 200) + '\u2026' : msg;
+    row._message.textContent = msg.length > 500 ? msg.substring(0, 500) + '\u2026' : msg;
 
     // Error row styling
     if (levelLower === 'error') {
