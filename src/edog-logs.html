@@ -3714,6 +3714,17 @@ class EdogLogViewer {
       this.filter.setSearch(errorMsg.substring(0, 60));
       this.switchTab('logs');
     };
+
+    // Chain auto-RAID-populate into live execution detection
+    const origOnDetected = this.autoDetector.onExecutionDetected;
+    this.autoDetector.onExecutionDetected = (exec, id) => {
+      if (origOnDetected) origOnDetected(exec, id);
+      if (!this.state.raidFilter) {
+        const raidInput = document.getElementById('raid-filter-input');
+        if (raidInput) raidInput.value = id;
+        this.applyRaidFilter(id);
+      }
+    };
     
     // Set up WebSocket callbacks
     this.ws.onStatusChange = this.updateConnectionStatus;
@@ -3991,47 +4002,85 @@ class EdogLogViewer {
   
   loadInitialData = async () => {
     try {
-      // Load logs
+      // Load logs — batch add directly to state (skip pendingLogs buffer)
       const logsResponse = await fetch('/api/logs');
       if (logsResponse.ok) {
         const logs = await logsResponse.json();
         logs.forEach(log => {
-          this.state.addLog(log);
-          this.autoDetector.processLog(log);
-          this.anomaly.processLog(log);
+          this.state.logs.push(log);
+          this.state.stats.totalLogs++;
+          const level = (log.level || '').toLowerCase();
+          if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
           this.extractEndpointFromLog(log);
           this.extractIterationIdFromLog(log);
         });
       }
       
-      // Load telemetry
+      // Load telemetry — batch add directly
       const telemetryResponse = await fetch('/api/telemetry');
       if (telemetryResponse.ok) {
         const events = await telemetryResponse.json();
         events.forEach(event => {
-          this.state.addTelemetry(event);
-          this.autoDetector.processTelemetry(event);
+          this.state.telemetry.push(event);
+          this.state.stats.totalEvents++;
+          const status = (event.activityStatus || '').toLowerCase();
+          if (status === 'succeeded') this.state.stats.succeeded++;
+          else if (status === 'failed') this.state.stats.failed++;
           this.extractEndpointFromTelemetry(event);
           this.extractIterationIdFromTelemetry(event);
         });
       }
       
-      // Load stats
+      // Override stats with server values
       const statsResponse = await fetch('/api/stats');
       if (statsResponse.ok) {
         const stats = await statsResponse.json();
         Object.assign(this.state.stats, stats);
       }
       
-      // Update endpoint dropdown with initial data
       this.updateEndpointDropdown();
       
-      // Render initial data
-      this.renderer.scheduleRender();
+      // Single full render (bypasses pendingLogs for speed)
+      this.filter.applyFilters();
+      
+      // Auto-populate RAID with latest execution
+      if (this.state.recentExecutions.length > 0) {
+        const latestId = this.state.recentExecutions[0];
+        const raidInput = document.getElementById('raid-filter-input');
+        if (raidInput) raidInput.value = latestId;
+        this.applyRaidFilter(latestId);
+      }
+      
+      // Deferred smart processing (non-blocking chunks)
+      this.deferredSmartProcessing();
       
     } catch (error) {
       console.error('Failed to load initial data:', error);
     }
+  }
+  
+  deferredSmartProcessing = () => {
+    const logs = this.state.logs;
+    const telemetry = this.state.telemetry;
+    let logIdx = 0;
+    let telIdx = 0;
+    const CHUNK = 200;
+    
+    const processChunk = () => {
+      const logEnd = Math.min(logIdx + CHUNK, logs.length);
+      for (; logIdx < logEnd; logIdx++) {
+        this.autoDetector.processLog(logs[logIdx]);
+        this.anomaly.processLog(logs[logIdx]);
+      }
+      const telEnd = Math.min(telIdx + CHUNK, telemetry.length);
+      for (; telIdx < telEnd; telIdx++) {
+        this.autoDetector.processTelemetry(telemetry[telIdx]);
+      }
+      if (logIdx < logs.length || telIdx < telemetry.length) {
+        setTimeout(processChunk, 0);
+      }
+    };
+    setTimeout(processChunk, 50);
   }
   
   togglePause = () => {
