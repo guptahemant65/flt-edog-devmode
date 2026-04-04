@@ -1864,34 +1864,7 @@ mark {
       <button id="detail-close" class="icon-btn">✕</button>
     </div>
     <div class="detail-content">
-      <div class="detail-row">
-        <span class="detail-label">Timestamp</span>
-        <span id="detail-timestamp" class="detail-value mono"></span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Level</span>
-        <span id="detail-level" class="detail-value"></span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Component</span>
-        <span id="detail-component" class="detail-value"></span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">RootActivityId</span>
-        <span id="detail-raid" class="detail-value mono clickable"></span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">EventId</span>
-        <span id="detail-eventid" class="detail-value mono"></span>
-      </div>
-      <div class="detail-row full-width">
-        <span class="detail-label">Message</span>
-        <pre id="detail-message" class="detail-value mono message-detail"></pre>
-      </div>
-      <div class="detail-row full-width" id="detail-custom-row" style="display:none">
-        <span class="detail-label">Custom Data</span>
-        <pre id="detail-custom" class="detail-value mono"></pre>
-      </div>
+      <!-- DetailPanel.show() generates innerHTML dynamically -->
     </div>
   </div>
 
@@ -2891,10 +2864,6 @@ class Renderer {
     return this._formatTimeFast(isoString);
   }
 
-  getLevelLetter = (level) => {
-    return this._levelLetters[(level || '').toLowerCase()] || 'I';
-  }
-
   getStatusIcon = (status) => {
     const mapping = { succeeded: '\u2713', failed: '\u2717', cancelled: '\u25CC', pending: '\u22EF' };
     return mapping[(status || '').toLowerCase()] || '?';
@@ -2904,11 +2873,6 @@ class Renderer {
   escapeHtml = (text) => {
     if (!text) return '';
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  truncateMessage = (message, maxLength) => {
-    if (message.length <= maxLength) return message;
-    return message.substring(0, maxLength) + '...';
   }
 
   updateLogsStatus = () => {
@@ -2951,55 +2915,6 @@ class Renderer {
     const totalHeight = this.state.filterIndex.length * this.ROW_HEIGHT;
     this._scrollPinUntil = Date.now() + 80;
     container.scrollTop = totalHeight;
-  }
-
-  // Legacy public API: createLogRow (used by external callers like smart-context)
-  createLogRow = (entry) => {
-    const row = document.createElement('div');
-    row.className = 'log-row';
-    row.style.height = this.ROW_HEIGHT + 'px';
-    row.style.boxSizing = 'border-box';
-
-    const time = document.createElement('span');
-    time.className = 'log-time';
-    time.textContent = this._formatTimeFast(entry.timestamp);
-
-    const level = document.createElement('span');
-    const levelLower = (entry.level || 'Message').toLowerCase();
-    level.className = 'level-badge ' + levelLower;
-    level.textContent = this._levelLetters[levelLower] || 'I';
-
-    const component = document.createElement('span');
-    component.className = 'log-component';
-    component.textContent = entry.component || 'Unknown';
-    component.title = 'Click to exclude this component';
-
-    const message = document.createElement('span');
-    message.className = 'log-message';
-    const msg = entry.message || '';
-    message.textContent = msg.length > 200 ? msg.substring(0, 200) + '\u2026' : msg;
-
-    row.appendChild(time);
-    row.appendChild(level);
-    row.appendChild(component);
-    row.appendChild(message);
-
-    if (levelLower === 'error') row.classList.add('error-row');
-
-    row.addEventListener('click', () => {
-      if (window.edogViewer && window.edogViewer.detail) {
-        window.edogViewer.detail.show(entry, 'log');
-      }
-    });
-
-    component.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (window.edogViewer && window.edogViewer.filter) {
-        window.edogViewer.filter.excludeComponent(entry.component || 'Unknown');
-      }
-    });
-
-    return row;
   }
 
   // Telemetry filter (unchanged)
