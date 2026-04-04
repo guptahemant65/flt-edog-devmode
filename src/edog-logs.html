@@ -4477,16 +4477,8 @@ class EdogLogViewer {
   }
   
   handleScroll = (e) => {
-    if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
-    this.scrollTimeout = setTimeout(() => {
-      const container = e.target;
-      const isAtBottom = this.renderer.isScrolledToBottom(container);
-      
-      if (!isAtBottom && this.state.autoScroll) {
-        this.state.autoScroll = false;
-        this.showResumeButton();
-      }
-    }, 100);
+    // Auto-scroll detection is handled by renderer's _lastPinnedScrollTop tracking.
+    // This handler is intentionally empty — kept for potential future use.
   }
   
   handleWebSocketMessage = (type, data) => {
