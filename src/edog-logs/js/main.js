@@ -367,16 +367,8 @@ class EdogLogViewer {
   }
   
   handleScroll = (e) => {
-    if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
-    this.scrollTimeout = setTimeout(() => {
-      const container = e.target;
-      const isAtBottom = this.renderer.isScrolledToBottom(container);
-      
-      if (!isAtBottom && this.state.autoScroll) {
-        this.state.autoScroll = false;
-        this.showResumeButton();
-      }
-    }, 100);
+    // Auto-scroll detection is handled by renderer's _lastPinnedScrollTop tracking.
+    // This handler is intentionally empty — kept for potential future use.
   }
   
   handleWebSocketMessage = (type, data) => {
@@ -566,7 +558,7 @@ class EdogLogViewer {
     this.state.autoScroll = true;
     this.hideResumeButton();
     
-    // Scroll to bottom
+    // Scroll to bottom and sync pin tracker
     const container = document.getElementById('logs-container');
     if (container) {
       this.renderer.scrollToBottom(container);

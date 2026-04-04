@@ -5,38 +5,41 @@
   overflow-x: hidden;
   position: relative;
   contain: strict;
+  background: var(--bg);
 }
 
+/* Empty State */
 .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-dim);
+  color: var(--text-muted);
   text-align: center;
+  gap: var(--space-3);
+  user-select: none;
 }
 
 .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.5;
+  font-size: 32px;
+  opacity: 0.3;
 }
 
 .empty-text {
-  font-size: 16px;
-  margin-bottom: 8px;
+  font-size: var(--font-size-md);
+  color: var(--text-dim);
 }
 
 .empty-dots {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .empty-dots span {
-  width: 6px;
-  height: 6px;
-  background: var(--text-dim);
+  width: 4px;
+  height: 4px;
+  background: var(--text-muted);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -49,136 +52,168 @@
   animation-delay: 0.4s;
 }
 
+/* Log Rows — maximum density, terminal-like */
 .log-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  height: 28px;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  height: var(--row-height);
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid transparent;
   cursor: pointer;
   overflow: hidden;
+  line-height: var(--row-height);
+  color: var(--text);
 }
 
-.log-row.error-row { 
-  border-left: 3px solid var(--level-error); 
+.log-row:nth-child(even) {
+  background: rgba(255,255,255,0.015);
+}
+
+.log-row.error-row {
+  background: rgba(244, 71, 71, 0.06);
+  border-left: 2px solid var(--level-error);
+  padding-left: calc(var(--space-4) - 2px);
 }
 
 .log-row.stripe {
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .log-row:hover {
-  background: var(--surface-2);
+  background: var(--surface-hover);
 }
 
+.log-row.selected {
+  background: var(--accent-dim);
+}
+
+/* Timestamp — dim, compact */
 .log-time {
-  color: var(--text-dim);
+  color: var(--text-muted);
   white-space: nowrap;
-  font-size: 11px;
-  min-width: 80px;
+  font-size: var(--font-size-xs);
+  min-width: 72px;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
 }
 
+/* Level indicator — compact colored letter */
 .log-level {
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 500;
-  min-width: 24px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  min-width: 16px;
   text-align: center;
+  flex-shrink: 0;
+  line-height: var(--row-height);
+  border-radius: 2px;
+  padding: 0 2px;
 }
 
 .log-level.verbose {
-  background: rgba(100, 116, 139, 0.2);
   color: var(--level-verbose);
 }
 
 .log-level.message {
-  background: rgba(56, 189, 248, 0.2);
   color: var(--level-message);
 }
 
 .log-level.warning {
-  background: rgba(251, 191, 36, 0.2);
   color: var(--level-warning);
+  background: rgba(206, 145, 120, 0.1);
 }
 
 .log-level.error {
-  background: rgba(248, 113, 113, 0.2);
   color: var(--level-error);
+  background: rgba(244, 71, 71, 0.1);
 }
 
+/* Component badge — subtle, not dominant */
 .log-component {
-  padding: 2px 6px;
-  background: var(--accent-dim);
-  color: var(--accent);
-  border-radius: 10px;
-  font-size: 10px;
+  padding: 0 var(--space-1);
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 2px;
+  transition: color 0.1s ease;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-component:hover {
-  background: var(--accent);
-  color: white;
-  transform: scale(1.05);
+  color: var(--accent-bright);
+  background: var(--accent-dim);
 }
 
+/* Log message — the most important element */
 .log-message {
   flex: 1;
-  line-height: 1.4;
-  word-break: break-word;
+  line-height: var(--row-height);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
 }
 
-/* Logs Status Bar */
+/* Logs Status Bar — minimal */
 .logs-status {
-  padding: 4px 12px;
+  padding: 2px var(--space-4);
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
   border-top: 1px solid var(--border);
   background: var(--surface);
-  text-align: center;
+  text-align: right;
+  height: 20px;
+  line-height: 16px;
+  flex-shrink: 0;
 }
 
-/* Scroll FAB */
+/* Scroll FAB — polished */
 .scroll-fab {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
   background: var(--accent);
-  color: white;
+  color: #fff;
   border: none;
-  border-radius: 20px;
-  padding: 8px 12px;
-  font-size: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
   font-weight: 500;
+  font-family: var(--font-mono);
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
-  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  transition: opacity 0.15s ease, transform 0.15s ease;
   z-index: 10;
+  opacity: 0.9;
 }
 
 .scroll-fab:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+  opacity: 1;
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.3; }
 }
 
 @keyframes errorPulse {
-  0% { background: rgba(248, 113, 113, 0.1); }
-  50% { background: rgba(248, 113, 113, 0.3); }
-  100% { background: rgba(248, 113, 113, 0.1); }
+  0% { background: rgba(244, 71, 71, 0.06); }
+  50% { background: rgba(244, 71, 71, 0.15); }
+  100% { background: rgba(244, 71, 71, 0.06); }
 }
 
 .log-row.error.new {
-  animation: errorPulse 2s ease-in-out;
+  animation: errorPulse 1.5s ease-in-out;
 }
