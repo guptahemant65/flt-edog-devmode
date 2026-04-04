@@ -312,7 +312,10 @@ class Renderer {
       }
 
       const entry = this.state.logBuffer.getBySeq(seq);
-      if (!entry) continue;
+      if (!entry) {
+        if (row) { this.rowPool.release(row); this.renderedRows.delete(i); }
+        continue;
+      }
 
       this._populateRow(row, entry, seq, i);
       row.style.transform = 'translateY(' + (i * this.ROW_HEIGHT) + 'px)';
@@ -710,6 +713,7 @@ class Renderer {
     const container = document.getElementById('telemetry-container');
     if (!container) return;
     container.innerHTML = '';
+    this.state.pendingTelemetry = [];
     const telemetryArr = [];
     this.state.telemetry.forEach(e => telemetryArr.push(e));
     const filtered = telemetryArr.filter(e => this.passesTelemetryFilter(e));

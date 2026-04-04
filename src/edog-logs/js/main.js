@@ -280,18 +280,7 @@ class EdogLogViewer {
     const nextErrorBtn = document.getElementById('btn-next-error');
     if (nextErrorBtn) {
       nextErrorBtn.addEventListener('click', () => {
-        // Ensure we're on the logs tab
-        this.switchTab('logs');
-        const container = document.getElementById('logs-container');
-        const errorRows = container.querySelectorAll('.error-row');
-        const scrollTop = container.scrollTop;
-        for (const row of errorRows) {
-          if (row.offsetTop > scrollTop + 50) {
-            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            row.style.animation = 'pulse 0.5s ease';
-            break;
-          }
-        }
+        this.jumpToNextError();
       });
     }
     
@@ -468,6 +457,7 @@ class EdogLogViewer {
       const logsResponse = await fetch('/api/logs');
       if (logsResponse.ok) {
         const logs = await logsResponse.json();
+        logs.reverse();
         logs.forEach(log => {
           this.state.logBuffer.push(log);
           this.state.stats.totalLogs++;
@@ -482,6 +472,7 @@ class EdogLogViewer {
       const telemetryResponse = await fetch('/api/telemetry');
       if (telemetryResponse.ok) {
         const events = await telemetryResponse.json();
+        events.reverse();
         events.forEach(event => {
           this.state.telemetryBuffer.push(event);
           this.state.stats.totalEvents++;
@@ -854,13 +845,30 @@ class EdogLogViewer {
     this.switchTab('logs');
     const container = document.getElementById('logs-container');
     if (!container) return;
-    const errorRows = container.querySelectorAll('.error-row');
-    const scrollTop = container.scrollTop;
-    for (const row of errorRows) {
-      if (row.offsetTop > scrollTop + 50) {
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        row.style.animation = 'pulse 0.5s ease';
-        break;
+
+    // Walk FilterIndex to find next error after current scroll position
+    const fi = this.state.filterIndex;
+    const currentTopIdx = Math.floor(container.scrollTop / this.renderer.ROW_HEIGHT);
+
+    for (let i = currentTopIdx + 1; i < fi.length; i++) {
+      const seq = fi.seqAt(i);
+      if (seq === undefined) continue;
+      const entry = this.state.logBuffer.getBySeq(seq);
+      if (!entry) continue;
+      if ((entry.level || '').toLowerCase() === 'error') {
+        container.scrollTop = i * this.renderer.ROW_HEIGHT - container.clientHeight / 2;
+        return;
+      }
+    }
+    // Wrap around from top
+    for (let i = 0; i <= currentTopIdx && i < fi.length; i++) {
+      const seq = fi.seqAt(i);
+      if (seq === undefined) continue;
+      const entry = this.state.logBuffer.getBySeq(seq);
+      if (!entry) continue;
+      if ((entry.level || '').toLowerCase() === 'error') {
+        container.scrollTop = i * this.renderer.ROW_HEIGHT - container.clientHeight / 2;
+        return;
       }
     }
   }

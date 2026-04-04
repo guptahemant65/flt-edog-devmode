@@ -168,19 +168,19 @@ class DetailPanel {
           <h4>Correlation</h4>
           <div class="detail-field">
             <label>Correlation ID:</label>
-            <span class="clickable-id" data-id="${event.correlationId || ''}">${event.correlationId || 'N/A'}</span>
-            ${event.correlationId ? `<button class="copy-btn" onclick="copyToClipboard(this, '${event.correlationId}')" title="Copy Correlation ID to clipboard">📋</button>` : ''}
+            <span class="clickable-id" data-id="${this.escapeHtml(event.correlationId || '')}">${this.escapeHtml(event.correlationId || 'N/A')}</span>
+            ${event.correlationId ? `<button class="copy-btn" data-copy="correlation" title="Copy Correlation ID to clipboard">📋</button>` : ''}
           </div>
           <div class="detail-field">
             <label>User ID:</label>
             <span>${event.userId || 'N/A'}</span>
           </div>
-          <div class="cross-link" onclick="filterLogsByCorrelation('${(event.correlationId || '').split('|')[0]}')">🔗 Show related logs</div>
+          <div class="cross-link" data-action="filter-correlation">🔗 Show related logs</div>
         </div>
         
         <div class="detail-section">
           <h4>Attributes
-            <button class="copy-btn" onclick="copyToClipboard(this, \`${attributesJson.replace(/[`\\]/g, '\\$&')}\`)" title="Copy JSON to clipboard">📋</button>
+            <button class="copy-btn" data-copy="attributes" title="Copy JSON to clipboard">📋</button>
           </h4>
           ${shouldCollapseJson ? 
             `<details class="json-details">
@@ -191,6 +191,37 @@ class DetailPanel {
           }
         </div>
       `;
+
+      // Bind copy buttons safely via addEventListener
+      content.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const copyType = btn.dataset.copy;
+          if (copyType === 'correlation') {
+            const text = event.correlationId || '';
+            navigator.clipboard.writeText(text).then(() => {
+              btn.textContent = '✓';
+              setTimeout(() => { btn.textContent = '📋'; }, 1500);
+            });
+          } else if (copyType === 'attributes') {
+            navigator.clipboard.writeText(attributesJson).then(() => {
+              btn.textContent = '✓';
+              setTimeout(() => { btn.textContent = '📋'; }, 1500);
+            });
+          }
+        });
+      });
+
+      // Bind cross-link for filtering
+      const crossLink = content.querySelector('[data-action="filter-correlation"]');
+      if (crossLink) {
+        crossLink.addEventListener('click', () => {
+          const rootId = (event.correlationId || '').split('|')[0];
+          if (rootId && window.edogViewer && window.edogViewer.filter) {
+            window.edogViewer.filter.setCorrelationFilter(rootId);
+          }
+        });
+      }
       
       // Add click handlers for correlation IDs
       content.querySelectorAll('.clickable-id').forEach(el => {

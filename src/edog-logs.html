@@ -2548,7 +2548,10 @@ class Renderer {
       }
 
       const entry = this.state.logBuffer.getBySeq(seq);
-      if (!entry) continue;
+      if (!entry) {
+        if (row) { this.rowPool.release(row); this.renderedRows.delete(i); }
+        continue;
+      }
 
       this._populateRow(row, entry, seq, i);
       row.style.transform = 'translateY(' + (i * this.ROW_HEIGHT) + 'px)';
@@ -2946,6 +2949,7 @@ class Renderer {
     const container = document.getElementById('telemetry-container');
     if (!container) return;
     container.innerHTML = '';
+    this.state.pendingTelemetry = [];
     const telemetryArr = [];
     this.state.telemetry.forEach(e => telemetryArr.push(e));
     const filtered = telemetryArr.filter(e => this.passesTelemetryFilter(e));
@@ -3297,19 +3301,19 @@ class DetailPanel {
           <h4>Correlation</h4>
           <div class="detail-field">
             <label>Correlation ID:</label>
-            <span class="clickable-id" data-id="${event.correlationId || ''}">${event.correlationId || 'N/A'}</span>
-            ${event.correlationId ? `<button class="copy-btn" onclick="copyToClipboard(this, '${event.correlationId}')" title="Copy Correlation ID to clipboard">📋</button>` : ''}
+            <span class="clickable-id" data-id="${this.escapeHtml(event.correlationId || '')}">${this.escapeHtml(event.correlationId || 'N/A')}</span>
+            ${event.correlationId ? `<button class="copy-btn" data-copy="correlation" title="Copy Correlation ID to clipboard">📋</button>` : ''}
           </div>
           <div class="detail-field">
             <label>User ID:</label>
             <span>${event.userId || 'N/A'}</span>
           </div>
-          <div class="cross-link" onclick="filterLogsByCorrelation('${(event.correlationId || '').split('|')[0]}')">🔗 Show related logs</div>
+          <div class="cross-link" data-action="filter-correlation">🔗 Show related logs</div>
         </div>
         
         <div class="detail-section">
           <h4>Attributes
-            <button class="copy-btn" onclick="copyToClipboard(this, \`${attributesJson.replace(/[`\\]/g, '\\$&')}\`)" title="Copy JSON to clipboard">📋</button>
+            <button class="copy-btn" data-copy="attributes" title="Copy JSON to clipboard">📋</button>
           </h4>
           ${shouldCollapseJson ? 
             `<details class="json-details">
@@ -3320,6 +3324,37 @@ class DetailPanel {
           }
         </div>
       `;
+
+      // Bind copy buttons safely via addEventListener
+      content.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const copyType = btn.dataset.copy;
+          if (copyType === 'correlation') {
+            const text = event.correlationId || '';
+            navigator.clipboard.writeText(text).then(() => {
+              btn.textContent = '✓';
+              setTimeout(() => { btn.textContent = '📋'; }, 1500);
+            });
+          } else if (copyType === 'attributes') {
+            navigator.clipboard.writeText(attributesJson).then(() => {
+              btn.textContent = '✓';
+              setTimeout(() => { btn.textContent = '📋'; }, 1500);
+            });
+          }
+        });
+      });
+
+      // Bind cross-link for filtering
+      const crossLink = content.querySelector('[data-action="filter-correlation"]');
+      if (crossLink) {
+        crossLink.addEventListener('click', () => {
+          const rootId = (event.correlationId || '').split('|')[0];
+          if (rootId && window.edogViewer && window.edogViewer.filter) {
+            window.edogViewer.filter.setCorrelationFilter(rootId);
+          }
+        });
+      }
       
       // Add click handlers for correlation IDs
       content.querySelectorAll('.clickable-id').forEach(el => {
@@ -4345,18 +4380,7 @@ class EdogLogViewer {
     const nextErrorBtn = document.getElementById('btn-next-error');
     if (nextErrorBtn) {
       nextErrorBtn.addEventListener('click', () => {
-        // Ensure we're on the logs tab
-        this.switchTab('logs');
-        const container = document.getElementById('logs-container');
-        const errorRows = container.querySelectorAll('.error-row');
-        const scrollTop = container.scrollTop;
-        for (const row of errorRows) {
-          if (row.offsetTop > scrollTop + 50) {
-            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            row.style.animation = 'pulse 0.5s ease';
-            break;
-          }
-        }
+        this.jumpToNextError();
       });
     }
     
@@ -4533,6 +4557,7 @@ class EdogLogViewer {
       const logsResponse = await fetch('/api/logs');
       if (logsResponse.ok) {
         const logs = await logsResponse.json();
+        logs.reverse();
         logs.forEach(log => {
           this.state.logBuffer.push(log);
           this.state.stats.totalLogs++;
@@ -4547,6 +4572,7 @@ class EdogLogViewer {
       const telemetryResponse = await fetch('/api/telemetry');
       if (telemetryResponse.ok) {
         const events = await telemetryResponse.json();
+        events.reverse();
         events.forEach(event => {
           this.state.telemetryBuffer.push(event);
           this.state.stats.totalEvents++;
@@ -4919,13 +4945,30 @@ class EdogLogViewer {
     this.switchTab('logs');
     const container = document.getElementById('logs-container');
     if (!container) return;
-    const errorRows = container.querySelectorAll('.error-row');
-    const scrollTop = container.scrollTop;
-    for (const row of errorRows) {
-      if (row.offsetTop > scrollTop + 50) {
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        row.style.animation = 'pulse 0.5s ease';
-        break;
+
+    // Walk FilterIndex to find next error after current scroll position
+    const fi = this.state.filterIndex;
+    const currentTopIdx = Math.floor(container.scrollTop / this.renderer.ROW_HEIGHT);
+
+    for (let i = currentTopIdx + 1; i < fi.length; i++) {
+      const seq = fi.seqAt(i);
+      if (seq === undefined) continue;
+      const entry = this.state.logBuffer.getBySeq(seq);
+      if (!entry) continue;
+      if ((entry.level || '').toLowerCase() === 'error') {
+        container.scrollTop = i * this.renderer.ROW_HEIGHT - container.clientHeight / 2;
+        return;
+      }
+    }
+    // Wrap around from top
+    for (let i = 0; i <= currentTopIdx && i < fi.length; i++) {
+      const seq = fi.seqAt(i);
+      if (seq === undefined) continue;
+      const entry = this.state.logBuffer.getBySeq(seq);
+      if (!entry) continue;
+      if ((entry.level || '').toLowerCase() === 'error') {
+        container.scrollTop = i * this.renderer.ROW_HEIGHT - container.clientHeight / 2;
+        return;
       }
     }
   }
