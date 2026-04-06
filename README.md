@@ -378,8 +378,8 @@ edog --config -r C:\path\to\workload-fabriclivetable
 <td>Install Python 3.8+ and ensure it's in PATH</td>
 </tr>
 <tr>
-<td>Playwright not found</td>
-<td>Re-run <code>edog-setup</code></td>
+<td>agent-browser not found</td>
+<td>Download from <a href="https://github.com/vercel-labs/agent-browser/releases">GitHub releases</a> and place in PATH</td>
 </tr>
 <tr>
 <td>Pattern not found</td>

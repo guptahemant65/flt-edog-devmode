@@ -67,10 +67,16 @@ if ($ScriptDir -and (Test-Path "$ScriptDir\edog.py")) {
 }
 Write-Host "       Done." -ForegroundColor Green
 
-# Step 4: Install dependencies
+# Step 4: Install dependencies and check agent-browser
 Write-Host "[4/5] Installing Python dependencies..." -ForegroundColor Yellow
-pip install playwright pywinauto --quiet --disable-pip-version-check 2>$null
-python -m playwright install msedge --quiet 2>$null
+pip install requests --quiet --disable-pip-version-check 2>$null
+$abPath = Get-Command agent-browser -ErrorAction SilentlyContinue
+if ($abPath) {
+    Write-Host "       agent-browser found: $($abPath.Source)" -ForegroundColor Green
+} else {
+    Write-Host "       agent-browser not found on PATH." -ForegroundColor Yellow
+    Write-Host "       Download from: https://github.com/vercel-labs/agent-browser/releases" -ForegroundColor Yellow
+}
 Write-Host "       Done." -ForegroundColor Green
 
 # Step 5: Add to PATH

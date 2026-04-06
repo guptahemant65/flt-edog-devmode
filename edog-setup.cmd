@@ -45,20 +45,23 @@ echo        Found Python %PYVER%
 REM Step 2: Install Python dependencies
 echo.
 echo [2/5] Installing Python dependencies...
-pip install playwright pywinauto --quiet --disable-pip-version-check
+pip install requests --quiet --disable-pip-version-check
 if errorlevel 1 (
     echo ERROR: Failed to install Python packages.
     exit /b 1
 )
 echo        Done.
 
-REM Step 3: Install Playwright browsers
+REM Step 3: Verify agent-browser is available
 echo.
-echo [3/5] Installing Playwright browser (Edge)...
-echo        This may take a few minutes on first run...
-python -m playwright install msedge --quiet 2>nul
+echo [3/5] Checking agent-browser...
+where agent-browser >nul 2>nul
 if errorlevel 1 (
-    python -m playwright install msedge
+    echo        agent-browser not found on PATH.
+    echo        Download from: https://github.com/vercel-labs/agent-browser/releases
+    echo        Place the binary in %%USERPROFILE%%\.local\bin\
+) else (
+    for /f "tokens=*" %%i in ('agent-browser --version 2^>nul') do echo        Found: %%i
 )
 echo        Done.
 
