@@ -1998,81 +1998,90 @@ def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
         return None
 
 
-async def get_bearer_token(username):
-    """Launch Edge, capture Bearer token."""
-    
+def get_bearer_token(username):
+    """Launch Edge via agent-browser, capture Bearer token."""
+    from src.agent_browser import (
+        open_url, snapshot_interactive, find_ref,
+        fill, press, wait_ms, extract_bearer_token,
+        clear_network, AgentBrowserError,
+    )
+
     if not username:
         print("❌ Username is required")
         return None
-    
-    print("🚀 Starting browser...")
-    bearer_token = None
-    
-    # Extract cert subject from username (e.g., Admin1CBA@domain.net -> Admin1CBA.domain.net)
+
+    print("🚀 Starting browser via agent-browser...")
+
+    # Build cert auto-selection Chrome arg
     cert_subject = username.replace("@", ".")
-    cert_policy = f'{{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
-    
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            channel="msedge",
-            headless=False,
-            args=[
-                f'--auto-select-certificate-for-urls={cert_policy}',
-                '--ignore-certificate-errors',
-            ]
-        )
-        
-        context = await browser.new_context()
-        page = await context.new_page()
-        
-        async def handle_request(request):
-            nonlocal bearer_token
-            auth = request.headers.get("authorization", "")
-            if auth.startswith("Bearer ey") and not bearer_token:
-                bearer_token = auth.replace("Bearer ", "")
-                print(f"✅ Captured Bearer token (length: {len(bearer_token)})")
-        
-        page.on("request", handle_request)
-        
-        print(f"📡 Navigating to {POWER_BI_URL}")
-        try:
-            await page.goto(POWER_BI_URL, wait_until="domcontentloaded", timeout=60000)
-        except Exception as e:
-            print(f"⚠️  Navigation: {type(e).__name__}")
-        
-        print("🔐 Checking for login prompts...")
-        
-        try:
-            email_input = await page.wait_for_selector('input[type="email"], input[name="loginfmt"]', timeout=5000)
-            if email_input:
-                print(f"   Entering username: {username}")
-                await email_input.fill(username)
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(3)
-        except:
+    cert_arg = f'--auto-select-certificate-for-urls={{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
+
+    # Clear stale network requests (ignore errors if no session yet)
+    try:
+        clear_network()
+    except AgentBrowserError:
+        pass
+
+    # Open Power BI URL in headed Edge
+    print(f"📡 Navigating to {POWER_BI_URL}")
+    try:
+        open_url(POWER_BI_URL, headed=True, chrome_args=[cert_arg, "--ignore-certificate-errors"])
+    except AgentBrowserError as e:
+        print(f"⚠️  Navigation error: {e}")
+        return None
+
+    # Wait for page to load
+    import time
+    time.sleep(3)
+
+    # Check for login prompt
+    print("🔐 Checking for login prompts...")
+    try:
+        snap = snapshot_interactive()
+        email_ref = find_ref(snap, role="textbox", name="email")
+        if not email_ref:
+            email_ref = find_ref(snap, role="textbox", name="loginfmt")
+        if email_ref:
+            print(f"   Entering username: {username}")
+            fill(email_ref, username)
+            press("Enter")
+            time.sleep(3)
+        else:
             print("   Already logged in or no username prompt")
-        
-        print("   ⚠️  If certificate dialog appears, please select it manually")
-        await asyncio.sleep(5)
-        
+    except AgentBrowserError as e:
+        print(f"   Login prompt check: {e}")
+
+    print("   ⚠️  If certificate dialog appears, please select it manually")
+    time.sleep(5)
+
+    # Look for "Stay signed in?" / "Yes" button
+    try:
+        snap = snapshot_interactive()
+        yes_ref = find_ref(snap, role="button", name="yes")
+        if not yes_ref:
+            yes_ref = find_ref(snap, role="button", name="stay signed in")
+        if yes_ref:
+            print("   Clicking 'Yes' on stay signed in...")
+            from src.agent_browser import click
+            click(yes_ref)
+            time.sleep(2)
+    except AgentBrowserError:
+        pass
+
+    # Poll for Bearer token
+    print("⏳ Waiting for Bearer token...")
+    for i in range(10):
         try:
-            yes_button = await page.wait_for_selector('#idSIButton9, input[value="Yes"]', timeout=5000)
-            if yes_button:
-                print("   Clicking 'Yes' on stay signed in...")
-                await yes_button.click()
-                await asyncio.sleep(2)
-        except:
+            token = extract_bearer_token()
+            if token:
+                print(f"✅ Captured Bearer token (length: {len(token)})")
+                return token
+        except AgentBrowserError:
             pass
-        
-        print("⏳ Waiting for Bearer token...")
-        for _ in range(20):
-            if bearer_token:
-                break
-            await asyncio.sleep(1)
-        
-        await browser.close()
-        
-    return bearer_token
+        time.sleep(2)
+
+    print("❌ Bearer token not captured after polling")
+    return None
 
 
 # ============================================================================
@@ -2323,7 +2332,7 @@ def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max
         if attempt > 0:
             print(f"\n🔄 Retry {attempt + 1}/{max_retries}...")
         
-        bearer_token = asyncio.run(get_bearer_token(username))
+        bearer_token = get_bearer_token(username)
         if not bearer_token:
             print("❌ Failed to capture Bearer token")
             continue
