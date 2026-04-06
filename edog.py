@@ -80,6 +80,8 @@ FILES = {
     "TelemetryReporter": SERVICE_PATH / "Telemetry/CustomLiveTableTelemetryReporter.cs",
     "WorkloadApp": SERVICE_PATH / "WorkloadApp.cs",
     "Program": Path("Service/Microsoft.LiveTable.Service.EntryPoint") / "Program.cs",
+    "ParametersManifest": Path("Service/Microsoft.LiveTable.Service.EntryPoint") / "WorkloadParameters/ParametersManifest.json",
+    "TestRollout": Path("Service/Microsoft.LiveTable.Service.EntryPoint") / "WorkloadParameters/Rollouts/Test.json",
 }
 
 # DevMode log viewer files (created, not patched)
@@ -416,34 +418,7 @@ SMART_PATTERNS = {
     #   action: "wrap_ifdef" or "replace_line"
     #   description: Human-readable description
     
-    "auth_engine_ltc": {
-        "anchor": "[AuthenticationEngine]",
-        "context": "class LiveTableController",
-        "context_distance": 20,  # Class definition may be several lines after attributes
-        "action": "wrap_ifdef",
-        "description": "AuthenticationEngine on LiveTableController"
-    },
-    "auth_engine_ltsrc": {
-        "anchor": "[AuthenticationEngine]",
-        "context": "class LiveTableSchedulerRunController",
-        "context_distance": 20,
-        "action": "wrap_ifdef",
-        "description": "AuthenticationEngine on LiveTableSchedulerRunController"
-    },
-    "permission_filter_getlatestdag": {
-        "anchor": "[RequiresPermissionFilter(Permissions.ReadAll)]",
-        "context": "getLatestDag",
-        "context_distance": 5,
-        "action": "wrap_ifdef",
-        "description": "RequiresPermissionFilter on getLatestDag"
-    },
-    "permission_filter_rundag": {
-        "anchor": "[MwcV2RequirePermissionsFilter(",
-        "context": "runDAG",
-        "context_distance": 5,
-        "action": "wrap_ifdef",
-        "description": "MwcV2RequirePermissionsFilter on runDAG"
-    },
+    # Auth bypass patches removed — DisableFLTAuth config flag handles this globally now.
 }
 
 def normalize_whitespace(text):
@@ -570,31 +545,8 @@ def check_smart_pattern_status(content, pattern_config):
 
 
 # ============================================================================
-# Legacy Patterns (keeping for token replacement which needs exact matching)
-# ============================================================================
+# Legacy Patterns — auth bypass entries removed (DisableFLTAuth config flag handles this globally now)
 PATTERNS = {
-    # (original, modified, description)
-    # Using #if EDOG_DEVMODE preprocessor directive to disable - avoids StyleCop issues and is reversible
-    "auth_engine_ltc": (
-        "    [AuthenticationEngine]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n    [AuthenticationEngine]\n#endif\n",
-        "AuthenticationEngine on LiveTableController"
-    ),
-    "auth_engine_ltsrc": (
-        "    [AuthenticationEngine]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n    [AuthenticationEngine]\n#endif\n",
-        "AuthenticationEngine on LiveTableSchedulerRunController"
-    ),
-    "permission_filter_getlatestdag": (
-        "        [RequiresPermissionFilter(Permissions.ReadAll)]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n        [RequiresPermissionFilter(Permissions.ReadAll)]\n#endif\n",
-        "RequiresPermissionFilter on getLatestDag"
-    ),
-    "permission_filter_rundag": (
-        "        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n",
-        "#if EDOG_DEVMODE  // EDOG DevMode - disabled\n        [MwcV2RequirePermissionsFilter([Permissions.ReadAll, Permissions.Execute])]\n#endif\n",
-        "MwcV2RequirePermissionsFilter on runDAG"
-    ),
 }
 
 
@@ -1868,13 +1820,31 @@ def apply_log_viewer_registration_program_cs(content):
         r"(\s*)(new WorkloadApp\(\)\.RunAsync\(.*?\)\.GetAwaiter\(\)\.GetResult\(\);)"
     ]
     
-    registration_code = """    // EDOG DevMode - Start log viewer server and intercept Tracer
-    var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5555);
-    edogServer.Start();
-    Microsoft.ServicePlatform.Telemetry.Tracer.SetStructuredTestLogger(
-        new Microsoft.LiveTable.Service.DevMode.EdogLogInterceptor(edogServer));
-    // Store server for telemetry interceptor registration later
-    Microsoft.PowerBI.ServicePlatform.WireUp.WireUp.RegisterInstance(edogServer);
+    registration_code = """            // EDOG DevMode - Start log viewer server and intercept Tracer
+            var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5555);
+
+            // Load the full log viewer UI from DevMode directory
+            var edogHtmlCandidates = new[]
+            {
+                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Microsoft.LiveTable.Service.WorkloadApp).Assembly.Location), "DevMode", "edog-logs.html"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "DevMode", "edog-logs.html"),
+                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Microsoft.LiveTable.Service.WorkloadApp).Assembly.Location), "..", "..", "..", "..", "Microsoft.LiveTable.Service", "DevMode", "edog-logs.html"),
+            };
+            foreach (var path in edogHtmlCandidates)
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    edogServer.SetHtmlContent(System.IO.File.ReadAllText(path));
+                    break;
+                }
+            }
+
+            edogServer.Start();
+            Microsoft.ServicePlatform.Telemetry.Tracer.SetStructuredTestLogger(
+                new Microsoft.LiveTable.Service.DevMode.EdogLogInterceptor(edogServer));
+
+            // Store server for telemetry interceptor registration later
+            Microsoft.PowerBI.ServicePlatform.WireUp.WireUp.RegisterInstance(edogServer);
 
 """
     
@@ -1934,6 +1904,44 @@ def revert_log_viewer_registration_workloadapp_cs(content):
     
     new_content = re.sub(pattern, replacement, content)
     return new_content
+
+
+def apply_disable_flt_auth_manifest(content):
+    """Set DisableFLTAuth to true in ParametersManifest.json."""
+    if '"DisableFLTAuth": true' in content:
+        return content, "already_applied"
+    original = '"DisableFLTAuth": false'
+    if original in content:
+        return content.replace(original, '"DisableFLTAuth": true'), "applied"
+    return content, "pattern_not_found"
+
+
+def revert_disable_flt_auth_manifest(content):
+    """Revert DisableFLTAuth to false in ParametersManifest.json."""
+    return content.replace('"DisableFLTAuth": true', '"DisableFLTAuth": false')
+
+
+def apply_disable_flt_auth_test_json(content):
+    """Add DisableFLTAuth: true to Test.json rollout config."""
+    if '"DisableFLTAuth": true' in content:
+        return content, "already_applied"
+    # Add DisableFLTAuth after the last existing property (before closing braces)
+    pattern = r'("FabricPublicApiHost":\s*"[^"]*")\s*\n(\s*}\s*\n\s*})'
+    match = re.search(pattern, content)
+    if match:
+        new_content = content[:match.end(1)] + ',\n    "DisableFLTAuth": true\n' + match.group(2)
+        # Ensure file ends with newline
+        if not new_content.endswith('\n'):
+            new_content += '\n'
+        return new_content, "applied"
+    return content, "pattern_not_found"
+
+
+def revert_disable_flt_auth_test_json(content):
+    """Remove DisableFLTAuth from Test.json rollout config."""
+    # Remove the DisableFLTAuth line and trailing comma from previous line
+    content = re.sub(r',\s*\n\s*"DisableFLTAuth":\s*true', '', content)
+    return content
 
 
 def check_tracer_console_output(repo_root):
@@ -2079,61 +2087,7 @@ def apply_all_changes(token, repo_root):
     original_contents = {}  # Store originals for patch generation
     modified_contents = {}  # Store modified for patch generation
     
-    # 1. LiveTableController patterns (smart matching)
-    rel_path = FILES["LiveTableController"]
-    filepath = repo_root / rel_path
-    content = read_file(filepath)
-    if content:
-        original_contents[rel_path] = content
-        modified = False
-        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            pattern_config = SMART_PATTERNS[key]
-            new_content, status = apply_smart_pattern(content, pattern_config)
-            desc = pattern_config["description"]
-            
-            if status == "applied":
-                content = new_content
-                modified = True
-                changes_made.append(f"✅ {desc}")
-            elif status == "already_applied":
-                changes_made.append(f"⏭️  {desc} (already)")
-            elif status == "anchor_not_found":
-                warnings.append(f"⚠️  {desc}: anchor not found (code may have changed)")
-            elif status == "context_mismatch":
-                warnings.append(f"⚠️  {desc}: found anchor but wrong location")
-        
-        modified_contents[rel_path] = content
-        if modified:
-            write_file(filepath, content)
-    
-    # 2. LiveTableSchedulerRunController patterns (smart matching)
-    rel_path = FILES["LiveTableSchedulerRunController"]
-    filepath = repo_root / rel_path
-    content = read_file(filepath)
-    if content:
-        original_contents[rel_path] = content
-        modified = False
-        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            pattern_config = SMART_PATTERNS[key]
-            new_content, status = apply_smart_pattern(content, pattern_config)
-            desc = pattern_config["description"]
-            
-            if status == "applied":
-                content = new_content
-                modified = True
-                changes_made.append(f"✅ {desc}")
-            elif status == "already_applied":
-                changes_made.append(f"⏭️  {desc} (already)")
-            elif status == "anchor_not_found":
-                warnings.append(f"⚠️  {desc}: anchor not found (code may have changed)")
-            elif status == "context_mismatch":
-                warnings.append(f"⚠️  {desc}: found anchor but wrong location")
-        
-        modified_contents[rel_path] = content
-        if modified:
-            write_file(filepath, content)
-    
-    # 3. GTSOperationManager - Token
+    # 1. GTSOperationManager - Token
     rel_path = FILES["GTSOperationManager"]
     filepath = repo_root / rel_path
     content = read_file(filepath)
@@ -2151,7 +2105,7 @@ def apply_all_changes(token, repo_root):
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSOperationManager token: pattern not found")
     
-    # 4. GTSBasedSparkClient - Token bypass
+    # 2. GTSBasedSparkClient - Token bypass
     rel_path = FILES["GTSBasedSparkClient"]
     filepath = repo_root / rel_path
     content = read_file(filepath)
@@ -2169,14 +2123,14 @@ def apply_all_changes(token, repo_root):
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
     
-    # 5. Deploy web log viewer files (creates new files in DevMode/)
+    # 3. Deploy web log viewer files (creates new files in DevMode/)
     status, files = apply_log_viewer_files(repo_root)
     if status == "applied":
         changes_made.append(f"✅ Web log viewer ({', '.join(files)})")
     elif status == "already_applied":
         changes_made.append(f"⏭️  Web log viewer (already)")
     
-    # 6. Register log viewer interceptors (modify Program.cs and WorkloadApp.cs)
+    # 4. Register log viewer interceptors (modify Program.cs and WorkloadApp.cs)
     # Program.cs registration
     rel_path = FILES["Program"]
     filepath = repo_root / rel_path
@@ -2213,6 +2167,29 @@ def apply_all_changes(token, repo_root):
         elif status == "pattern_not_found":
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  Log viewer telemetry interceptor: pattern not found")
+    
+    # 5. Disable FLT auth for EDOG DevMode (ParametersManifest.json and Test.json)
+    for file_key, apply_fn, desc in [
+        ("ParametersManifest", apply_disable_flt_auth_manifest, "DisableFLTAuth (ParametersManifest.json)"),
+        ("TestRollout", apply_disable_flt_auth_test_json, "DisableFLTAuth (Test.json)"),
+    ]:
+        rel_path = FILES[file_key]
+        filepath = repo_root / rel_path
+        content = read_file(filepath)
+        if content:
+            if rel_path not in original_contents:
+                original_contents[rel_path] = content
+            new_content, status = apply_fn(content)
+            if status == "applied":
+                write_file(filepath, new_content)
+                modified_contents[rel_path] = new_content
+                changes_made.append(f"✅ {desc}")
+            elif status == "already_applied":
+                modified_contents[rel_path] = content
+                changes_made.append(f"⏭️  {desc} (already)")
+            elif status == "pattern_not_found":
+                modified_contents[rel_path] = content
+                warnings.append(f"⚠️  {desc}: pattern not found")
     
     # Generate patch file for clean revert
     if generate_patch(original_contents, modified_contents, repo_root):
@@ -2258,42 +2235,6 @@ def check_status(repo_root):
     status = []
     warnings = []
     
-    # Check LiveTableController (smart matching)
-    filepath = repo_root / FILES["LiveTableController"]
-    content = read_file(filepath)
-    if content:
-        for key in ["auth_engine_ltc", "permission_filter_getlatestdag"]:
-            pattern_config = SMART_PATTERNS[key]
-            result = check_smart_pattern_status(content, pattern_config)
-            desc = pattern_config["description"]
-            
-            if result == "applied":
-                status.append((desc, True))
-            elif result == "not_applied":
-                status.append((desc, False))
-            elif result == "anchor_not_found":
-                warnings.append(f"⚠️  {desc}: anchor not found (code may have changed)")
-            elif result == "context_mismatch":
-                warnings.append(f"⚠️  {desc}: anchor found but wrong location")
-    
-    # Check LiveTableSchedulerRunController (smart matching)
-    filepath = repo_root / FILES["LiveTableSchedulerRunController"]
-    content = read_file(filepath)
-    if content:
-        for key in ["auth_engine_ltsrc", "permission_filter_rundag"]:
-            pattern_config = SMART_PATTERNS[key]
-            result = check_smart_pattern_status(content, pattern_config)
-            desc = pattern_config["description"]
-            
-            if result == "applied":
-                status.append((desc, True))
-            elif result == "not_applied":
-                status.append((desc, False))
-            elif result == "anchor_not_found":
-                warnings.append(f"⚠️  {desc}: anchor not found")
-            elif result == "context_mismatch":
-                warnings.append(f"⚠️  {desc}: anchor found but wrong location")
-    
     # Check GTSOperationManager (legacy - exact match)
     filepath = repo_root / FILES["GTSOperationManager"]
     content = read_file(filepath)
@@ -2329,6 +2270,20 @@ def check_status(repo_root):
     if content:
         applied = "EdogTelemetryInterceptor" in content
         status.append(("Log viewer telemetry interceptor (WorkloadApp.cs)", applied))
+    
+    # Check DisableFLTAuth (ParametersManifest.json)
+    filepath = repo_root / FILES["ParametersManifest"]
+    content = read_file(filepath)
+    if content:
+        applied = '"DisableFLTAuth": true' in content
+        status.append(("DisableFLTAuth (ParametersManifest.json)", applied))
+    
+    # Check DisableFLTAuth (Test.json)
+    filepath = repo_root / FILES["TestRollout"]
+    content = read_file(filepath)
+    if content:
+        applied = '"DisableFLTAuth": true' in content
+        status.append(("DisableFLTAuth (Test.json)", applied))
     
     all_applied = all(s[1] for s in status) if status else False
     any_applied = any(s[1] for s in status) if status else False
