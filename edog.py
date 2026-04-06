@@ -13,7 +13,6 @@ Features:
   - Pattern-based revert (works even after script restart)
 """
 
-import asyncio
 import json
 import sys
 import os
@@ -35,26 +34,14 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
+# Verify agent-browser is available
 try:
-    from playwright.async_api import async_playwright
+    from src.agent_browser import _find_binary
+    if not _find_binary():
+        print("⚠️  agent-browser not found. Install from: https://github.com/vercel-labs/agent-browser/releases")
+        print("   Place in: ~/.local/bin/ or anywhere on PATH")
 except ImportError:
-    print("Installing playwright...")
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
-    subprocess.run([sys.executable, "-m", "playwright", "install", "msedge"], check=True)
-    from playwright.async_api import async_playwright
-
-try:
-    from pywinauto import Desktop
-    from pywinauto.findwindows import ElementNotFoundError
-    PYWINAUTO_AVAILABLE = True
-except ImportError:
-    print("Installing pywinauto...")
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "pywinauto"], check=True)
-    from pywinauto import Desktop
-    from pywinauto.findwindows import ElementNotFoundError
-    PYWINAUTO_AVAILABLE = True
+    print("⚠️  src/agent_browser.py not found — agent-browser integration unavailable")
 
 # ============================================================================
 # Configuration
@@ -554,63 +541,6 @@ PATTERNS = {
 # EDOG change management
 # ============================================================================
 
-
-def handle_certificate_dialog(username):
-    """Background thread to handle the Windows certificate selection dialog."""
-    print("   🔍 Watching for certificate dialog...")
-    
-    # Derive cert subject from username
-    cert_subject = username.replace("@", ".") if username else ""
-    
-    for attempt in range(30):  # Try for 30 seconds
-        time.sleep(1)
-        try:
-            desktop = Desktop(backend="uia")
-            dialog = None
-            for title in ["Windows Security", "Select a certificate", "Choose a digital certificate"]:
-                try:
-                    dialog = desktop.window(title_re=f".*{title}.*", visible_only=True)
-                    if dialog.exists():
-                        break
-                except:
-                    continue
-            
-            if not dialog or not dialog.exists():
-                continue
-                
-            print(f"   ✅ Found certificate dialog!")
-            
-            try:
-                list_ctrl = dialog.child_window(control_type="List")
-                if list_ctrl.exists():
-                    items = list_ctrl.children()
-                    for item in items:
-                        item_text = item.window_text()
-                        # Match cert based on configured username
-                        if cert_subject and cert_subject.lower() in item_text.lower():
-                            print(f"   ✅ Selecting certificate: {item_text[:50]}...")
-                            item.click_input()
-                            time.sleep(0.5)
-                            break
-            except Exception as e:
-                print(f"   ⚠️ Could not find cert in list: {e}")
-            
-            try:
-                ok_btn = dialog.child_window(title="OK", control_type="Button")
-                if ok_btn.exists():
-                    print("   ✅ Clicking OK...")
-                    ok_btn.click_input()
-                    return True
-            except Exception as e:
-                print(f"   ⚠️ Could not click OK: {e}")
-                
-        except ElementNotFoundError:
-            continue
-        except Exception:
-            continue
-    
-    print("   ⏳ Certificate dialog not found (may have been handled already)")
-    return False
 
 
 # ============================================================================
@@ -2483,89 +2413,84 @@ def stream_service_output(process, stop_event):
 def handle_devmode_account_picker(username, timeout=30):
     """
     Handle the DevMode account picker popup that appears when FLT service starts.
-    Uses pywinauto to find the Edge window and keyboard to select the account.
+    Uses agent-browser CDP to connect to Edge and click the correct account.
     """
-    from pywinauto import Desktop
-    import time as time_module
-    
-    # Extract account name for matching
+    from src.agent_browser import (
+        connect_cdp, snapshot_interactive, find_ref, click, wait_ms, AgentBrowserError
+    )
+
     account_name = username.split("@")[0] if "@" in username else username
-    
+
     print(f"\n🔍 Watching for DevMode account picker...")
     print(f"   Target account: {username}")
-    
-    start_time = time_module.time()
-    
-    while (time_module.time() - start_time) < timeout:
+
+    start_time = time.time()
+    login_keywords = ["pick an account", "sign in", "login.microsoftonline"]
+
+    while (time.time() - start_time) < timeout:
         try:
-            desktop = Desktop(backend="uia")
-            
-            # Find all windows
-            windows = desktop.windows()
-            for win in windows:
-                try:
-                    title = win.window_text().lower()
-                    
-                    # Check if this is a Microsoft login/account picker window
-                    is_login_window = any(keyword in title for keyword in [
-                        "pick an account", "sign in to your account", 
-                        "login.microsoftonline", "sign in -"
-                    ])
-                    
-                    if is_login_window and "edge" in title:
-                        print(f"   📍 Found account picker window")
-                        
-                        try:
-                            # Bring window to foreground
-                            win.set_focus()
-                            time_module.sleep(0.5)
-                            
-                            # Use keyboard to interact with account picker
-                            # The account tiles are typically Tab-able
-                            # Press Tab a few times to reach the account, then Enter
-                            
-                            from pywinauto.keyboard import send_keys
-                            
-                            # First, try clicking in the window area to ensure focus
-                            try:
-                                win.click_input()
-                                time_module.sleep(0.3)
-                            except:
-                                pass
-                            
-                            # Send Tab to navigate to the first account tile
-                            # Then Enter to select it
-                            print(f"   ⌨️ Selecting first account (expected: {username})...")
-                            
-                            # Tab to first account and Enter (Microsoft account picker)
-                            send_keys("{TAB}{TAB}{ENTER}")
-                            time_module.sleep(1)
-                            
-                            print(f"   ✅ Selected account: {username} (first option in picker)")
-                            return True
-                            
-                        except Exception as e:
-                            print(f"   ⚠️ Error with keyboard: {e}")
-                            
-                except Exception:
-                    continue
-                    
-        except Exception as e:
+            connect_cdp(9222)
+            snap = snapshot_interactive()
+
+            # Check if current page is a login/account picker
+            snap_text = json.dumps(snap).lower()
+            is_login = any(kw in snap_text for kw in login_keywords) or username.lower() in snap_text
+
+            if not is_login:
+                time.sleep(2)
+                continue
+
+            print(f"   📍 Found account picker page")
+
+            # Strategy 1: Find the account by full username
+            ref = find_ref(snap, name=username)
+
+            # Strategy 2: Find by account name (before the @)
+            if not ref:
+                ref = find_ref(snap, name=account_name)
+
+            # Strategy 3: Iterate all refs looking for username substring
+            if not ref:
+                refs = snap.get("data", {}).get("refs", {})
+                if isinstance(refs, dict):
+                    username_lower = username.lower()
+                    for ref_id, info in refs.items():
+                        if isinstance(info, dict):
+                            ref_name = str(info.get("name", "")).lower()
+                            if username_lower in ref_name or account_name.lower() in ref_name:
+                                ref = f"@{ref_id}"
+                                break
+
+            # Strategy 4: Fallback to first listitem
+            if not ref:
+                ref = find_ref(snap, role="listitem")
+
+            if ref:
+                print(f"   ⌨️ Clicking account: {ref}")
+                click(ref)
+                wait_ms(1000)
+                print(f"   ✅ Selected account: {username}")
+                return True
+            else:
+                print(f"   ⚠️ No matching account ref found, retrying...")
+
+        except AgentBrowserError:
             pass
-        
-        time_module.sleep(1)
-    
+        except Exception:
+            pass
+
+        time.sleep(2)
+
     # Fallback: notify user to manually select account
     print(f"\n   ⚠️ Could not auto-select account within {timeout}s")
     print(f"   👉 Please manually select: {username}")
     print(f"   (The account picker window may need your attention)")
-    
-    # Show Windows notification
+
     try:
         show_notification("EDOG DevMode", f"Please select account: {username}")
-    except:
+    except Exception:
         pass
-    
+
     return False
 
 
@@ -2701,6 +2626,14 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             
     except KeyboardInterrupt:
         print("\n\n👋 Shutting down...")
+        
+        # Close agent-browser session
+        try:
+            from src.agent_browser import close_browser
+            close_browser()
+            print("   ✅ Browser session closed")
+        except Exception:
+            pass
         
         # Step 1: Stop service first (sequential cleanup)
         if service_process:
