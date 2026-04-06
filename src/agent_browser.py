@@ -79,6 +79,7 @@ def run(
     *args: str,
     use_json: bool = False,
     timeout: int = 60,
+    extra_env: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Run an agent-browser CLI command and return parsed output.
 
@@ -90,6 +91,8 @@ def run(
         Append ``--json`` and parse stdout as JSON.
     timeout:
         Subprocess timeout in seconds.
+    extra_env:
+        Additional environment variables for the subprocess.
 
     Returns
     -------
@@ -106,12 +109,18 @@ def run(
     if use_json:
         cmd.append("--json")
 
+    env = None
+    if extra_env:
+        env = os.environ.copy()
+        env.update(extra_env)
+
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise AgentBrowserError(
@@ -158,6 +167,8 @@ def open_url(
     """Navigate to *url*, opening the browser if needed.
 
     Uses ``--session-name edog`` for cookie persistence.
+    Chrome args are passed via AGENT_BROWSER_ARGS env var to avoid
+    CLI parsing issues with JSON values containing commas.
     """
     args: List[str] = ["open", url, "--session-name", "edog"]
     if headed:
@@ -167,10 +178,11 @@ def open_url(
     if edge:
         args.extend(["--executable-path", edge])
 
+    extra_env = None
     if chrome_args:
-        args.extend(["--args", "\n".join(chrome_args)])
+        extra_env = {"AGENT_BROWSER_ARGS": "\n".join(chrome_args)}
 
-    return run(*args, use_json=True, timeout=timeout)
+    return run(*args, use_json=True, timeout=timeout, extra_env=extra_env)
 
 
 def close_browser() -> Dict[str, Any]:
