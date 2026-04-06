@@ -1933,8 +1933,10 @@ def get_bearer_token(username):
     from src.agent_browser import (
         open_url, snapshot_interactive, find_ref,
         fill, press, wait_ms, extract_bearer_token,
-        clear_network, AgentBrowserError,
+        clear_network, close_browser, handle_certificate_dialog,
+        AgentBrowserError,
     )
+    import threading
 
     if not username:
         print("❌ Username is required")
@@ -1942,28 +1944,34 @@ def get_bearer_token(username):
 
     print("🚀 Starting browser via agent-browser...")
 
-    # Build cert auto-selection Chrome arg
+    # Build cert subject for dialog matching
     cert_subject = username.replace("@", ".")
-    cert_arg = f'--auto-select-certificate-for-urls={{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
 
     # Close any stale session to ensure headed mode takes effect
     try:
-        from src.agent_browser import close_browser
         close_browser()
     except (AgentBrowserError, Exception):
         pass
 
+    # Start background thread to handle native Windows cert dialog
+    print("   🔐 Watching for certificate dialog...")
+    cert_thread = threading.Thread(
+        target=handle_certificate_dialog,
+        args=(cert_subject, 30),
+        daemon=True,
+    )
+    cert_thread.start()
+
     # Open Power BI URL in headed Edge
     print(f"📡 Navigating to {POWER_BI_URL}")
     try:
-        open_url(POWER_BI_URL, headed=True, chrome_args=[cert_arg, "--ignore-certificate-errors"])
+        open_url(POWER_BI_URL, headed=True, chrome_args=["--ignore-certificate-errors"])
     except AgentBrowserError as e:
         print(f"⚠️  Navigation error: {e}")
         return None
 
-    # Wait for page to load
-    import time
-    time.sleep(3)
+    # Wait for page to load and cert dialog to be handled
+    time.sleep(5)
 
     # Check for login prompt
     print("🔐 Checking for login prompts...")
@@ -1982,7 +1990,9 @@ def get_bearer_token(username):
     except AgentBrowserError as e:
         print(f"   Login prompt check: {e}")
 
-    print("   ⚠️  If certificate dialog appears, please select it manually")
+    # Wait for cert dialog thread to finish and page to proceed
+    print("   🔐 Waiting for certificate selection...")
+    cert_thread.join(timeout=20)
     time.sleep(5)
 
     # Look for "Stay signed in?" / "Yes" button

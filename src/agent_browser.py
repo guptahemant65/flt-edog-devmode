@@ -330,3 +330,123 @@ def extract_bearer_token() -> Optional[str]:
 def eval_js(expression: str, timeout: int = 60) -> Dict[str, Any]:
     """Evaluate *expression* in the browser context."""
     return run("eval", expression, use_json=True, timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
+# Windows certificate dialog handler (pure PowerShell — no pywinauto)
+# ---------------------------------------------------------------------------
+
+_CERT_DIALOG_PS1 = r'''
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$certSubject = $args[0]
+$timeoutSec = [int]$args[1]
+
+for ($i = 0; $i -lt $timeoutSec; $i++) {
+    # Search for Windows Security / cert dialog
+    $titles = @("Windows Security", "Select a certificate", "Choose a digital certificate")
+    $dialog = $null
+    foreach ($title in $titles) {
+        $cond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty, $title)
+        $dialog = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+        if ($dialog) { break }
+    }
+    if (-not $dialog) { Start-Sleep 1; continue }
+
+    Write-Host "FOUND_DIALOG"
+
+    # Find list items in the dialog
+    $listCond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::ListItem)
+    $items = $dialog.FindAll([System.Windows.Automation.TreeScope]::Descendants, $listCond)
+
+    # Click the matching cert
+    $clicked = $false
+    foreach ($item in $items) {
+        $itemName = $item.Current.Name
+        if ($certSubject -and $itemName -like "*$certSubject*") {
+            # Select via SelectionItem pattern
+            try {
+                $selPattern = $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+                $selPattern.Select()
+                $clicked = $true
+                Write-Host "SELECTED:$itemName"
+            } catch {
+                # Fallback: try invoke
+                try {
+                    $invPattern = $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                    $invPattern.Invoke()
+                    $clicked = $true
+                    Write-Host "INVOKED:$itemName"
+                } catch {
+                    Write-Host "CLICK_FAILED:$itemName"
+                }
+            }
+            break
+        }
+    }
+
+    if (-not $clicked -and $items.Count -gt 0) {
+        # Fallback: select first item
+        $first = $items[0]
+        try {
+            $selPattern = $first.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+            $selPattern.Select()
+            Write-Host "SELECTED_FIRST:$($first.Current.Name)"
+        } catch { }
+    }
+
+    Start-Sleep -Milliseconds 500
+
+    # Click OK button
+    $okCond = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty, "OK")),
+        (New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Button))
+    )
+    $okBtn = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $okCond)
+    if ($okBtn) {
+        $invPattern = $okBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+        $invPattern.Invoke()
+        Write-Host "CLICKED_OK"
+    }
+    exit 0
+}
+Write-Host "TIMEOUT"
+exit 1
+'''
+
+
+def handle_certificate_dialog(
+    cert_subject: str,
+    timeout: int = 30,
+) -> bool:
+    """Handle the Windows Security certificate selection dialog.
+
+    Uses PowerShell UIAutomation (built into Windows — no pip packages).
+    Runs as a subprocess so it can be called from a background thread.
+
+    Returns True if the dialog was found and handled.
+    """
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", _CERT_DIALOG_PS1,
+             cert_subject, str(timeout)],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 10,
+        )
+        output = result.stdout.strip()
+        if "FOUND_DIALOG" in output:
+            return "CLICKED_OK" in output
+        return False
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
