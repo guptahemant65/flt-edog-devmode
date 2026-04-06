@@ -168,7 +168,7 @@ def open_url(
         args.extend(["--executable-path", edge])
 
     if chrome_args:
-        args.extend(["--args", ",".join(chrome_args)])
+        args.extend(["--args", "\n".join(chrome_args)])
 
     return run(*args, use_json=True, timeout=timeout)
 
