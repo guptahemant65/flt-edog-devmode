@@ -2383,7 +2383,14 @@ def start_flt_service(repo_root):
         
         print(f"   ✅ Build successful")
         
-        # Step 2: Run the service from the EntryPoint directory (required for WorkloadParameters)
+        # Step 2: Set BROWSER env var so MSAL opens Edge with remote-debugging
+        env = os.environ.copy()
+        launcher = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "edog-browser-launcher.cmd")
+        if os.path.isfile(launcher):
+            env["BROWSER"] = launcher
+            print(f"   🌐 BROWSER set to {launcher}")
+
+        # Step 3: Run the service from the EntryPoint directory (required for WorkloadParameters)
         print(f"   🚀 Launching service...")
         process = subprocess.Popen(
             ["dotnet", "run", "--no-build"],
@@ -2391,7 +2398,8 @@ def start_flt_service(repo_root):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            cwd=str(entrypoint)  # Run from EntryPoint dir so it finds WorkloadParameters
+            cwd=str(entrypoint),  # Run from EntryPoint dir so it finds WorkloadParameters
+            env=env,
         )
         
         FLT_SERVICE_PROCESS = process
