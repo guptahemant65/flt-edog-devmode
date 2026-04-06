@@ -1946,10 +1946,11 @@ def get_bearer_token(username):
     cert_subject = username.replace("@", ".")
     cert_arg = f'--auto-select-certificate-for-urls={{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
 
-    # Clear stale network requests (ignore errors if no session yet)
+    # Close any stale session to ensure headed mode takes effect
     try:
-        clear_network()
-    except AgentBrowserError:
+        from src.agent_browser import close_browser
+        close_browser()
+    except (AgentBrowserError, Exception):
         pass
 
     # Open Power BI URL in headed Edge
