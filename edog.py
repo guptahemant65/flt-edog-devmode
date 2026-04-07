@@ -2092,16 +2092,22 @@ def apply_all_changes(token, repo_root):
     filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
-        original_contents[rel_path] = content
         new_content, status = apply_gts_operation_manager_change(content, token, repo_root)
         if status in ["applied", "token_updated", "applied_with_git_original"]:
+            if rel_path not in original_contents:
+                original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSOperationManager token")
         elif status == "already_applied":
-            modified_contents[rel_path] = content
+            # Compute pre-EDOG original from stored backup in file
+            reverted = revert_gts_operation_manager_change(content, repo_root)
+            if reverted and reverted != content:
+                original_contents[rel_path] = reverted
+                modified_contents[rel_path] = content
             changes_made.append(f"⏭️  GTSOperationManager token (already)")
         elif status == "pattern_not_found":
+            original_contents[rel_path] = content
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSOperationManager token: pattern not found")
     
@@ -2110,16 +2116,22 @@ def apply_all_changes(token, repo_root):
     filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
-        original_contents[rel_path] = content
         new_content, status = apply_gts_spark_client_change(content, token, repo_root)
         if status in ["applied", "token_updated", "applied_with_git_original"]:
+            if rel_path not in original_contents:
+                original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSBasedSparkClient token bypass")
         elif status == "already_applied":
-            modified_contents[rel_path] = content
+            # Compute pre-EDOG original from stored backup in file
+            reverted = revert_gts_spark_client_change(content, repo_root)
+            if reverted and reverted != content:
+                original_contents[rel_path] = reverted
+                modified_contents[rel_path] = content
             changes_made.append(f"⏭️  GTSBasedSparkClient token bypass (already)")
         elif status == "pattern_not_found":
+            original_contents[rel_path] = content
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
     
@@ -2136,16 +2148,20 @@ def apply_all_changes(token, repo_root):
     filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
-        original_contents[rel_path] = content
         new_content, status = apply_log_viewer_registration_program_cs(content)
         if status == "applied":
+            original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ Log viewer server registration (Program.cs)")
         elif status == "already_applied":
-            modified_contents[rel_path] = content
+            reverted = revert_log_viewer_registration_program_cs(content)
+            if reverted != content:
+                original_contents[rel_path] = reverted
+                modified_contents[rel_path] = content
             changes_made.append(f"⏭️  Log viewer server registration (already)")
         elif status == "pattern_not_found":
+            original_contents[rel_path] = content
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  Log viewer server registration: pattern not found")
     
@@ -2154,40 +2170,49 @@ def apply_all_changes(token, repo_root):
     filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
-        if rel_path not in original_contents:
-            original_contents[rel_path] = content
         new_content, status = apply_log_viewer_registration_workloadapp_cs(content)
         if status == "applied":
+            if rel_path not in original_contents:
+                original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ Log viewer telemetry interceptor (WorkloadApp.cs)")
         elif status == "already_applied":
-            modified_contents[rel_path] = content
+            # Compute the pre-EDOG original by reverting the current content
+            reverted = revert_log_viewer_registration_workloadapp_cs(content)
+            if reverted != content:
+                original_contents[rel_path] = reverted
+                modified_contents[rel_path] = content
             changes_made.append(f"⏭️  Log viewer telemetry interceptor (already)")
         elif status == "pattern_not_found":
+            if rel_path not in original_contents:
+                original_contents[rel_path] = content
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  Log viewer telemetry interceptor: pattern not found")
     
     # 5. Disable FLT auth for EDOG DevMode (ParametersManifest.json and Test.json)
-    for file_key, apply_fn, desc in [
-        ("ParametersManifest", apply_disable_flt_auth_manifest, "DisableFLTAuth (ParametersManifest.json)"),
-        ("TestRollout", apply_disable_flt_auth_test_json, "DisableFLTAuth (Test.json)"),
+    for file_key, apply_fn, revert_fn, desc in [
+        ("ParametersManifest", apply_disable_flt_auth_manifest, revert_disable_flt_auth_manifest, "DisableFLTAuth (ParametersManifest.json)"),
+        ("TestRollout", apply_disable_flt_auth_test_json, revert_disable_flt_auth_test_json, "DisableFLTAuth (Test.json)"),
     ]:
         rel_path = FILES[file_key]
         filepath = repo_root / rel_path
         content = read_file(filepath)
         if content:
-            if rel_path not in original_contents:
-                original_contents[rel_path] = content
             new_content, status = apply_fn(content)
             if status == "applied":
+                original_contents[rel_path] = content
                 write_file(filepath, new_content)
                 modified_contents[rel_path] = new_content
                 changes_made.append(f"✅ {desc}")
             elif status == "already_applied":
-                modified_contents[rel_path] = content
+                reverted = revert_fn(content)
+                if reverted != content:
+                    original_contents[rel_path] = reverted
+                    modified_contents[rel_path] = content
                 changes_made.append(f"⏭️  {desc} (already)")
             elif status == "pattern_not_found":
+                original_contents[rel_path] = content
                 modified_contents[rel_path] = content
                 warnings.append(f"⚠️  {desc}: pattern not found")
     
@@ -2213,19 +2238,29 @@ def revert_all_changes(repo_root):
     """Revert all EDOG changes using the saved patch file."""
     print("\n🔄 Reverting EDOG changes...")
     
+    all_success = True
+    
     # First revert log viewer files (not in patch)
-    if revert_log_viewer_files(repo_root):
-        print(f"   ✅ Removed log viewer files")
+    try:
+        if revert_log_viewer_files(repo_root):
+            print(f"   ✅ Removed log viewer files")
+    except Exception as e:
+        print(f"   ⚠️ Error removing log viewer files: {e}")
+        all_success = False
     
     # Then apply patch reverse for modified files
-    success, message = apply_patch_reverse(repo_root)
+    try:
+        success, message = apply_patch_reverse(repo_root)
+        if success:
+            print(f"   ✅ {message}")
+        else:
+            print(f"   ❌ {message}")
+            all_success = False
+    except Exception as e:
+        print(f"   ⚠️ Error reverting patch: {e}")
+        all_success = False
     
-    if success:
-        print(f"   ✅ {message}")
-    else:
-        print(f"   ❌ {message}")
-    
-    return success
+    return all_success
 
 
 def check_status(repo_root):
