@@ -2252,12 +2252,16 @@ def apply_all_changes(token, repo_root):
 
 
 def revert_all_changes(repo_root):
-    """Revert all EDOG changes using the saved patch file."""
+    """Revert all EDOG changes using smart pattern-based revert functions.
+    
+    Does NOT depend on the patch file — each change type has its own revert
+    function that detects and removes EDOG modifications directly.
+    """
     print("\n🔄 Reverting EDOG changes...")
     
     all_success = True
     
-    # First revert log viewer files (not in patch)
+    # 1. Revert log viewer files (created files, not patches)
     try:
         if revert_log_viewer_files(repo_root):
             print(f"   ✅ Removed log viewer files")
@@ -2265,17 +2269,97 @@ def revert_all_changes(repo_root):
         print(f"   ⚠️ Error removing log viewer files: {e}")
         all_success = False
     
-    # Then apply patch reverse for modified files
+    # 2. Revert GTSOperationManager token
     try:
-        success, message = apply_patch_reverse(repo_root)
-        if success:
-            print(f"   ✅ {message}")
-        else:
-            print(f"   ❌ {message}")
-            all_success = False
+        rel_path = FILES["GTSOperationManager"]
+        filepath = repo_root / rel_path
+        content = read_file(filepath)
+        if content:
+            reverted, changed = revert_gts_operation_manager_change(content, repo_root)
+            if changed:
+                write_file(filepath, reverted)
+                print(f"   ✅ Reverted GTSOperationManager token")
+            else:
+                print(f"   ⏭️  GTSOperationManager (clean)")
     except Exception as e:
-        print(f"   ⚠️ Error reverting patch: {e}")
+        print(f"   ⚠️ Error reverting GTSOperationManager: {e}")
         all_success = False
+    
+    # 3. Revert GTSBasedSparkClient bypass
+    try:
+        rel_path = FILES["GTSBasedSparkClient"]
+        filepath = repo_root / rel_path
+        content = read_file(filepath)
+        if content:
+            reverted, changed = revert_gts_spark_client_change(content, repo_root)
+            if changed:
+                write_file(filepath, reverted)
+                print(f"   ✅ Reverted GTSBasedSparkClient bypass")
+            else:
+                print(f"   ⏭️  GTSBasedSparkClient (clean)")
+    except Exception as e:
+        print(f"   ⚠️ Error reverting GTSBasedSparkClient: {e}")
+        all_success = False
+    
+    # 4. Revert Program.cs registration
+    try:
+        rel_path = FILES["Program"]
+        filepath = repo_root / rel_path
+        content = read_file(filepath)
+        if content:
+            reverted = revert_log_viewer_registration_program_cs(content)
+            if reverted != content:
+                write_file(filepath, reverted)
+                print(f"   ✅ Reverted log viewer registration (Program.cs)")
+            else:
+                print(f"   ⏭️  Program.cs (clean)")
+    except Exception as e:
+        print(f"   ⚠️ Error reverting Program.cs: {e}")
+        all_success = False
+    
+    # 5. Revert WorkloadApp.cs interceptor
+    try:
+        rel_path = FILES["WorkloadApp"]
+        filepath = repo_root / rel_path
+        content = read_file(filepath)
+        if content:
+            reverted = revert_log_viewer_registration_workloadapp_cs(content)
+            if reverted != content:
+                write_file(filepath, reverted)
+                print(f"   ✅ Reverted telemetry interceptor (WorkloadApp.cs)")
+            else:
+                print(f"   ⏭️  WorkloadApp.cs (clean)")
+    except Exception as e:
+        print(f"   ⚠️ Error reverting WorkloadApp.cs: {e}")
+        all_success = False
+    
+    # 6. Revert DisableFLTAuth in ParametersManifest.json and Test.json
+    for file_key, revert_fn, desc in [
+        ("ParametersManifest", revert_disable_flt_auth_manifest, "DisableFLTAuth (ParametersManifest.json)"),
+        ("TestRollout", revert_disable_flt_auth_test_json, "DisableFLTAuth (Test.json)"),
+    ]:
+        try:
+            rel_path = FILES[file_key]
+            filepath = repo_root / rel_path
+            content = read_file(filepath)
+            if content:
+                reverted = revert_fn(content)
+                if reverted != content:
+                    write_file(filepath, reverted)
+                    print(f"   ✅ Reverted {desc}")
+                else:
+                    print(f"   ⏭️  {desc} (clean)")
+        except Exception as e:
+            print(f"   ⚠️ Error reverting {desc}: {e}")
+            all_success = False
+    
+    # 7. Clean up patch file (no longer needed)
+    try:
+        patch_path = get_patch_file_path()
+        if patch_path.exists():
+            patch_path.unlink()
+    except Exception:
+        pass
     
     return all_success
 
@@ -2737,17 +2821,26 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     except KeyboardInterrupt:
         print("\n\n👋 Shutting down...")
         
-        # Step 1: Stop service first (sequential cleanup)
-        if service_process:
-            if stop_event:
-                stop_event.set()  # Signal output thread to stop
-            stop_flt_service(service_process)
+        # Block further Ctrl+C during cleanup
+        import signal
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         
-        # Step 2: Revert code changes
-        print("🔄 Reverting EDOG changes...")
-        revert_all_changes(repo_root)
+        try:
+            # Step 1: Stop service first (sequential cleanup)
+            if service_process:
+                if stop_event:
+                    stop_event.set()  # Signal output thread to stop
+                stop_flt_service(service_process)
+            
+            # Step 2: Revert code changes
+            print("🔄 Reverting EDOG changes...")
+            revert_all_changes(repo_root)
+            
+            print("✅ Done. Goodbye!")
+        except Exception as e:
+            print(f"\n⚠️ Error during cleanup: {e}")
+            print("   Run 'edog --revert' to manually revert changes.")
         
-        print("✅ Done. Goodbye!")
         return 0
     
     return 0

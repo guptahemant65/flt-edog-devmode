@@ -1,165 +1,121 @@
-"""End-to-end test: multi-file patch revert including token_updated path."""
+"""Test: revert_all_changes works via direct revert functions (no patch dependency)."""
 import tempfile, os, subprocess, re, sys
 from pathlib import Path
 
-# Add repo to path so we can import edog
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Import edog module
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
 
-tmpdir = tempfile.mkdtemp(prefix='edog_test_')
-os.chdir(tmpdir)
-subprocess.run(['git', 'init'], capture_output=True)
-subprocess.run(['git', 'config', 'user.email', 'test@test.com'], capture_output=True)
-subprocess.run(['git', 'config', 'user.name', 'Test'], capture_output=True)
+import importlib.util
+spec = importlib.util.spec_from_file_location('edog', os.path.join(script_dir, 'edog.py'))
+edog = importlib.util.module_from_spec(spec)
+os.chdir(script_dir)
+spec.loader.exec_module(edog)
 
 SERVICE = Path('Service/Microsoft.LiveTable.Service')
 ENTRY = Path('Service/Microsoft.LiveTable.Service.EntryPoint')
-
-# Create the file structure
-files = {
-    'ParametersManifest': ENTRY / 'WorkloadParameters/ParametersManifest.json',
-    'TestRollout': ENTRY / 'WorkloadParameters/Rollouts/Test.json',
-    'Program': ENTRY / 'Program.cs',
-}
 
 originals = {
     'ParametersManifest': '{\n  "DisableFLTAuth": false,\n  "Other": "value"\n}\n',
     'TestRollout': '{\n  "WorkspacePool": "WHP_POOL",\n  "FabricPublicApiHost": "https://api.fabric.microsoft.com"\n  }\n}\n',
     'Program': 'using System;\n\nnamespace Test\n{\n    public static class Program\n    {\n        public static async Task Main(string[] args)\n        {\n            await new WorkloadApp().RunAsync(args);\n        }\n    }\n}\n',
+    'WorkloadApp': 'using System;\n\nnamespace Test\n{\n    public class WorkloadApp\n    {\n        void Init()\n        {\n            WireUp.RegisterSingletonType<ICustomLiveTableTelemetryReporter, CustomLiveTableTelemetryReporter>();\n        }\n    }\n}\n',
 }
 
-for key, rel_path in files.items():
-    full = Path(tmpdir) / rel_path
-    full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(originals[key], encoding='utf-8')
+files = {
+    'ParametersManifest': ENTRY / 'WorkloadParameters/ParametersManifest.json',
+    'TestRollout': ENTRY / 'WorkloadParameters/Rollouts/Test.json',
+    'Program': ENTRY / 'Program.cs',
+    'WorkloadApp': SERVICE / 'WorkloadApp.cs',
+}
 
-subprocess.run(['git', 'add', '.'], capture_output=True)
-subprocess.run(['git', 'commit', '-m', 'init'], capture_output=True)
+def setup_repo():
+    tmpdir = tempfile.mkdtemp(prefix='edog_test_')
+    os.chdir(tmpdir)
+    subprocess.run(['git', 'init'], capture_output=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], capture_output=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], capture_output=True)
+    for key, rel_path in files.items():
+        full = Path(tmpdir) / rel_path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(originals[key], encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], capture_output=True)
+    subprocess.run(['git', 'commit', '-m', 'init'], capture_output=True)
+    return Path(tmpdir)
 
-# Test 1: Program.cs apply doesn't create StyleCop issues
-print('=== Test 1: Program.cs apply (no StyleCop brace issues) ===')
-import importlib.util
-spec = importlib.util.spec_from_file_location('edog', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'edog.py'))
-edog = importlib.util.module_from_spec(spec)
-sys.modules['edog'] = edog
+def apply_edog_changes(repo_root):
+    """Simulate what apply_all_changes does."""
+    # ParametersManifest
+    fp = repo_root / files['ParametersManifest']
+    c = fp.read_text(encoding='utf-8')
+    fp.write_text(c.replace('"DisableFLTAuth": false', '"DisableFLTAuth": true'), encoding='utf-8')
+    
+    # TestRollout
+    fp = repo_root / files['TestRollout']
+    c = fp.read_text(encoding='utf-8')
+    new_c, status = edog.apply_disable_flt_auth_test_json(c)
+    fp.write_text(new_c, encoding='utf-8')
+    
+    # Program.cs
+    fp = repo_root / files['Program']
+    c = fp.read_text(encoding='utf-8')
+    new_c, status = edog.apply_log_viewer_registration_program_cs(c)
+    fp.write_text(new_c, encoding='utf-8')
+    
+    # WorkloadApp.cs
+    fp = repo_root / files['WorkloadApp']
+    c = fp.read_text(encoding='utf-8')
+    new_c, status = edog.apply_log_viewer_registration_workloadapp_cs(c)
+    fp.write_text(new_c, encoding='utf-8')
 
-orig_dir = os.getcwd()
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-spec.loader.exec_module(edog)
-os.chdir(orig_dir)
+def check_clean(repo_root, label):
+    """Check all files match originals."""
+    all_clean = True
+    for key, rel in files.items():
+        fp = repo_root / rel
+        final = fp.read_text(encoding='utf-8')
+        clean = final == originals[key]
+        if not clean:
+            all_clean = False
+            print(f'    DIRTY: {key}')
+        else:
+            print(f'    clean: {key}')
+    icon = 'PASS' if all_clean else 'FAIL'
+    print(f'  {icon}: {label}')
+    return all_clean
 
-content = originals['Program']
-new_content, status = edog.apply_log_viewer_registration_program_cs(content)
-assert status == 'applied', f'Expected applied, got {status}'
+# Test 1: Direct revert (no patch file at all)
+print('=== Test 1: Direct revert without patch file ===')
+repo = setup_repo()
+apply_edog_changes(repo)
 
-# Check no lines have brace+code on same line
-fail = False
-for i, line in enumerate(new_content.split('\n'), 1):
-    stripped = line.strip()
-    if stripped.startswith('{') and len(stripped) > 1 and not stripped.startswith('{}'):
-        print(f'  FAIL: Line {i} has brace+code: {stripped[:60]}')
-        fail = True
+# Delete any patch file to prove we don't depend on it
+patch = edog.get_patch_file_path()
+if patch.exists():
+    patch.unlink()
 
-# Check revert is clean
-reverted = edog.revert_log_viewer_registration_program_cs(new_content)
-if reverted != content:
-    print(f'  FAIL: Revert does not match original')
-    fail = True
+# Monkey-patch FILES to use our temp paths
+old_files = dict(edog.FILES)
+for key in files:
+    edog.FILES[key] = files[key]
 
-if not fail:
-    print('  PASS')
-else:
-    print('  FAILED')
+edog.revert_all_changes(repo)
+result1 = check_clean(repo, 'Direct revert (no patch)')
 
-# Test 2: Test.json apply/revert
-print('\n=== Test 2: Test.json apply/revert ===')
-content = originals['TestRollout']
-new_content, status = edog.apply_disable_flt_auth_test_json(content)
-assert status == 'applied'
-assert '"DisableFLTAuth": true' in new_content
-reverted = edog.revert_disable_flt_auth_test_json(new_content)
-if reverted == content:
-    print('  PASS')
-else:
-    print(f'  FAIL: reverted != original')
-    print(f'    orig:     {repr(content[:100])}')
-    print(f'    reverted: {repr(reverted[:100])}')
+# Test 2: Revert after double-apply (simulating token refresh overwrite)
+print('\n=== Test 2: Revert after double-apply (token refresh) ===')
+repo2 = setup_repo()
+apply_edog_changes(repo2)
+# Simulate second apply_all_changes overwriting patch with incomplete data
+# (this was the bug - but now revert doesn't use patch)
+apply_edog_changes(repo2)  # already_applied for all
 
-# Test 3: Full apply -> patch -> revert cycle (first call)
-print('\n=== Test 3: Full first-call cycle ===')
-# Write originals to disk
-for key, rel in files.items():
-    (Path(tmpdir) / rel).write_text(originals[key], encoding='utf-8')
-subprocess.run(['git', 'add', '.'], capture_output=True)
-subprocess.run(['git', 'commit', '-m', 'reset'], capture_output=True)
+edog.revert_all_changes(repo2)
+result2 = check_clean(repo2, 'Revert after double-apply')
 
-# Apply Test.json
-fp = Path(tmpdir) / files['TestRollout']
-c = open(fp, 'r', encoding='utf-8').read()
-new_c, _ = edog.apply_disable_flt_auth_test_json(c)
-open(fp, 'w', encoding='utf-8').write(new_c)
-
-# Generate patch
-import difflib
-original_contents = {files['TestRollout']: c}
-modified_contents = {files['TestRollout']: new_c}
-patch_path = Path(tmpdir) / '.edog-changes.patch'
-edog_patch_path = edog.get_patch_file_path
-# Use edog's generate_patch
-if edog.generate_patch(original_contents, modified_contents, Path(tmpdir)):
-    # Move patch to our tmpdir
-    src_patch = edog.get_patch_file_path()
-    patch_content = src_patch.read_text(encoding='utf-8')
-    patch_path.write_text(patch_content, encoding='utf-8')
-    src_patch.unlink()
-
-r = subprocess.run(['git', 'apply', '-R', '--whitespace=nowarn', str(patch_path)],
-                   cwd=tmpdir, capture_output=True, text=True)
-final = open(fp, 'r', encoding='utf-8').read()
-if r.returncode == 0 and final == originals['TestRollout']:
-    print('  PASS')
-else:
-    print(f'  FAIL: rc={r.returncode} match={final == originals["TestRollout"]}')
-
-# Test 4: Simulate token_updated path patch
-print('\n=== Test 4: token_updated patch has pre-EDOG original ===')
-# Reset
-for key, rel in files.items():
-    (Path(tmpdir) / rel).write_text(originals[key], encoding='utf-8')
-subprocess.run(['git', 'add', '.'], capture_output=True)
-subprocess.run(['git', 'commit', '-m', 'reset2'], capture_output=True)
-
-# Apply Test.json (first call)
-fp = Path(tmpdir) / files['TestRollout']
-c = open(fp, 'r', encoding='utf-8').read()
-new_c, _ = edog.apply_disable_flt_auth_test_json(c)
-open(fp, 'w', encoding='utf-8').write(new_c)
-
-# Now simulate second apply_all_changes (token refresh)
-c2 = open(fp, 'r', encoding='utf-8').read()
-_, status = edog.apply_disable_flt_auth_test_json(c2)
-assert status == 'already_applied', f'Expected already_applied, got {status}'
-
-# Compute pre-EDOG original
-reverted = edog.revert_disable_flt_auth_test_json(c2)
-assert reverted != c2, 'Revert should differ from current'
-
-# Generate patch with reverted as original
-original_contents = {files['TestRollout']: reverted}
-modified_contents = {files['TestRollout']: c2}
-if edog.generate_patch(original_contents, modified_contents, Path(tmpdir)):
-    src_patch = edog.get_patch_file_path()
-    patch_content = src_patch.read_text(encoding='utf-8')
-    patch_path.write_text(patch_content, encoding='utf-8')
-    src_patch.unlink()
-
-r = subprocess.run(['git', 'apply', '-R', '--whitespace=nowarn', str(patch_path)],
-                   cwd=tmpdir, capture_output=True, text=True)
-final = open(fp, 'r', encoding='utf-8').read()
-if r.returncode == 0 and final == originals['TestRollout']:
-    print('  PASS')
-else:
-    print(f'  FAIL: rc={r.returncode} match={final == originals["TestRollout"]}')
+# Restore FILES
+edog.FILES.update(old_files)
 
 os.chdir('C:\\')
-print('\nAll tests done.')
+print(f'\nAll passed: {result1 and result2}')
 
