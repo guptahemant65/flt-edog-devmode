@@ -1814,42 +1814,43 @@ def apply_log_viewer_registration_program_cs(content):
     if "EDOG DevMode - Start log viewer server" in content:
         return content, "already_applied"
     
-    # Find the WorkloadApp instantiation line
+    # Find the WorkloadApp instantiation line (capture leading whitespace on same line only)
     patterns = [
-        r"(\s*)(await new WorkloadApp\(\)\.RunAsync\(.*?\);)",
-        r"(\s*)(new WorkloadApp\(\)\.RunAsync\(.*?\)\.GetAwaiter\(\)\.GetResult\(\);)"
+        r"(^[ \t]*)(await new WorkloadApp\(\)\.RunAsync\(.*?\);)",
+        r"(^[ \t]*)(new WorkloadApp\(\)\.RunAsync\(.*?\)\.GetAwaiter\(\)\.GetResult\(\);)"
     ]
     
-    registration_code = """            // EDOG DevMode - Start log viewer server and intercept Tracer
-            var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5555);
-
-            // Load the full log viewer UI from DevMode directory
-            var edogHtmlCandidates = new[]
-            {
-                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Microsoft.LiveTable.Service.WorkloadApp).Assembly.Location), "DevMode", "edog-logs.html"),
-                System.IO.Path.Combine(AppContext.BaseDirectory, "DevMode", "edog-logs.html"),
-                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Microsoft.LiveTable.Service.WorkloadApp).Assembly.Location), "..", "..", "..", "..", "Microsoft.LiveTable.Service", "DevMode", "edog-logs.html"),
-            };
-            foreach (var path in edogHtmlCandidates)
-            {
-                if (System.IO.File.Exists(path))
-                {
-                    edogServer.SetHtmlContent(System.IO.File.ReadAllText(path));
-                    break;
-                }
-            }
-
-            edogServer.Start();
-            Microsoft.ServicePlatform.Telemetry.Tracer.SetStructuredTestLogger(
-                new Microsoft.LiveTable.Service.DevMode.EdogLogInterceptor(edogServer));
-
-            // Store server for telemetry interceptor registration later
-            Microsoft.PowerBI.ServicePlatform.WireUp.WireUp.RegisterInstance(edogServer);
-
-"""
+    registration_code = (
+        "            // EDOG DevMode - Start log viewer server and intercept Tracer\n"
+        "            var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5555);\n"
+        "\n"
+        "            // Load the full log viewer UI from DevMode directory\n"
+        "            var edogHtmlCandidates = new[]\n"
+        "            {\n"
+        '                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Microsoft.LiveTable.Service.WorkloadApp).Assembly.Location), "DevMode", "edog-logs.html"),\n'
+        '                System.IO.Path.Combine(AppContext.BaseDirectory, "DevMode", "edog-logs.html"),\n'
+        '                System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Microsoft.LiveTable.Service.WorkloadApp).Assembly.Location), "..", "..", "..", "..", "Microsoft.LiveTable.Service", "DevMode", "edog-logs.html"),\n'
+        "            };\n"
+        "            foreach (var path in edogHtmlCandidates)\n"
+        "            {\n"
+        "                if (System.IO.File.Exists(path))\n"
+        "                {\n"
+        "                    edogServer.SetHtmlContent(System.IO.File.ReadAllText(path));\n"
+        "                    break;\n"
+        "                }\n"
+        "            }\n"
+        "\n"
+        "            edogServer.Start();\n"
+        "            Microsoft.ServicePlatform.Telemetry.Tracer.SetStructuredTestLogger(\n"
+        "                new Microsoft.LiveTable.Service.DevMode.EdogLogInterceptor(edogServer));\n"
+        "\n"
+        "            // Store server for telemetry interceptor registration later\n"
+        "            Microsoft.PowerBI.ServicePlatform.WireUp.WireUp.RegisterInstance(edogServer);\n"
+        "\n"
+    )
     
     for pattern in patterns:
-        match = re.search(pattern, content, re.DOTALL)
+        match = re.search(pattern, content, re.MULTILINE)
         if match:
             indent = match.group(1)
             workload_line = match.group(2)
@@ -1884,9 +1885,9 @@ def apply_log_viewer_registration_workloadapp_cs(content):
 
 def revert_log_viewer_registration_program_cs(content):
     """Revert log viewer registration from Program.cs."""
-    # Remove the EDOG DevMode block
-    pattern = r"\s*// EDOG DevMode - Start log viewer server.*?WireUp\.RegisterInstance\(edogServer\);\s*\n"
-    new_content = re.sub(pattern, "", content, flags=re.DOTALL)
+    # Remove the EDOG DevMode block (match from start-of-line to preserve surrounding newlines)
+    pattern = r"^[ \t]*// EDOG DevMode - Start log viewer server.*?WireUp\.RegisterInstance\(edogServer\);[ \t]*\n\n?"
+    new_content = re.sub(pattern, "", content, flags=re.DOTALL | re.MULTILINE)
     return new_content
 
 
@@ -2093,14 +2094,22 @@ def apply_all_changes(token, repo_root):
     content = read_file(filepath)
     if content:
         new_content, status = apply_gts_operation_manager_change(content, token, repo_root)
-        if status in ["applied", "token_updated", "applied_with_git_original"]:
-            if rel_path not in original_contents:
-                original_contents[rel_path] = content
+        if status in ["applied", "applied_with_git_original"]:
+            original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSOperationManager token")
+        elif status == "token_updated":
+            # Token changed — compute pre-EDOG original for patch
+            reverted = revert_gts_operation_manager_change(content, repo_root)
+            if reverted and reverted != content:
+                original_contents[rel_path] = reverted
+            else:
+                original_contents[rel_path] = content
+            write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
+            changes_made.append(f"✅ GTSOperationManager token (updated)")
         elif status == "already_applied":
-            # Compute pre-EDOG original from stored backup in file
             reverted = revert_gts_operation_manager_change(content, repo_root)
             if reverted and reverted != content:
                 original_contents[rel_path] = reverted
@@ -2117,14 +2126,22 @@ def apply_all_changes(token, repo_root):
     content = read_file(filepath)
     if content:
         new_content, status = apply_gts_spark_client_change(content, token, repo_root)
-        if status in ["applied", "token_updated", "applied_with_git_original"]:
-            if rel_path not in original_contents:
-                original_contents[rel_path] = content
+        if status in ["applied", "applied_with_git_original"]:
+            original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSBasedSparkClient token bypass")
+        elif status == "token_updated":
+            # Token changed — compute pre-EDOG original for patch
+            reverted = revert_gts_spark_client_change(content, repo_root)
+            if reverted and reverted != content:
+                original_contents[rel_path] = reverted
+            else:
+                original_contents[rel_path] = content
+            write_file(filepath, new_content)
+            modified_contents[rel_path] = new_content
+            changes_made.append(f"✅ GTSBasedSparkClient token bypass (updated)")
         elif status == "already_applied":
-            # Compute pre-EDOG original from stored backup in file
             reverted = revert_gts_spark_client_change(content, repo_root)
             if reverted and reverted != content:
                 original_contents[rel_path] = reverted
