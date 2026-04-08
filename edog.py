@@ -1930,10 +1930,8 @@ def apply_disable_flt_auth_test_json(content):
     pattern = r'("FabricPublicApiHost":\s*"[^"]*")\s*\n(\s*}\s*\n\s*})'
     match = re.search(pattern, content)
     if match:
-        new_content = content[:match.end(1)] + ',\n    "DisableFLTAuth": true\n' + match.group(2)
-        # Ensure file ends with newline
-        if not new_content.endswith('\n'):
-            new_content += '\n'
+        # Preserve whatever comes after the match (including any trailing newline)
+        new_content = content[:match.end(1)] + ',\n    "DisableFLTAuth": true\n' + content[match.start(2):]
         return new_content, "applied"
     return content, "pattern_not_found"
 
