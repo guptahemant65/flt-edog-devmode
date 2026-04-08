@@ -75,7 +75,6 @@ SERVICE_PATH = Path("Service/Microsoft.LiveTable.Service")
 FILES = {
     "LiveTableController": SERVICE_PATH / "Controllers/LiveTableController.cs",
     "LiveTableSchedulerRunController": SERVICE_PATH / "Controllers/LiveTableSchedulerRunController.cs",
-    "GTSOperationManager": SERVICE_PATH / "Managers/GTSOperationManager.cs",
     "GTSBasedSparkClient": SERVICE_PATH / "SparkHttp/GTSBasedSparkClient.cs",
     "TelemetryReporter": SERVICE_PATH / "Telemetry/CustomLiveTableTelemetryReporter.cs",
     "WorkloadApp": SERVICE_PATH / "WorkloadApp.cs",
@@ -872,7 +871,7 @@ def install_git_hook(repo_root):
 # Prevents accidental commits of EDOG-modified files
 
 # Files that EDOG modifies
-EDOG_FILES="LiveTableController.cs LiveTableSchedulerRunController.cs GTSOperationManager.cs GTSBasedSparkClient.cs"
+EDOG_FILES="LiveTableController.cs LiveTableSchedulerRunController.cs GTSBasedSparkClient.cs"
 
 # Check if any EDOG files are staged
 for file in $EDOG_FILES; do
@@ -1219,12 +1218,6 @@ def revert_simple_pattern(content, original, modified, description):
     return content, False
 
 
-def get_gts_operation_manager_token_pattern(token):
-    """Get the pattern for GTSOperationManager token replacement."""
-    original = 'var mwcV1TokenWithHeader = await HttpTokenUtils.GenerateMwcV1TokenHeaderAsync(mwcTokenHandler, workloadContext.ArtifactStoreServiceProvider.GetArtifactStoreServiceAsync(), userTJSToken, capacityContext, workspaceId, artifactId, Constants.LakehouseArtifactType, Constants.LakehouseTokenPermissions, default);'
-    modified = f'var mwcV1TokenWithHeader = "MwcToken {token}";  // EDOG DevMode - hardcoded by edog tool'
-    return original, modified
-
 
 def get_gts_spark_client_bypass(token):
     """Get the bypass code for GTSBasedSparkClient."""
@@ -1241,79 +1234,6 @@ def get_gts_spark_client_bypass(token):
         }}'''
     return bypass_code
 
-
-def apply_gts_operation_manager_change(content, token, repo_root=None):
-    """Apply GTSOperationManager token change. Returns (new_content, status)."""
-    edog_marker = '// EDOG DevMode - hardcoded by edog tool'
-    original_marker_start = '// EDOG_GTS_OP_ORIGINAL:'
-    original_marker_end = ':END_EDOG_GTS_OP'
-    
-    # Check if bypass is already there with same token
-    modified_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
-    if modified_line in content:
-        return content, "already_applied"
-    
-    # Check if bypass is there with different token (with EDOG marker)
-    if edog_marker in content:
-        # Check if we have stored original
-        has_original = original_marker_start in content and original_marker_end in content
-        
-        if has_original:
-            # Just update the token, preserving the stored original
-            pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool'
-            new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
-            new_content = re.sub(pattern, new_line, content)
-            if new_content != content:
-                return new_content, "token_updated"
-        
-        # No stored original - try to fetch from git and reapply properly
-        if repo_root:
-            try:
-                file_rel_path = str(FILES["GTSOperationManager"]).replace('\\', '/')
-                result = subprocess.run(
-                    ['git', 'show', f'HEAD:{file_rel_path}'],
-                    cwd=str(repo_root),
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode == 0:
-                    git_content = result.stdout
-                    # Recursively call to apply fresh bypass using git content as base
-                    new_content, status = apply_gts_operation_manager_change(git_content, token, None)
-                    if status == "applied":
-                        return new_content, "applied_with_git_original"
-            except Exception as e:
-                print(f"⚠️ Could not fetch GTSOperationManager original from git: {e}")
-        
-        # Fallback: just update the token (no original will be stored)
-        pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool'
-        new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
-        new_content = re.sub(pattern, new_line, content)
-        if new_content != content:
-            return new_content, "token_updated"
-    
-    # Check if there's a hardcoded token WITHOUT the EDOG marker (manual edit) - update it
-    manual_hardcode_pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";'
-    if re.search(manual_hardcode_pattern, content) and edog_marker not in content:
-        new_line = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}'
-        new_content = re.sub(manual_hardcode_pattern, new_line, content)
-        if new_content != content:
-            return new_content, "token_updated"
-    
-    # Apply fresh bypass - find the original line and store it
-    original_pattern = r'var mwcV1TokenWithHeader = await HttpTokenUtils\.GenerateMwcV1TokenHeaderAsync\([^;]+\);'
-    match = re.search(original_pattern, content)
-    
-    if match:
-        original_line = match.group(0)
-        # Base64 encode the original for safe storage
-        original_encoded = base64.b64encode(original_line.encode('utf-8')).decode('ascii')
-        # Build replacement with stored original
-        replacement = f'var mwcV1TokenWithHeader = "MwcToken {token}";  {edog_marker}  {original_marker_start}{original_encoded}{original_marker_end}'
-        new_content = content[:match.start()] + replacement + content[match.end():]
-        return new_content, "applied"
-    
-    return content, "pattern_not_found"
 
 
 def apply_gts_spark_client_change(content, token, repo_root=None):
@@ -1437,58 +1357,6 @@ def apply_gts_spark_client_change(content, token, repo_root=None):
     
     new_content = content[:method_start] + bypass_code + content[method_end:]
     return new_content, "applied"
-
-
-def revert_gts_operation_manager_change(content, repo_root=None):
-    """Revert GTSOperationManager token change - restore original from stored backup or git."""
-    edog_marker = '// EDOG DevMode - hardcoded by edog tool'
-    original_marker_start = '// EDOG_GTS_OP_ORIGINAL:'
-    original_marker_end = ':END_EDOG_GTS_OP'
-    
-    if edog_marker not in content:
-        return content, False
-    
-    # Check if we have stored original content
-    if original_marker_start in content and original_marker_end in content:
-        # Extract the base64-encoded original
-        start_idx = content.find(original_marker_start) + len(original_marker_start)
-        end_idx = content.find(original_marker_end)
-        
-        if start_idx < end_idx:
-            encoded_original = content[start_idx:end_idx]
-            try:
-                original_line = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
-                
-                # Find and replace the entire modified line (including markers)
-                pattern = r'var mwcV1TokenWithHeader = "MwcToken [^"]+";  // EDOG DevMode - hardcoded by edog tool  // EDOG_GTS_OP_ORIGINAL:[^:]+:END_EDOG_GTS_OP'
-                new_content = re.sub(pattern, original_line, content)
-                return new_content, new_content != content
-                
-            except Exception as e:
-                print(f"⚠️ Failed to decode stored original for GTSOperationManager: {e}")
-    
-    # No stored original - try to restore from git
-    if repo_root:
-        try:
-            file_rel_path = str(FILES["GTSOperationManager"]).replace('\\', '/')
-            result = subprocess.run(
-                ['git', 'show', f'HEAD:{file_rel_path}'],
-                cwd=str(repo_root),
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                print("   ℹ️  Restored GTSOperationManager from git HEAD (no stored original found)")
-                return result.stdout, True
-            else:
-                print(f"⚠️ Git show failed for GTSOperationManager: {result.stderr.strip()}")
-        except Exception as e:
-            print(f"⚠️ Could not restore GTSOperationManager from git: {e}")
-    
-    # Legacy fallback: no stored original, print warning
-    print("⚠️ No stored original found for GTSOperationManager. The bypass may have been applied with an older version.")
-    print("   Please manually revert GTSOperationManager.cs using git checkout or restore from source control.")
-    return content, False
 
 
 def revert_gts_spark_client_change(content, repo_root=None):
@@ -2086,39 +1954,7 @@ def apply_all_changes(token, repo_root):
     original_contents = {}  # Store originals for patch generation
     modified_contents = {}  # Store modified for patch generation
     
-    # 1. GTSOperationManager - Token
-    rel_path = FILES["GTSOperationManager"]
-    filepath = repo_root / rel_path
-    content = read_file(filepath)
-    if content:
-        new_content, status = apply_gts_operation_manager_change(content, token, repo_root)
-        if status in ["applied", "applied_with_git_original"]:
-            original_contents[rel_path] = content
-            write_file(filepath, new_content)
-            modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ GTSOperationManager token")
-        elif status == "token_updated":
-            # Token changed — compute pre-EDOG original for patch
-            reverted = revert_gts_operation_manager_change(content, repo_root)
-            if reverted and reverted != content:
-                original_contents[rel_path] = reverted
-            else:
-                original_contents[rel_path] = content
-            write_file(filepath, new_content)
-            modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ GTSOperationManager token (updated)")
-        elif status == "already_applied":
-            reverted = revert_gts_operation_manager_change(content, repo_root)
-            if reverted and reverted != content:
-                original_contents[rel_path] = reverted
-                modified_contents[rel_path] = content
-            changes_made.append(f"⏭️  GTSOperationManager token (already)")
-        elif status == "pattern_not_found":
-            original_contents[rel_path] = content
-            modified_contents[rel_path] = content
-            warnings.append(f"⚠️  GTSOperationManager token: pattern not found")
-    
-    # 2. GTSBasedSparkClient - Token bypass
+    # 1. GTSBasedSparkClient - Token bypass
     rel_path = FILES["GTSBasedSparkClient"]
     filepath = repo_root / rel_path
     content = read_file(filepath)
@@ -2267,23 +2103,7 @@ def revert_all_changes(repo_root):
         print(f"   ⚠️ Error removing log viewer files: {e}")
         all_success = False
     
-    # 2. Revert GTSOperationManager token
-    try:
-        rel_path = FILES["GTSOperationManager"]
-        filepath = repo_root / rel_path
-        content = read_file(filepath)
-        if content:
-            reverted, changed = revert_gts_operation_manager_change(content, repo_root)
-            if changed:
-                write_file(filepath, reverted)
-                print(f"   ✅ Reverted GTSOperationManager token")
-            else:
-                print(f"   ⏭️  GTSOperationManager (clean)")
-    except Exception as e:
-        print(f"   ⚠️ Error reverting GTSOperationManager: {e}")
-        all_success = False
-    
-    # 3. Revert GTSBasedSparkClient bypass
+    # 2. Revert GTSBasedSparkClient bypass
     try:
         rel_path = FILES["GTSBasedSparkClient"]
         filepath = repo_root / rel_path
@@ -2368,17 +2188,6 @@ def check_status(repo_root):
     
     status = []
     warnings = []
-    
-    # Check GTSOperationManager (legacy - exact match)
-    filepath = repo_root / FILES["GTSOperationManager"]
-    content = read_file(filepath)
-    if content:
-        has_edog_marker = "// EDOG DevMode - hardcoded by edog tool" in content
-        has_manual_hardcode = re.search(r'var mwcV1TokenWithHeader = "MwcToken [^"]+";', content) is not None
-        if has_edog_marker or has_manual_hardcode:
-            status.append(("GTSOperationManager token", True))
-        else:
-            status.append(("GTSOperationManager token", False))
     
     # Check GTSBasedSparkClient (legacy - exact match)
     filepath = repo_root / FILES["GTSBasedSparkClient"]
