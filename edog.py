@@ -1690,7 +1690,7 @@ def apply_log_viewer_registration_program_cs(content):
     
     registration_code = (
         "            // EDOG DevMode - Start log viewer server and intercept Tracer\n"
-        "            var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5555);\n"
+        "            var edogServer = new Microsoft.LiveTable.Service.DevMode.EdogLogServer(5050);\n"
         "\n"
         "            // Load the full log viewer UI from DevMode directory\n"
         "            var edogHtmlCandidates = new[]\n"
@@ -1865,20 +1865,163 @@ def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
         return None
 
 
-async def get_bearer_token(username):
-    """Launch Edge, capture Bearer token."""
-    
-    if not username:
-        print("❌ Username is required")
+# Module-level cache: {cert_cn: thumbprint}
+_thumbprint_cache: dict = {}
+
+
+def _get_token_helper_exe():
+    """Locate the token-helper executable, preferring net8.0 over net472."""
+    helper_dir = Path(__file__).parent / "scripts" / "token-helper"
+    # Prefer net8.0 (current csproj target) over stale net472
+    for tfm in ("net8.0", "net472"):
+        exe = helper_dir / "bin" / "Debug" / tfm / "token-helper.exe"
+        if exe.exists():
+            return exe
+
+    # Not built yet — try building
+    csproj = helper_dir / "token-helper.csproj"
+    if csproj.exists():
+        print("  Building token-helper...")
+        build = subprocess.run(
+            ["dotnet", "build", str(csproj), "-v", "q"],
+            capture_output=True, text=True,
+        )
+        if build.returncode == 0:
+            for tfm in ("net8.0", "net472"):
+                exe = helper_dir / "bin" / "Debug" / tfm / "token-helper.exe"
+                if exe.exists():
+                    return exe
+    return None
+
+
+def _find_cert_thumbprint(cert_subject: str):
+    """Find certificate thumbprint by subject CN from Windows cert store."""
+    if cert_subject in _thumbprint_cache:
+        return _thumbprint_cache[cert_subject]
+
+    helper_exe = _get_token_helper_exe()
+    if not helper_exe:
         return None
-    
+
+    try:
+        result = subprocess.run(
+            [str(helper_exe), "--list-certs"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            certs = json.loads(result.stdout)
+            for c in certs:
+                if c.get("cn", "").lower() == cert_subject.lower():
+                    _thumbprint_cache[cert_subject] = c["thumbprint"]
+                    return c["thumbprint"]
+    except Exception:
+        pass
+    return None
+
+
+def _try_silent_cba(username: str, resource: str | None = None):
+    """Acquire token via C# Silent CBA helper (no browser needed).
+
+    Uses certificate-based auth purely over HTTP/TLS — the same
+    mechanism used by FabricSparkCST CI/CD pipelines.
+    Returns bearer token string or None.
+
+    Args:
+        username: CBA username (e.g. Admin1CBA@FabricFMLV08PPE.ccsctp.net).
+        resource: Optional token audience/resource URI. If provided, passed
+                  as 5th arg to token-helper (overrides the default PowerBI API).
+    """
+    cert_subject = username.replace("@", ".")
+    thumbprint = _find_cert_thumbprint(cert_subject)
+    if not thumbprint:
+        return None
+
+    helper_exe = _get_token_helper_exe()
+    if not helper_exe:
+        return None
+
+    print(f"  Silent CBA: {cert_subject}" + (f" (audience: {resource})" if resource else ""))
+    try:
+        cmd = [str(helper_exe), thumbprint, username]
+        if resource:
+            # token-helper args: <thumbprint> <username> [clientId] [authority] [resource]
+            cmd += ["ea0616ba-638b-4df5-95b9-636659ae5121",
+                    "https://login.windows-ppe.net/organizations",
+                    resource]
+        result = subprocess.run(
+            cmd,
+            capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        print("  Silent CBA timed out")
+        return None
+
+    if result.returncode == 0:
+        token = result.stdout.strip()
+        if token.startswith("eyJ"):
+            print(f"  Token acquired via Silent CBA ({len(token)} chars)")
+            return token
+
+    for line in (result.stderr or "").strip().split("\n"):
+        if "ERROR" in line:
+            print(f"  Silent CBA: {line}")
+    return None
+
+
+def inject_devmode_token(username, flt_repo_path):
+    """Acquire a bearer token via Silent CBA and inject into workload-dev-mode.json.
+
+    Uses the MwcFrontendBaseEndpoint as the token audience — this is what
+    DevConnection's InteractiveBrowserCredential would request. By pre-populating
+    UserAuthorizationToken, the WCL SDK skips the browser popup entirely.
+
+    Returns True if token was injected, False otherwise (graceful fallback).
+    """
+    try:
+        if not username or not flt_repo_path:
+            return False
+
+        devmode_path = get_workload_dev_mode_path(str(flt_repo_path))
+        if not devmode_path or not devmode_path.exists():
+            print("   workload-dev-mode.json not found — browser auth will be used")
+            return False
+
+        devmode = json.loads(devmode_path.read_text())
+        mwc_endpoint = devmode.get("MwcFrontendBaseEndpoint", "")
+        if not mwc_endpoint:
+            print("   No MwcFrontendBaseEndpoint in config — skipping token injection")
+            return False
+
+        # Strip trailing port/slash for the resource URI
+        resource = mwc_endpoint.rstrip("/")
+        if resource.endswith(":443"):
+            resource = resource[:-4]
+
+        print(f"   Acquiring DevMode token (audience: {resource})...")
+        token = _try_silent_cba(username, resource=resource)
+        if not token:
+            print("   Silent CBA failed for DevMode token — browser popup will appear")
+            return False
+
+        # Inject into workload-dev-mode.json
+        devmode["UserAuthorizationToken"] = token
+        devmode_path.write_text(json.dumps(devmode, indent=4))
+        print(f"   ✅ Injected UserAuthorizationToken — no browser popup needed")
+        return True
+
+    except Exception as e:
+        print(f"   ⚠️ Token injection failed: {e} — browser popup will appear")
+        return False
+
+
+async def _get_bearer_via_browser(username):
+    """Launch Edge via Playwright, capture Bearer token from Power BI."""
     print("🚀 Starting browser...")
     bearer_token = None
-    
-    # Extract cert subject from username (e.g., Admin1CBA@domain.net -> Admin1CBA.domain.net)
+
     cert_subject = username.replace("@", ".")
     cert_policy = f'{{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
-    
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             channel="msedge",
@@ -1888,27 +2031,27 @@ async def get_bearer_token(username):
                 '--ignore-certificate-errors',
             ]
         )
-        
+
         context = await browser.new_context()
         page = await context.new_page()
-        
+
         async def handle_request(request):
             nonlocal bearer_token
             auth = request.headers.get("authorization", "")
             if auth.startswith("Bearer ey") and not bearer_token:
                 bearer_token = auth.replace("Bearer ", "")
                 print(f"✅ Captured Bearer token (length: {len(bearer_token)})")
-        
+
         page.on("request", handle_request)
-        
+
         print(f"📡 Navigating to {POWER_BI_URL}")
         try:
             await page.goto(POWER_BI_URL, wait_until="domcontentloaded", timeout=60000)
         except Exception as e:
             print(f"⚠️  Navigation: {type(e).__name__}")
-        
+
         print("🔐 Checking for login prompts...")
-        
+
         try:
             email_input = await page.wait_for_selector('input[type="email"], input[name="loginfmt"]', timeout=5000)
             if email_input:
@@ -1918,10 +2061,10 @@ async def get_bearer_token(username):
                 await asyncio.sleep(3)
         except:
             print("   Already logged in or no username prompt")
-        
+
         print("   ⚠️  If certificate dialog appears, please select it manually")
         await asyncio.sleep(5)
-        
+
         try:
             yes_button = await page.wait_for_selector('#idSIButton9, input[value="Yes"]', timeout=5000)
             if yes_button:
@@ -1930,16 +2073,37 @@ async def get_bearer_token(username):
                 await asyncio.sleep(2)
         except:
             pass
-        
+
         print("⏳ Waiting for Bearer token...")
         for _ in range(20):
             if bearer_token:
                 break
             await asyncio.sleep(1)
-        
+
         await browser.close()
-        
+
     return bearer_token
+
+
+async def get_bearer_token(username):
+    """Acquire a user-delegated bearer token.
+
+    Strategy:
+        1. Try Silent CBA first (~3-5 seconds, no browser).
+        2. Fall back to Playwright browser capture if Silent CBA unavailable.
+    """
+    if not username:
+        print("❌ Username is required")
+        return None
+
+    # --- 1. Try Silent CBA (fast, no browser) ---
+    bearer_token = _try_silent_cba(username)
+    if bearer_token:
+        return bearer_token
+
+    # --- 2. Fall back to Playwright browser ---
+    print("  Silent CBA unavailable, falling back to browser...")
+    return await _get_bearer_via_browser(username)
 
 
 # ============================================================================
@@ -1967,8 +2131,8 @@ def apply_all_changes(token, repo_root):
             changes_made.append(f"✅ GTSBasedSparkClient token bypass")
         elif status == "token_updated":
             # Token changed — compute pre-EDOG original for patch
-            reverted = revert_gts_spark_client_change(content, repo_root)
-            if reverted and reverted != content:
+            reverted, reverted_ok = revert_gts_spark_client_change(content, repo_root)
+            if reverted_ok and reverted != content:
                 original_contents[rel_path] = reverted
             else:
                 original_contents[rel_path] = content
@@ -1976,8 +2140,8 @@ def apply_all_changes(token, repo_root):
             modified_contents[rel_path] = new_content
             changes_made.append(f"✅ GTSBasedSparkClient token bypass (updated)")
         elif status == "already_applied":
-            reverted = revert_gts_spark_client_change(content, repo_root)
-            if reverted and reverted != content:
+            reverted, reverted_ok = revert_gts_spark_client_change(content, repo_root)
+            if reverted_ok and reverted != content:
                 original_contents[rel_path] = reverted
                 modified_contents[rel_path] = content
             changes_made.append(f"⏭️  GTSBasedSparkClient token bypass (already)")
@@ -2261,24 +2425,44 @@ def check_status(repo_root):
 
 
 def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max_retries=MAX_BROWSER_RETRIES):
-    """Fetch MWC token with retry logic."""
+    """Fetch MWC token with retry logic and Silent CBA → browser fallback.
+
+    Strategy:
+        1. Try Silent CBA bearer first (fast, no browser).
+        2. If MWC rejects it (401 — wrong appid/audience), fall back to
+           Playwright browser capture which gets a token the endpoint accepts.
+        3. Retry up to max_retries times.
+    """
+    browser_fallback = False
+
     for attempt in range(max_retries):
         if attempt > 0:
             print(f"\n🔄 Retry {attempt + 1}/{max_retries}...")
-        
-        bearer_token = asyncio.run(get_bearer_token(username))
+
+        if browser_fallback:
+            # Silent CBA token was rejected — use Playwright directly
+            print("  Using browser fallback...")
+            bearer_token = asyncio.run(_get_bearer_via_browser(username))
+        else:
+            bearer_token = asyncio.run(get_bearer_token(username))
+
         if not bearer_token:
             print("❌ Failed to capture Bearer token")
             continue
-        
+
         print("\n📡 Fetching MWC token...")
         mwc_token = fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id)
-        
+
         if mwc_token:
             return mwc_token
-        
-        print("❌ Failed to fetch MWC token")
-    
+
+        # If Silent CBA bearer was used and MWC rejected it, switch to browser
+        if not browser_fallback:
+            print("  MWC rejected Silent CBA token, switching to browser fallback...")
+            browser_fallback = True
+        else:
+            print("❌ Failed to fetch MWC token")
+
     return None
 
 
@@ -2550,6 +2734,11 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         print("\n" + "=" * 70)
         print("🚀 Starting FLT Service...")
         print("=" * 70)
+
+        # Inject DevMode AAD token into workload-dev-mode.json so the WCL SDK
+        # skips the interactive browser popup (zero-popup auth via Silent CBA)
+        inject_devmode_token(username, repo_root)
+
         service_process = start_flt_service(repo_root)
         if service_process:
             # Start background thread to stream service output
@@ -2709,8 +2898,8 @@ Examples:
     # Logs command doesn't need repo_root
     if args.logs:
         import webbrowser
-        webbrowser.open("http://localhost:5555")
-        print("🐕 Opening EDOG Log Viewer at http://localhost:5555")
+        webbrowser.open("http://localhost:5050")
+        print("🐕 Opening EDOG Log Viewer at http://localhost:5050")
         print("   Make sure FLT service is running with EDOG changes applied.")
         sys.exit(0)
     
