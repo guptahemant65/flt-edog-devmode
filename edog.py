@@ -2040,23 +2040,11 @@ async def _get_bearer_via_browser(username):
 
 
 async def get_bearer_token(username):
-    """Acquire a user-delegated bearer token.
-
-    Strategy:
-        1. Try Silent CBA first (~3-5 seconds, no browser).
-        2. Fall back to Playwright browser capture if Silent CBA unavailable.
-    """
+    """Acquire a user-delegated bearer token via Playwright browser capture."""
     if not username:
         print("❌ Username is required")
         return None
 
-    # --- 1. Try Silent CBA (fast, no browser) ---
-    bearer_token = _try_silent_cba(username)
-    if bearer_token:
-        return bearer_token
-
-    # --- 2. Fall back to Playwright browser ---
-    print("  Silent CBA unavailable, falling back to browser...")
     return await _get_bearer_via_browser(username)
 
 
@@ -2379,26 +2367,12 @@ def check_status(repo_root):
 
 
 def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max_retries=MAX_BROWSER_RETRIES):
-    """Fetch MWC token with retry logic and Silent CBA → browser fallback.
-
-    Strategy:
-        1. Try Silent CBA bearer first (fast, no browser).
-        2. If MWC rejects it (401 — wrong appid/audience), fall back to
-           Playwright browser capture which gets a token the endpoint accepts.
-        3. Retry up to max_retries times.
-    """
-    browser_fallback = False
-
+    """Fetch MWC token via Playwright browser capture with retry logic."""
     for attempt in range(max_retries):
         if attempt > 0:
             print(f"\n🔄 Retry {attempt + 1}/{max_retries}...")
 
-        if browser_fallback:
-            # Silent CBA token was rejected — use Playwright directly
-            print("  Using browser fallback...")
-            bearer_token = asyncio.run(_get_bearer_via_browser(username))
-        else:
-            bearer_token = asyncio.run(get_bearer_token(username))
+        bearer_token = asyncio.run(_get_bearer_via_browser(username))
 
         if not bearer_token:
             print("❌ Failed to capture Bearer token")
@@ -2410,12 +2384,7 @@ def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max
         if mwc_token:
             return mwc_token
 
-        # If Silent CBA bearer was used and MWC rejected it, switch to browser
-        if not browser_fallback:
-            print("  MWC rejected Silent CBA token, switching to browser fallback...")
-            browser_fallback = True
-        else:
-            print("❌ Failed to fetch MWC token")
+        print("❌ Failed to fetch MWC token")
 
     return None
 
