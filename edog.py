@@ -2737,7 +2737,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
 
         # Inject DevMode AAD token into workload-dev-mode.json so the WCL SDK
         # skips the interactive browser popup (zero-popup auth via Silent CBA)
-        inject_devmode_token(username, repo_root)
+        token_injected = inject_devmode_token(username, repo_root)
 
         service_process = start_flt_service(repo_root)
         if service_process:
@@ -2750,13 +2750,15 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             )
             output_thread.start()
             
-            # Start background thread to handle DevMode account picker popup
-            popup_thread = threading.Thread(
-                target=handle_devmode_account_picker,
-                args=(username, 30),
-                daemon=True
-            )
-            popup_thread.start()
+            # Only watch for account picker popup if token injection failed
+            # (i.e. the WCL SDK will open a browser for interactive auth)
+            if not token_injected:
+                popup_thread = threading.Thread(
+                    target=handle_devmode_account_picker,
+                    args=(username, 30),
+                    daemon=True
+                )
+                popup_thread.start()
         else:
             print("\n⚠️  Service failed to start, continuing with token management only")
     
