@@ -1968,52 +1968,6 @@ def _try_silent_cba(username: str, resource: str | None = None):
     return None
 
 
-def inject_devmode_token(username, flt_repo_path):
-    """Acquire a bearer token via Silent CBA and inject into workload-dev-mode.json.
-
-    Uses the MwcFrontendBaseEndpoint as the token audience — this is what
-    DevConnection's InteractiveBrowserCredential would request. By pre-populating
-    UserAuthorizationToken, the WCL SDK skips the browser popup entirely.
-
-    Returns True if token was injected, False otherwise (graceful fallback).
-    """
-    try:
-        if not username or not flt_repo_path:
-            return False
-
-        devmode_path = get_workload_dev_mode_path(str(flt_repo_path))
-        if not devmode_path or not devmode_path.exists():
-            print("   workload-dev-mode.json not found — browser auth will be used")
-            return False
-
-        devmode = json.loads(devmode_path.read_text())
-        mwc_endpoint = devmode.get("MwcFrontendBaseEndpoint", "")
-        if not mwc_endpoint:
-            print("   No MwcFrontendBaseEndpoint in config — skipping token injection")
-            return False
-
-        # Strip trailing port/slash for the resource URI
-        resource = mwc_endpoint.rstrip("/")
-        if resource.endswith(":443"):
-            resource = resource[:-4]
-
-        print(f"   Acquiring DevMode token (audience: {resource})...")
-        token = _try_silent_cba(username, resource=resource)
-        if not token:
-            print("   Silent CBA failed for DevMode token — browser popup will appear")
-            return False
-
-        # Inject into workload-dev-mode.json
-        devmode["UserAuthorizationToken"] = token
-        devmode_path.write_text(json.dumps(devmode, indent=4))
-        print(f"   ✅ Injected UserAuthorizationToken — no browser popup needed")
-        return True
-
-    except Exception as e:
-        print(f"   ⚠️ Token injection failed: {e} — browser popup will appear")
-        return False
-
-
 async def _get_bearer_via_browser(username):
     """Launch Edge via Playwright, capture Bearer token from Power BI."""
     print("🚀 Starting browser...")
@@ -2734,11 +2688,6 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         print("\n" + "=" * 70)
         print("🚀 Starting FLT Service...")
         print("=" * 70)
-
-        # Inject DevMode AAD token into workload-dev-mode.json so the WCL SDK
-        # skips the interactive browser popup (zero-popup auth via Silent CBA)
-        token_injected = inject_devmode_token(username, repo_root)
-
         service_process = start_flt_service(repo_root)
         if service_process:
             # Start background thread to stream service output
@@ -2750,15 +2699,13 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             )
             output_thread.start()
             
-            # Only watch for account picker popup if token injection failed
-            # (i.e. the WCL SDK will open a browser for interactive auth)
-            if not token_injected:
-                popup_thread = threading.Thread(
-                    target=handle_devmode_account_picker,
-                    args=(username, 30),
-                    daemon=True
-                )
-                popup_thread.start()
+            # Start background thread to handle DevMode account picker popup
+            popup_thread = threading.Thread(
+                target=handle_devmode_account_picker,
+                args=(username, 30),
+                daemon=True
+            )
+            popup_thread.start()
         else:
             print("\n⚠️  Service failed to start, continuing with token management only")
     
