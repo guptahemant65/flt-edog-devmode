@@ -3045,6 +3045,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     ui_dim(f"Check interval: {CHECK_INTERVAL_MINS} mins | Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
     if service_process:
         ui_dim(f"FLT Service: Running (PID: {service_process.pid})")
+        ui_dim("Service logs available at http://localhost:5050")
     
     try:
         while True:
