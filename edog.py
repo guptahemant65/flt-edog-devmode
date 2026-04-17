@@ -321,6 +321,13 @@ REFRESH_THRESHOLD_MINS = 10
 MAX_BROWSER_RETRIES = 3
 MWC_LIVE_TOKEN_FILE = ".edog-bearer-live"  # Live bearer token file read by the running service
 
+# API REPL endpoint shortcuts
+EDOG_API_ENDPOINTS = {
+    "generatemwctoken": ("POST", "https://biazure-int-edog-redirect.analysis-df.windows.net/metadata/v201606/generatemwctoken"),
+    "workspaces": ("GET", "https://api.powerbi.com/v1.0/myorg/groups"),
+    "capacities": ("GET", "https://api.powerbi.com/v1.0/myorg/capacities"),
+}
+
 # File paths relative to repo root
 SERVICE_PATH = Path("Service/Microsoft.LiveTable.Service")
 FILES = {
@@ -3102,6 +3109,125 @@ def auto_update():
         return None
 
 
+def run_api_repl(workspace_id):
+    """Interactive authenticated REPL for API calls with bearer token."""
+    import urllib.request
+    import urllib.error
+    
+    live_path = get_bearer_live_path(workspace_id)
+    if not live_path.exists():
+        ui_error("No bearer token found. Start edog first to generate a token.")
+        return
+    
+    raw = live_path.read_text(encoding="utf-8").strip()
+    token = raw.split("|")[0] if "|" in raw else raw
+    
+    show_banner()
+    ui_step("API REPL")
+    ui_dim("Type 'help' for commands, 'quit' to exit")
+    print()
+    
+    while True:
+        try:
+            cmd = input("edog-api> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        
+        if not cmd:
+            continue
+        
+        parts = cmd.split(None, 2)
+        verb = parts[0].upper()
+        
+        if verb in ("QUIT", "EXIT", "Q"):
+            break
+        elif verb == "HELP":
+            ui_info("Commands:")
+            ui_dim("  GET <url>           — GET request with bearer auth")
+            ui_dim("  POST <url> [body]   — POST request with bearer auth")
+            ui_dim("  endpoints           — Show endpoint shortcuts")
+            ui_dim("  token               — Show current token info")
+            ui_dim("  refresh             — Reload token from file")
+            ui_dim("  quit                — Exit REPL")
+            continue
+        elif verb == "ENDPOINTS":
+            ui_info("Endpoint shortcuts:")
+            for name, (method, url) in EDOG_API_ENDPOINTS.items():
+                ui_dim(f"  {name:20s} {method:4s} {url}")
+            continue
+        elif verb == "TOKEN":
+            ui_info(f"Token length: {len(token)} chars")
+            ui_dim(f"First 20: {token[:20]}...")
+            ui_dim(f"File: {live_path}")
+            continue
+        elif verb == "REFRESH":
+            if live_path.exists():
+                raw = live_path.read_text(encoding="utf-8").strip()
+                token = raw.split("|")[0] if "|" in raw else raw
+                ui_success("Token reloaded from file")
+            else:
+                ui_warn("Token file not found")
+            continue
+        elif verb in ("GET", "POST"):
+            if len(parts) < 2:
+                ui_warn(f"Usage: {verb} <url> [body]")
+                continue
+            
+            url_or_shortcut = parts[1]
+            body = parts[2] if len(parts) > 2 else None
+            
+            # Resolve shortcut
+            if url_or_shortcut.lower() in EDOG_API_ENDPOINTS:
+                shortcut_method, url = EDOG_API_ENDPOINTS[url_or_shortcut.lower()]
+                if verb == "GET" and shortcut_method == "POST":
+                    ui_dim(f"Note: '{url_or_shortcut}' is typically {shortcut_method}, using {verb} as requested")
+            else:
+                url = url_or_shortcut
+            
+            try:
+                req = urllib.request.Request(url, method=verb)
+                req.add_header("Authorization", f"Bearer {token}")
+                req.add_header("Content-Type", "application/json")
+                if body:
+                    req.data = body.encode("utf-8")
+                
+                ui_dim(f"{verb} {url}...")
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_body = resp.read().decode("utf-8")
+                    ui_success(f"HTTP {resp.status}")
+                    
+                    # Pretty-print JSON
+                    try:
+                        parsed = json.loads(resp_body)
+                        if RICH_AVAILABLE:
+                            from rich.syntax import Syntax
+                            formatted = json.dumps(parsed, indent=2)
+                            console.print(Syntax(formatted, "json", theme="monokai", line_numbers=False))
+                        else:
+                            print(json.dumps(parsed, indent=2))
+                    except json.JSONDecodeError:
+                        print(resp_body[:2000])
+                        
+            except urllib.error.HTTPError as e:
+                ui_error(f"HTTP {e.code} {e.reason}")
+                try:
+                    err_body = e.read().decode("utf-8")
+                    if err_body:
+                        ui_dim(err_body[:500])
+                except Exception:
+                    pass
+            except urllib.error.URLError as e:
+                ui_error(f"Connection error: {e.reason}")
+            except Exception as e:
+                ui_error(f"Request failed: {e}")
+            continue
+        else:
+            ui_warn(f"Unknown command: {verb}. Type 'help' for commands.")
+    
+    ui_dim("Goodbye!")
+
+
 def _needs_setup():
     """Check if first-time setup is needed (token-helper not built)."""
     helper_dir = Path(__file__).parent / "scripts" / "token-helper"
@@ -3728,6 +3854,7 @@ Token flow:
     parser.add_argument("--doctor", action="store_true", help="Run diagnostic checks")
     parser.add_argument("--no-update", action="store_true", help="Skip auto-update check")
     parser.add_argument("--bearer", action="store_true", help="Show bearer token path and copy to clipboard")
+    parser.add_argument("--api", action="store_true", help="Interactive API REPL with bearer auth")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -3753,7 +3880,7 @@ Token flow:
     # Auto-update (unless --no-update or a standalone command)
     if not args.no_update and not any([args.config, args.clear_token, args.doctor, args.setup,
                                        args.install_hook, args.uninstall_hook, args.logs,
-                                       args.bearer, getattr(args, 'api', False)]):
+                                       args.bearer, args.api]):
         updated = auto_update()
         if updated:
             ui_dim("Please restart edog to use the updated version.")
@@ -3823,6 +3950,16 @@ Token flow:
         except Exception:
             ui_dim("Could not copy to clipboard — use the file path above")
 
+        sys.exit(0)
+
+    # API REPL command
+    if args.api:
+        config = load_config()
+        workspace_id = args.workspace or config.get("workspace_id")
+        if not workspace_id:
+            ui_error("No workspace_id configured. Run 'edog --config' first.")
+            sys.exit(1)
+        run_api_repl(workspace_id)
         sys.exit(0)
 
     # All other commands need repo_root
