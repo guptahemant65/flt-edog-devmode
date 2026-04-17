@@ -2987,53 +2987,53 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         print("=" * 70)
     
     # Get bearer token (C# service will use this to generate MWC tokens itself)
-    ui_step("Acquiring bearer token...")
-    bearer_token = get_bearer_token(username)
-    if not bearer_token:
-        ui_error("Failed to acquire bearer token")
-        return 1
-    
-    bearer_expiry = parse_jwt_expiry(bearer_token)
-    ui_success(f"Bearer acquired (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
-    
-    # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
-    write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
-    
-    # Apply code patches (token-independent — C# reads bearer from file)
-    if not apply_all_changes(repo_root, workspace_id=workspace_id):
-        ui_warn("Some changes could not be applied")
-    
-    ui_success("Code changes applied successfully")
-    
-    # Start FLT service if requested
-    service_process = None
-    stop_event = None
-    output_thread = None
-    
-    # Track DevMode token expiry separately (different audience → different lifetime)
-    devmode_expiry = None
+    try:
+        ui_step("Acquiring bearer token...")
+        bearer_token = get_bearer_token(username)
+        if not bearer_token:
+            ui_error("Failed to acquire bearer token")
+            return 1
+        
+        bearer_expiry = parse_jwt_expiry(bearer_token)
+        ui_success(f"Bearer acquired (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
+        
+        # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
+        write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
+        
+        # Apply code patches (token-independent — C# reads bearer from file)
+        if not apply_all_changes(repo_root, workspace_id=workspace_id):
+            ui_warn("Some changes could not be applied")
+        
+        ui_success("Code changes applied successfully")
+        
+        # Start FLT service if requested
+        service_process = None
+        stop_event = None
+        output_thread = None
+        
+        # Track DevMode token expiry separately (different audience → different lifetime)
+        devmode_expiry = None
 
-    # Inject DevMode token into workload-dev-mode.json (always, even --no-launch)
-    # WCL SDK picks this up → skips browser popup entirely
-    devmode_expiry = inject_devmode_token(username, str(repo_root))
+        # Inject DevMode token into workload-dev-mode.json (always, even --no-launch)
+        # WCL SDK picks this up → skips browser popup entirely
+        devmode_expiry = inject_devmode_token(username, str(repo_root))
 
-    if launch_service:
-        ui_step("Starting FLT Service...")
-        service_process = start_flt_service(repo_root)
-        if service_process:
-            # Start background thread to stream service output
-            stop_event = threading.Event()
-            connected_event = threading.Event()
-            output_thread = threading.Thread(
-                target=stream_service_output,
-                args=(service_process, stop_event, connected_event),
-                daemon=True
-            )
-            output_thread.start()
-            
-            # Wait for Dev Connection (up to 120 seconds)
-            ui_dim("Waiting for Dev Connection...")
-            try:
+        if launch_service:
+            ui_step("Starting FLT Service...")
+            service_process = start_flt_service(repo_root)
+            if service_process:
+                # Start background thread to stream service output
+                stop_event = threading.Event()
+                connected_event = threading.Event()
+                output_thread = threading.Thread(
+                    target=stream_service_output,
+                    args=(service_process, stop_event, connected_event),
+                    daemon=True
+                )
+                output_thread.start()
+                
+                # Wait for Dev Connection (up to 120 seconds)
+                ui_dim("Waiting for Dev Connection...")
                 if connected_event.wait(timeout=120):
                     if service_process.poll() is None:
                         ui_success("Deployed successfully! Logs available at http://localhost:5050")
@@ -3042,31 +3042,32 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 else:
                     ui_warn("Dev Connection not detected within 120s — service may still be starting")
                     ui_dim("Check logs at http://localhost:5050")
-            except KeyboardInterrupt:
-                # User hit Ctrl+C during deploy wait — fall through to cleanup
-                ui_step("Shutting down...")
-                import signal
-                signal.signal(signal.SIGINT, signal.SIG_IGN)
-                try:
-                    if stop_event:
-                        stop_event.set()
-                    stop_flt_service(service_process)
-                    revert_all_changes(repo_root)
-                    cleanup_bearer_live_token(workspace_id)
-                    if RICH_AVAILABLE:
-                        from rich.panel import Panel
-                        console.print(Panel(
-                            "[bold]👋  EDOG DevMode stopped[/bold]\nAll changes reverted. Clean state.",
-                            border_style="dim", expand=False
-                        ))
-                    else:
-                        print("✅ Done. Goodbye!")
-                except Exception as e:
-                    ui_error(f"Error during cleanup: {e}")
-                    ui_dim("Run 'edog --revert' to manually revert changes.")
-                return 0
-        else:
-            ui_warn("Service failed to start, continuing with token management only")
+            else:
+                ui_warn("Service failed to start, continuing with token management only")
+    except KeyboardInterrupt:
+        # User hit Ctrl+C during setup/build/deploy — clean shutdown
+        ui_step("Shutting down...")
+        import signal
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            if service_process:
+                if stop_event:
+                    stop_event.set()
+                stop_flt_service(service_process)
+            revert_all_changes(repo_root)
+            cleanup_bearer_live_token(workspace_id)
+            if RICH_AVAILABLE:
+                from rich.panel import Panel
+                console.print(Panel(
+                    "[bold]👋  EDOG DevMode stopped[/bold]\nAll changes reverted. Clean state.",
+                    border_style="dim", expand=False
+                ))
+            else:
+                print("✅ Done. Goodbye!")
+        except Exception as e:
+            ui_error(f"Error during cleanup: {e}")
+            ui_dim("Run 'edog --revert' to manually revert changes.")
+        return 0
     
     # Monitor loop
     ui_step("Monitoring token expiry (Ctrl+C to stop)")
