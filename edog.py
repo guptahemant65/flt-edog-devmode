@@ -51,7 +51,6 @@ try:
     from rich.table import Table
     from rich.prompt import Prompt, Confirm
     from rich.text import Text
-    from rich.rule import Rule
     from rich.theme import Theme
     RICH_AVAILABLE = True
 except ImportError:
@@ -117,20 +116,6 @@ def ui_log(msg, level="info"):
     ui_print(f"  [{style}]{ts}[/{style}]  {msg}")
 
 
-def ui_phase(num, total, title):
-    """Display a phase section header with step number."""
-    if RICH_AVAILABLE:
-        console.print()
-        console.print(Rule(
-            f" [bold cyan]{num}[/bold cyan][dim]/{total}[/dim]  {title} ",
-            style="dim",
-            align="left"
-        ))
-    else:
-        print(f"\n  [{num}/{total}] {title}")
-        print(f"  {'─' * 50}")
-
-
 def show_banner():
     """Display the EDOG banner."""
     if RICH_AVAILABLE:
@@ -170,61 +155,6 @@ def show_config_table(config):
         print(f"   Artifact:    {config.get('artifact_id', 'not set')}")
         print(f"   Capacity:    {config.get('capacity_id', 'not set')}")
         print(f"   FLT Repo:    {config.get('flt_repo_path', 'auto-detect')}")
-
-
-def show_header(config, launch_mode=True):
-    """Display unified EDOG header panel with identity and environment."""
-    if not RICH_AVAILABLE:
-        print(f"\n  🐕  EDOG DevMode  v{EDOG_VERSION}")
-        username = config.get('username', DEFAULT_USERNAME)
-        cert_cn = username.replace('@', '.')
-        cert_tp = _thumbprint_cache.get(cert_cn, '')
-        mode = "auto-launch" if launch_mode else "token-only"
-        cert_part = f"  ·  cert {cert_tp[:8]}" if cert_tp else ""
-        print(f"  {username}{cert_part}  ·  {mode}")
-        print(f"  Workspace: {config.get('workspace_id', 'not set')}")
-        print(f"  Artifact:  {config.get('artifact_id', 'not set')}")
-        print(f"  Capacity:  {config.get('capacity_id', 'not set')}")
-        print(f"  FLT Repo:  {config.get('flt_repo_path', 'auto-detect')}")
-        print()
-        return
-
-    content = Text()
-
-    # Identity line
-    username = config.get('username', DEFAULT_USERNAME)
-    content.append(f"{username}\n", style="white")
-
-    # Cert + mode
-    cert_cn = username.replace('@', '.')
-    cert_tp = _thumbprint_cache.get(cert_cn, '')
-    cert_str = cert_tp[:8] if cert_tp else "detecting"
-    mode = "auto-launch" if launch_mode else "token-only"
-    content.append(f"cert {cert_str}  ·  {mode}\n\n", style="dim")
-
-    # Environment IDs
-    fields = [
-        ("Workspace", config.get('workspace_id', 'not set')),
-        ("Artifact", config.get('artifact_id', 'not set')),
-        ("Capacity", config.get('capacity_id', 'not set')),
-        ("FLT Repo", config.get('flt_repo_path', 'auto-detect')),
-    ]
-    for i, (label, val) in enumerate(fields):
-        content.append(f"{label:>10}  ", style="dim cyan")
-        if i < len(fields) - 1:
-            content.append(f"{val}\n", style="dim white")
-        else:
-            content.append(f"{val}", style="dim white")
-
-    console.print(Panel(
-        content,
-        title="[bold cyan]🐕 E D O G  DevMode[/bold cyan]",
-        title_align="left",
-        subtitle=f"[dim]v{EDOG_VERSION}[/dim]",
-        subtitle_align="right",
-        border_style="cyan",
-        padding=(1, 2),
-    ))
 
 
 def ui_status(msg):
@@ -2501,10 +2431,9 @@ def get_bearer_token(username):
 # ============================================================================
 # Main EDOG operations
 # ============================================================================
-def apply_all_changes(repo_root, workspace_id=None, quiet=False):
+def apply_all_changes(repo_root, workspace_id=None):
     """Apply all EDOG changes to codebase and generate a patch file for clean revert."""
-    if not quiet:
-        ui_step("Applying EDOG changes...")
+    ui_step("Applying EDOG changes...")
     
     changes_made = []
     warnings = []
@@ -2618,21 +2547,19 @@ def apply_all_changes(repo_root, workspace_id=None, quiet=False):
     
     # Generate patch file for clean revert
     if generate_patch(original_contents, modified_contents, repo_root):
-        if not quiet:
-            ui_dim(f"Patch file saved: {get_patch_file_path().name}")
-            ui_dim("Use 'edog --revert' to cleanly undo all changes")
+        ui_dim(f"Patch file saved: {get_patch_file_path().name}")
+        ui_dim("Use 'edog --revert' to cleanly undo all changes")
     
     # Print summary
-    if not quiet:
-        for msg in changes_made:
-            ui_print(f"   {msg}")
+    for msg in changes_made:
+        ui_print(f"   {msg}")
     
-    # Print warnings (always show, even in quiet mode)
+    # Print warnings
     if warnings:
         for msg in warnings:
             ui_warn(msg)
     
-    return len(warnings) == 0, changes_made, warnings
+    return len(warnings) == 0
 
 
 def revert_all_changes(repo_root):
@@ -3045,21 +2972,30 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     cert_cn = username.replace("@", ".")
     _find_cert_thumbprint(cert_cn)
     
-    # --- HEADER ---
-    banner_config = {
-        "username": username,
-        "workspace_id": workspace_id,
-        "artifact_id": artifact_id,
-        "capacity_id": capacity_id,
-        "flt_repo_path": str(repo_root),
-    }
-    show_header(banner_config, launch_mode=launch_service)
+    # Show daemon banner
+    if RICH_AVAILABLE:
+        banner_config = {
+            "username": username,
+            "workspace_id": workspace_id,
+            "artifact_id": artifact_id,
+            "capacity_id": capacity_id,
+        }
+        show_banner()
+        show_config_table(banner_config)
+        ui_dim(f"Auto-launch: {'Yes' if launch_service else 'No'}")
+    else:
+        print("=" * 70)
+        print("EDOG DevMode Token Manager")
+        print("=" * 70)
+        print(f"Username:  {username}")
+        print(f"Workspace: {workspace_id}")
+        print(f"Artifact:  {artifact_id}")
+        print(f"Capacity:  {capacity_id}")
+        print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
+        print("=" * 70)
     
-    total_phases = 3 if launch_service else 2
-    
-    # ━━━ Phase 1: Authenticate ━━━
-    ui_phase(1, total_phases, "Authenticate")
-    
+    # Get bearer token (C# service will use this to generate MWC tokens itself)
+    ui_step("Acquiring bearer token...")
     bearer_token = get_bearer_token(username)
     if not bearer_token:
         ui_error("Failed to acquire bearer token")
@@ -3067,30 +3003,33 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     
     bearer_expiry = parse_jwt_expiry(bearer_token)
     ui_success(f"Bearer acquired (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
+    
+    # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
     write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
     
-    devmode_expiry = inject_devmode_token(username, str(repo_root))
+    # Apply code patches (token-independent — C# reads bearer from file)
+    if not apply_all_changes(repo_root, workspace_id=workspace_id):
+        ui_warn("Some changes could not be applied")
     
-    # ━━━ Phase 2: Patch Code ━━━
-    ui_phase(2, total_phases, "Patch Code")
+    ui_success("Code changes applied successfully")
     
-    patch_ok, changes_made, patch_warns = apply_all_changes(repo_root, workspace_id=workspace_id, quiet=True)
-    n_applied = sum(1 for c in changes_made if "✅" in c or "⏭️" in c)
-    if patch_ok:
-        ui_success(f"{n_applied}/{len(changes_made)} code changes applied")
-    else:
-        ui_warn(f"{n_applied}/{len(changes_made)} applied, {len(patch_warns)} warnings")
-    
-    # ━━━ Phase 3: Build & Deploy ━━━
+    # Start FLT service if requested
     service_process = None
     stop_event = None
     output_thread = None
+    
+    # Track DevMode token expiry separately (different audience → different lifetime)
+    devmode_expiry = None
+
+    # Inject DevMode token into workload-dev-mode.json (always, even --no-launch)
+    # WCL SDK picks this up → skips browser popup entirely
+    devmode_expiry = inject_devmode_token(username, str(repo_root))
 
     if launch_service:
-        ui_phase(3, total_phases, "Build & Deploy")
-        
+        ui_step("Starting FLT Service...")
         service_process = start_flt_service(repo_root)
         if service_process:
+            # Start background thread to stream service output
             stop_event = threading.Event()
             connected_event = threading.Event()
             output_thread = threading.Thread(
@@ -3100,19 +3039,11 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             )
             output_thread.start()
             
+            # Wait for Dev Connection (up to 120 seconds)
             ui_dim("Waiting for Dev Connection...")
             if connected_event.wait(timeout=120):
                 if service_process.poll() is None:
-                    if RICH_AVAILABLE:
-                        console.print()
-                        console.print(Panel(
-                            "[bold green]🟢  LIVE[/bold green]  ·  Logs at [link=http://localhost:5050]http://localhost:5050[/link]",
-                            border_style="green",
-                            padding=(0, 2),
-                            expand=False,
-                        ))
-                    else:
-                        ui_success("LIVE — Logs at http://localhost:5050")
+                    ui_success("Deployed successfully! Logs available at http://localhost:5050")
                 else:
                     ui_warn(f"Service exited during startup (code: {service_process.returncode})")
             else:
@@ -3121,12 +3052,12 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         else:
             ui_warn("Service failed to start, continuing with token management only")
     
-    # ━━━ Monitoring ━━━
-    if RICH_AVAILABLE:
-        console.print()
-    ui_step("Watching tokens (Ctrl+C to stop and revert)")
+    # Monitor loop
+    ui_step("Monitoring token expiry (Ctrl+C to stop)")
+    ui_dim(f"Check interval: {CHECK_INTERVAL_MINS} mins | Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
     if service_process:
-        ui_dim(f"Service PID: {service_process.pid} · Logs: http://localhost:5050")
+        ui_dim(f"FLT Service: Running (PID: {service_process.pid})")
+        ui_dim("Service logs available at http://localhost:5050")
     
     try:
         while True:
@@ -3137,17 +3068,18 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
                 service_process = None
             
-            # Calculate time remaining
+            # Calculate time remaining — use the EARLIER expiry of the two tokens
             bearer_remaining = get_token_time_remaining(bearer_expiry)
             devmode_remaining = get_token_time_remaining(devmode_expiry) if devmode_expiry else None
             remaining = min(bearer_remaining, devmode_remaining) if (bearer_remaining and devmode_remaining) else (bearer_remaining or devmode_remaining)
+            remaining_str = format_timedelta(remaining)
             
-            parts = [f"Bearer: {format_timedelta(bearer_remaining)}"]
+            status = f"Bearer: {format_timedelta(bearer_remaining)}"
             if devmode_expiry:
-                parts.append(f"DevMode: {format_timedelta(devmode_remaining)}")
+                status += f" | DevMode: {format_timedelta(devmode_remaining)}"
             if service_process:
-                parts.append(f"PID: {service_process.pid}")
-            ui_info(f"[{datetime.now().strftime('%I:%M:%S %p')}] {' · '.join(parts)}")
+                status += " | Service: Running"
+            ui_info(f"[{datetime.now().strftime('%I:%M:%S %p')}] {status}")
             
             # Check if refresh needed (triggers on whichever token expires first)
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
@@ -3171,7 +3103,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                     show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
             
             # Wait for next check
-            ui_dim(f"Next check in {CHECK_INTERVAL_MINS}m...")
+            ui_dim(f"Next check in {CHECK_INTERVAL_MINS} mins...")
             time.sleep(CHECK_INTERVAL_MINS * 60)
             
     except KeyboardInterrupt:
