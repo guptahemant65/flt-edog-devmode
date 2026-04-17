@@ -3041,14 +3041,38 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             
             # Wait for Dev Connection (up to 120 seconds)
             ui_dim("Waiting for Dev Connection...")
-            if connected_event.wait(timeout=120):
-                if service_process.poll() is None:
-                    ui_success("Deployed successfully! Logs available at http://localhost:5050")
+            try:
+                if connected_event.wait(timeout=120):
+                    if service_process.poll() is None:
+                        ui_success("Deployed successfully! Logs available at http://localhost:5050")
+                    else:
+                        ui_warn(f"Service exited during startup (code: {service_process.returncode})")
                 else:
-                    ui_warn(f"Service exited during startup (code: {service_process.returncode})")
-            else:
-                ui_warn("Dev Connection not detected within 120s — service may still be starting")
-                ui_dim("Check logs at http://localhost:5050")
+                    ui_warn("Dev Connection not detected within 120s — service may still be starting")
+                    ui_dim("Check logs at http://localhost:5050")
+            except KeyboardInterrupt:
+                # User hit Ctrl+C during deploy wait — fall through to cleanup
+                ui_step("Shutting down...")
+                import signal
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+                try:
+                    if stop_event:
+                        stop_event.set()
+                    stop_flt_service(service_process)
+                    revert_all_changes(repo_root)
+                    cleanup_bearer_live_token(workspace_id)
+                    if RICH_AVAILABLE:
+                        from rich.panel import Panel
+                        console.print(Panel(
+                            "[bold]👋  EDOG DevMode stopped[/bold]\nAll changes reverted. Clean state.",
+                            border_style="dim", expand=False
+                        ))
+                    else:
+                        print("✅ Done. Goodbye!")
+                except Exception as e:
+                    ui_error(f"Error during cleanup: {e}")
+                    ui_dim("Run 'edog --revert' to manually revert changes.")
+                return 0
         else:
             ui_warn("Service failed to start, continuing with token management only")
     
