@@ -130,6 +130,19 @@ def show_banner():
         print(f"  FabricLiveTable Development Tool\n")
 
 
+def set_terminal_title(title):
+    """Set terminal window title via ANSI escape."""
+    try:
+        sys.stdout.write(f"\033]0;{title}\007")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+def reset_terminal_title():
+    """Reset terminal title to default."""
+    set_terminal_title("")
+
+
 def show_config_table(config):
     """Display config as a rich table."""
     # Resolve cert info from username
@@ -3465,6 +3478,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             "capacity_id": capacity_id,
         }
         show_banner()
+        set_terminal_title("EDOG 🐕 | Starting...")
         show_config_table(banner_config)
         ui_dim(f"Auto-launch: {'Yes' if launch_service else 'No'}")
     else:
@@ -3548,6 +3562,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 stop_flt_service(service_process)
             revert_all_changes(repo_root)
             cleanup_bearer_live_token(workspace_id)
+            reset_terminal_title()
             print_session_summary(session_start, session_stats)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
@@ -3583,7 +3598,15 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 status += " | Service: Running"
             ui_info(f"[{datetime.now().strftime('%I:%M:%S %p')}] {status}")
             
-            # Check if refresh needed (triggers on whichever token expires first)
+            # Update terminal title with token countdown
+            if remaining:
+                total_mins = int(remaining.total_seconds() / 60)
+                title = f"EDOG 🐕 | Token: {total_mins}m left"
+                if service_process:
+                    title += " | Service: Running"
+                set_terminal_title(title)
+            
+            # Check if refresh needed(triggers on whichever token expires first)
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
                 ui_step("Token expiring soon, refreshing...")
                 show_notification("EDOG DevMode", "Token expiring, refreshing...")
@@ -3630,6 +3653,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             # Step 3: Clean up live bearer file
             cleanup_bearer_live_token(workspace_id)
             
+            reset_terminal_title()
             print_session_summary(session_start, session_stats)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
