@@ -10,6 +10,7 @@ Commands:
   edog --revert              Revert all EDOG code changes
   edog --status              Check if changes are applied
   edog --logs                Open web log viewer in browser
+  edog --doctor              Run diagnostic checks
   edog --config              View or update configuration
   edog --install-hook        Install git pre-commit safety hook
   edog --uninstall-hook      Remove git pre-commit hook
@@ -2869,6 +2870,171 @@ def run_setup(force=False):
     return errors == 0
 
 
+def run_doctor():
+    """One-shot diagnostic for all dependencies and config."""
+    import platform
+
+    show_banner()
+    ui_step("Running diagnostics...")
+    print()
+
+    passed = 0
+    failed = 0
+    warnings = 0
+
+    def check_pass(msg):
+        nonlocal passed
+        passed += 1
+        ui_success(msg)
+
+    def check_fail(msg, hint=None):
+        nonlocal failed
+        failed += 1
+        ui_error(msg)
+        if hint:
+            ui_dim(f"  Fix: {hint}")
+
+    def check_warn(msg, hint=None):
+        nonlocal warnings
+        warnings += 1
+        ui_warn(msg)
+        if hint:
+            ui_dim(f"  Tip: {hint}")
+
+    # 1. Python
+    py_ver = platform.python_version()
+    py_parts = tuple(int(x) for x in py_ver.split(".")[:2])
+    if py_parts >= (3, 10):
+        check_pass(f"Python {py_ver}")
+    else:
+        check_fail(f"Python {py_ver} (need 3.10+)", "Install Python 3.10 or newer")
+
+    # 2. Rich
+    if RICH_AVAILABLE:
+        import rich
+        check_pass(f"Rich {rich.__version__}")
+    else:
+        check_warn("Rich not installed (CLI will work but look plain)", "pip install rich")
+
+    # 3. .NET SDK
+    try:
+        result = subprocess.run(["dotnet", "--version"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            check_pass(f".NET SDK {result.stdout.strip()}")
+        else:
+            check_fail(".NET SDK not found", "Install .NET SDK 8.0+ from https://dotnet.microsoft.com/download")
+    except FileNotFoundError:
+        check_fail(".NET SDK not found — 'dotnet' not in PATH", "Install .NET SDK 8.0+ from https://dotnet.microsoft.com/download")
+    except subprocess.TimeoutExpired:
+        check_warn(".NET SDK check timed out")
+
+    # 4. token-helper
+    helper_exe = _get_token_helper_exe()
+    if helper_exe:
+        check_pass(f"token-helper: {helper_exe.name}")
+    else:
+        check_fail("token-helper not found", "Run: edog --setup")
+
+    # 5. Config file
+    config_path = Path(__file__).parent / CONFIG_FILE
+    if config_path.exists():
+        check_pass(f"Config file: {CONFIG_FILE}")
+    else:
+        check_warn(f"Config file not found: {CONFIG_FILE}", "Run: edog --config")
+
+    # 6. Username
+    config = load_config()
+    username = config.get("username", DEFAULT_USERNAME)
+    if "@" in username:
+        check_pass(f"Username: {username}")
+    else:
+        check_fail(f"Username invalid: {username}", "Run: edog --config -u your@email.com")
+
+    # 7. Certificate
+    cert_cn = username.replace("@", ".")
+    try:
+        tp = _find_cert_thumbprint(cert_cn)
+        if tp:
+            check_pass(f"Certificate: {tp[:8]}...")
+        else:
+            check_warn(f"Certificate not found for {cert_cn}", "Install CBA certificate or check username")
+    except Exception:
+        check_warn(f"Certificate lookup failed for {cert_cn}")
+
+    # 8. Workspace ID
+    ws_id = config.get("workspace_id", "")
+    if ws_id and len(ws_id) > 8:
+        check_pass(f"Workspace ID: {ws_id[:8]}...")
+    else:
+        check_fail("Workspace ID not set", "Run: edog --config -w <workspace-id>")
+
+    # 9. Artifact ID
+    art_id = config.get("artifact_id", "")
+    if art_id and len(art_id) > 8:
+        check_pass(f"Artifact ID: {art_id[:8]}...")
+    else:
+        check_fail("Artifact ID not set", "Run: edog --config -a <artifact-id>")
+
+    # 10–13. FLT repo checks (grouped)
+    repo_root = None
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        pass
+
+    if repo_root:
+        check_pass(f"FLT repo: {repo_root}")
+
+        # 11. Service project
+        entrypoint = get_entrypoint_path(repo_root)
+        if entrypoint.exists():
+            check_pass(f"Service project: {entrypoint.name}")
+        else:
+            check_fail("Service EntryPoint project not found", f"Expected at {entrypoint}")
+
+        # 12. Git hooks
+        hook_file = repo_root / ".git" / "hooks" / "pre-commit"
+        if hook_file.exists():
+            try:
+                hook_content = hook_file.read_text(encoding="utf-8", errors="replace")
+                if "EDOG DevMode pre-commit hook" in hook_content:
+                    check_pass("Git pre-commit hook installed")
+                else:
+                    check_warn("Pre-commit hook exists but not EDOG hook", "Run: edog --install-hook")
+            except Exception:
+                check_warn("Could not read pre-commit hook")
+        else:
+            check_warn("No git pre-commit hook", "Run: edog --install-hook")
+
+        # 13. Stale patches
+        stale = detect_stale_patches(repo_root)
+        if not stale:
+            check_pass("No stale patches found")
+        else:
+            check_warn(f"{len(stale)} stale patch(es) detected", "Run: edog --revert to clean up")
+    else:
+        check_fail("FLT repo not found", "Run: edog --config -r <path-to-FabricLiveTable>")
+        # Skip checks 11–13
+        check_fail("Service project — skipped (no repo)")
+        check_warn("Git hooks — skipped (no repo)")
+        check_warn("Stale patches — skipped (no repo)")
+
+    # 14. PATH
+    edog_dir = str(Path(__file__).parent)
+    if edog_dir in os.environ.get("PATH", ""):
+        check_pass(f"PATH includes edog directory")
+    else:
+        check_warn("edog directory not in PATH", f"Add {edog_dir} to your PATH")
+
+    # Summary
+    total = passed + failed + warnings
+    print()
+    if failed == 0:
+        ui_success(f"All clear! {passed}/{total} passed, {warnings} warning(s)")
+    else:
+        ui_error(f"{failed} failed, {warnings} warning(s), {passed} passed")
+
+
 def _needs_setup():
     """Check if first-time setup is needed (token-helper not built)."""
     helper_dir = Path(__file__).parent / "scripts" / "token-helper"
@@ -3418,6 +3584,7 @@ Examples:
   edog --revert                     Revert all EDOG changes  
   edog --status                     Check if changes are applied
   edog --logs                       Open web log viewer in browser
+  edog --doctor                     Run diagnostic checks
   edog --config                     Show current config
   edog --config -u <email>          Update username/email
   edog --config -w <id> -a <id>     Update workspace and artifact IDs
@@ -3441,6 +3608,7 @@ Token flow:
     parser.add_argument("--no-launch", action="store_true", help="Don't auto-launch FLT service (token management only)")
     parser.add_argument("--setup", action="store_true", help="Run setup (install deps, build token-helper, add to PATH)")
     parser.add_argument("--logs", action="store_true", help="Open log viewer in browser")
+    parser.add_argument("--doctor", action="store_true", help="Run diagnostic checks")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -3483,6 +3651,11 @@ Token flow:
         webbrowser.open("http://localhost:5050")
         ui_info("Opening EDOG Log Viewer at http://localhost:5050")
         ui_dim("Make sure FLT service is running with EDOG changes applied.")
+        sys.exit(0)
+    
+    # Doctor command doesn't need repo_root (handles it internally)
+    if args.doctor:
+        run_doctor()
         sys.exit(0)
     
     # All other commands need repo_root
