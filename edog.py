@@ -3385,10 +3385,50 @@ def inject_devmode_token(username, flt_repo_path):
         ui_warn(f"Token injection failed: {e} — browser popup may appear")
         return None
 
+def print_session_summary(session_start, stats):
+    """Print session summary on exit."""
+    duration = datetime.now() - session_start
+    total_secs = int(duration.total_seconds())
+    if total_secs >= 3600:
+        hrs = total_secs // 3600
+        mins = (total_secs % 3600) // 60
+        dur_str = f"{hrs}h {mins}m"
+    elif total_secs >= 60:
+        mins = total_secs // 60
+        secs = total_secs % 60
+        dur_str = f"{mins}m {secs}s"
+    else:
+        dur_str = f"{total_secs}s"
+
+    refreshes = stats.get("token_refreshes", 0)
+    failures = stats.get("refresh_failures", 0)
+    restarts = stats.get("service_restarts", 0)
+
+    parts = [f"Session: {dur_str}"]
+    parts.append(f"{refreshes} token refresh{'es' if refreshes != 1 else ''}")
+    if failures:
+        parts.append(f"{failures} failure{'s' if failures != 1 else ''}")
+    if restarts:
+        parts.append(f"{restarts} restart{'s' if restarts != 1 else ''}")
+
+    summary = " · ".join(parts)
+
+    if RICH_AVAILABLE:
+        from rich.panel import Panel
+        console.print(Panel(
+            f"[bold]👋  EDOG DevMode stopped[/bold]\n{summary}\nAll changes reverted. Clean state.",
+            border_style="dim", expand=False
+        ))
+    else:
+        print(f"👋  {summary}")
+        print("✅ All changes reverted. Clean state.")
+
 
 def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True):
     """Main daemon loop - fetch token, apply changes, optionally launch service, monitor and refresh."""
-    
+    session_start = datetime.now()
+    session_stats = {"token_refreshes": 0, "refresh_failures": 0, "service_restarts": 0}
+
     # Check and sync capacity_id from workload-dev-mode.json
     synced_capacity = sync_capacity_from_workload(str(repo_root), silent=False)
     if synced_capacity and synced_capacity.lower() != capacity_id.lower():
@@ -3508,14 +3548,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 stop_flt_service(service_process)
             revert_all_changes(repo_root)
             cleanup_bearer_live_token(workspace_id)
-            if RICH_AVAILABLE:
-                from rich.panel import Panel
-                console.print(Panel(
-                    "[bold]👋  EDOG DevMode stopped[/bold]\nAll changes reverted. Clean state.",
-                    border_style="dim", expand=False
-                ))
-            else:
-                print("✅ Done. Goodbye!")
+            print_session_summary(session_start, session_stats)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
@@ -3561,7 +3594,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                     bearer_token = new_bearer
                     bearer_expiry = parse_jwt_expiry(bearer_token)
                     ui_success(f"Bearer refreshed (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
-                    
+                    session_stats["token_refreshes"] += 1
+
                     # Update the live bearer file (PowerBI API audience)
                     write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
                     # Refresh UserAuthorizationToken (MwcFrontendBaseEndpoint audience)
@@ -3569,6 +3603,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                     show_notification("EDOG DevMode", f"Tokens refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
                 else:
                     ui_error("Failed to refresh tokens - continuing with old ones")
+                    session_stats["refresh_failures"] += 1
                     show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
             
             # Wait for next check
@@ -3595,14 +3630,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             # Step 3: Clean up live bearer file
             cleanup_bearer_live_token(workspace_id)
             
-            if RICH_AVAILABLE:
-                from rich.panel import Panel
-                console.print(Panel(
-                    "[bold]👋  EDOG DevMode stopped[/bold]\nAll changes reverted. Clean state.",
-                    border_style="dim", expand=False
-                ))
-            else:
-                print("✅ Done. Goodbye!")
+            print_session_summary(session_start, session_stats)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
