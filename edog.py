@@ -2977,11 +2977,11 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     # Track DevMode token expiry separately (different audience → different lifetime)
     devmode_expiry = None
 
+    # Inject DevMode token into workload-dev-mode.json (always, even --no-launch)
+    # WCL SDK picks this up → skips browser popup entirely
+    devmode_expiry = inject_devmode_token(username, str(repo_root))
+
     if launch_service:
-        # Inject DevMode token into workload-dev-mode.json BEFORE service start
-        # WCL SDK picks this up → skips browser popup entirely
-        devmode_expiry = inject_devmode_token(username, str(repo_root))
-        
         ui_step("Starting FLT Service...")
         service_process = start_flt_service(repo_root)
         if service_process:
