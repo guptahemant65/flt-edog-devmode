@@ -2625,6 +2625,17 @@ def apply_all_changes(repo_root, workspace_id=None):
         for msg in warnings:
             ui_warn(msg)
     
+    # Auto-install pre-commit hook if not present
+    try:
+        hook_path = repo_root / ".git" / "hooks" / "pre-commit"
+        if not hook_path.exists():
+            install_git_hook(repo_root)
+            ui_dim("Pre-commit hook auto-installed (blocks EDOG changes in commits)")
+        elif "EDOG DevMode" not in hook_path.read_text(encoding="utf-8", errors="replace"):
+            ui_dim("Pre-commit hook exists (non-EDOG) — skipping auto-install")
+    except Exception:
+        pass  # Non-critical
+    
     return len(warnings) == 0
 
 
