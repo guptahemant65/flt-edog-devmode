@@ -1670,12 +1670,15 @@ def revert_gts_spark_client_change(content, repo_root=None):
     
     Handles both old (hardcoded) and new (file-based) bypass markers.
     """
-    file_marker = '// EDOG DevMode - bypassing OBO token exchange (file-based'
-    old_marker = '// EDOG DevMode - bypassing OBO token exchange (hardcoded'
-    edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
     original_marker_start = '// EDOG_ORIGINAL_START:'
+    # Detect ANY EDOG bypass — check for stored original OR comment markers
+    edog_markers = [
+        original_marker_start,
+        '// EDOG DevMode',
+        'EDOG DevMode:',
+    ]
     
-    if edog_marker not in content:
+    if not any(m in content for m in edog_markers):
         return content, False
     
     # Try to restore from stored original (base64 on same line as EDOG_ORIGINAL_START:)
