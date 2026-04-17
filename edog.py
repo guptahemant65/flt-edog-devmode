@@ -1656,7 +1656,7 @@ def apply_gts_spark_client_change(content, repo_root=None, workspace_id=None):
             break
         prev_line_start = content.rfind('\n', 0, prev_line_end) + 1
         prev_line = content[prev_line_start:prev_line_end].strip()
-        if prev_line.startswith('//') or prev_line.startswith('/*') or prev_line.startswith('*') or prev_line.startswith('[') or prev_line == '':
+        if prev_line.startswith('//') or prev_line.startswith('/*') or prev_line.startswith('*') or prev_line.startswith('['):
             method_start = prev_line_start
         else:
             break
@@ -1704,13 +1704,6 @@ def revert_gts_spark_client_change(content, repo_root=None):
         try:
             original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
             marker_line_start = content.rfind('\n', 0, marker_pos) + 1
-            
-            # Consume any blank line above the marker (left by older bypass code)
-            if marker_line_start > 0:
-                prev_line_end = marker_line_start - 1
-                prev_line_start = content.rfind('\n', 0, prev_line_end) + 1
-                if content[prev_line_start:marker_line_start].strip() == '':
-                    marker_line_start = prev_line_start
             
             method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
             sig_start = content.find(method_sig, marker_line_start)
