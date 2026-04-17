@@ -28,7 +28,7 @@ class WebSocketManager {
     // Backpressure summary callback: onSummary({ dropped, droppedLogs, droppedTelemetry, levels })
     this.onSummary = null;
 
-    this.url = 'ws://localhost:5555/ws/logs';
+    this.url = 'ws://localhost:5050/ws/logs';
   }
 
   connect = () => {

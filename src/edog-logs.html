@@ -1073,6 +1073,22 @@ mark {
   color: var(--text);
 }
 
+/* Server-side dedup repeat badge — "×42" like Chrome DevTools */
+.repeat-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--accent, #f59e0b);
+  color: #000;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 16px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 /* Logs Status Bar */
 .logs-status {
   padding: 4px 12px;
@@ -2989,7 +3005,7 @@ class WebSocketManager {
     // Backpressure summary callback: onSummary({ dropped, droppedLogs, droppedTelemetry, levels })
     this.onSummary = null;
 
-    this.url = 'ws://localhost:5555/ws/logs';
+    this.url = 'ws://localhost:5050/ws/logs';
   }
 
   connect = () => {
@@ -3507,6 +3523,21 @@ class Renderer {
     // Message (truncated via textContent — no HTML parsing)
     const msg = entry.message || '';
     row._message.textContent = msg.length > 500 ? msg.substring(0, 500) + '\u2026' : msg;
+
+    // Repeat count badge — server-side dedup collapses identical consecutive
+    // messages into one entry with repeatCount ≥ 2 (Chrome DevTools-style "×N")
+    if (entry.repeatCount > 1) {
+      if (!row._repeatBadge) {
+        const badge = document.createElement('span');
+        badge.className = 'repeat-badge';
+        row._message.parentNode.insertBefore(badge, row._message.nextSibling);
+        row._repeatBadge = badge;
+      }
+      row._repeatBadge.textContent = '×' + entry.repeatCount;
+      row._repeatBadge.style.display = '';
+    } else if (row._repeatBadge) {
+      row._repeatBadge.style.display = 'none';
+    }
 
     // Error/warning row styling
     if (levelLower === 'error') {

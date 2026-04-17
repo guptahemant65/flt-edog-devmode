@@ -4,6 +4,8 @@ REM FLT EDOG DevMode - Setup Script
 REM 
 REM This script sets up the EDOG DevMode tool for first-time use.
 REM Run this once after cloning the repo.
+REM
+REM Requirements: Python 3.8+, .NET SDK 8.0+
 REM ============================================================
 
 echo.
@@ -25,7 +27,7 @@ REM Remove trailing backslash
 if "%EDOG_DIR:~-1%"=="\" set "EDOG_DIR=%EDOG_DIR:~0,-1%"
 
 REM Step 1: Check Python
-echo [1/5] Checking Python installation...
+echo [1/4] Checking Python installation...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo.
@@ -42,38 +44,52 @@ if errorlevel 1 (
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set PYVER=%%i
 echo        Found Python %PYVER%
 
-REM Step 2: Install Python dependencies
-echo.
-echo [2/5] Installing Python dependencies...
-pip install playwright pywinauto --quiet --disable-pip-version-check
+REM Check .NET SDK
+echo        Checking .NET SDK...
+dotnet --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Failed to install Python packages.
+    echo.
+    echo ERROR: .NET SDK is not installed or not in PATH.
+    echo.
+    echo Please install .NET SDK 8.0+ from:
+    echo   https://dotnet.microsoft.com/download
+    echo.
     exit /b 1
 )
-echo        Done.
 
-REM Step 3: Install Playwright browsers
+for /f "tokens=*" %%i in ('dotnet --version 2^>^&1') do set DOTNETVER=%%i
+echo        Found .NET SDK %DOTNETVER%
+
+REM Step 2: Install Python dependencies
 echo.
-echo [3/5] Installing Playwright browser (Edge)...
-echo        This may take a few minutes on first run...
-python -m playwright install msedge --quiet 2>nul
+echo [2/4] Installing Python dependencies...
+pip install rich --quiet --disable-pip-version-check
 if errorlevel 1 (
-    python -m playwright install msedge
+    echo WARNING: Failed to install 'rich' library. CLI will work but without styling.
 )
 echo        Done.
 
-REM Step 4: Auto-detect FLT repo and configure
+REM Step 3: Build token-helper (Silent CBA)
 echo.
-echo [4/5] Auto-detecting FabricLiveTable repo...
-python -c "from edog import find_flt_repo, load_config, save_config; repo = find_flt_repo(); config = load_config(); config['flt_repo_path'] = str(repo) if repo else ''; save_config(config) if repo else None; print(f'       Found: {repo}' if repo else '       Could not auto-detect.')"
-if errorlevel 1 (
-    echo        Could not auto-detect. You can set it later with:
-    echo          edog --config -r C:\path\to\workload-fabriclivetable
+echo [3/4] Building token-helper (Silent CBA authentication)...
+if exist "%EDOG_DIR%\scripts\token-helper\bin\Debug\net8.0\token-helper.exe" (
+    echo        Already built.
+) else (
+    dotnet build "%EDOG_DIR%\scripts\token-helper\token-helper.csproj" --nologo -v q
+    if errorlevel 1 (
+        echo.
+        echo WARNING: token-helper build failed.
+        echo          You can build it manually:
+        echo            dotnet build scripts\token-helper\token-helper.csproj
+        echo.
+    ) else (
+        echo        Build successful.
+    )
 )
 
-REM Step 5: Add to PATH
+REM Step 4: Add to PATH
 echo.
-echo [5/5] Adding edog to PATH...
+echo [4/4] Adding edog to PATH...
 
 REM Check if already in PATH
 echo %PATH% | findstr /i /c:"%EDOG_DIR%" >nul
@@ -94,10 +110,12 @@ echo   Setup Complete!
 echo ============================================================
 echo.
 echo Usage:
-echo   edog                  Start DevMode
+echo   edog                  Start DevMode (auto-launches FLT service)
+echo   edog --no-launch      Token management only
 echo   edog --revert         Revert all EDOG changes
 echo   edog --status         Check current status
 echo   edog --config         View/update configuration
+echo   edog --logs           Open web log viewer
 echo.
 echo Configure your EDOG environment IDs:
 echo   edog --config -w WORKSPACE_ID -a ARTIFACT_ID -c CAPACITY_ID

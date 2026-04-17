@@ -1,17 +1,26 @@
 """
-EDOG DevMode Token Manager
+EDOG DevMode — FabricLiveTable Development Tool
+
+Automates bearer token management, code patching, and service lifecycle
+for local FLT development on EDOG (PPE) environments.
 
 Commands:
-  edog.cmd                 - Fetch token, apply changes, monitor & auto-refresh
-  edog.cmd --revert        - Revert all EDOG changes
-  edog.cmd --status        - Check if EDOG changes are applied
+  edog                       Start daemon + auto-launch FLT service
+  edog --no-launch           Token management only (no service)
+  edog --revert              Revert all EDOG code changes
+  edog --status              Check if changes are applied
+  edog --logs                Open web log viewer in browser
+  edog --config              View or update configuration
+  edog --install-hook        Install git pre-commit safety hook
+  edog --uninstall-hook      Remove git pre-commit hook
 
-Features:
-  - Auto-fetches MWC token via Silent CBA (zero browser interaction)
-  - Bearer + MWC token caching for sub-second restarts
-  - Applies EDOG bypass changes to codebase
-  - Monitors token expiry and auto-refreshes when ≤10 mins remaining
-  - Pattern-based revert (works even after script restart)
+Token Architecture:
+  - Bearer token (PowerBI API audience) → written to live file → C# service
+    reads it to POST /generatemwctoken → generates MWC tokens at runtime
+  - UserAuthorizationToken (MwcFrontendBaseEndpoint audience) → injected into
+    workload-dev-mode.json → WCL SDK skips browser popup
+  - Both tokens acquired via Silent CBA (certificate-based, zero interaction)
+  - Auto-refresh daemon monitors both expiries independently
 """
 
 import json
@@ -35,13 +44,242 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-# pywinauto — optional, used for DevMode account picker automation
+# rich — optional, used for polished CLI output
 try:
-    from pywinauto import Desktop
-    from pywinauto.findwindows import ElementNotFoundError
-    PYWINAUTO_AVAILABLE = True
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.prompt import Prompt, Confirm
+    from rich.text import Text
+    from rich.theme import Theme
+    RICH_AVAILABLE = True
 except ImportError:
-    PYWINAUTO_AVAILABLE = False
+    RICH_AVAILABLE = False
+
+# ============================================================================
+# UI Abstraction Layer
+# ============================================================================
+EDOG_VERSION = "2.0.0"
+
+_edog_theme = Theme({
+    "info": "cyan",
+    "success": "bold green",
+    "warning": "bold yellow",
+    "error": "bold red",
+    "dim": "dim",
+    "header": "bold cyan",
+    "value": "white",
+    "label": "dim cyan",
+}) if RICH_AVAILABLE else None
+
+console = Console(theme=_edog_theme) if RICH_AVAILABLE else None
+
+
+def ui_print(msg, style=None):
+    """Print with optional rich styling. Falls back to plain print."""
+    if console and style:
+        console.print(msg, style=style)
+    elif console:
+        console.print(msg)
+    else:
+        # Strip rich markup for plain output
+        clean = re.sub(r'\[/?[a-z_ ]+\]', '', str(msg)) if '[' in str(msg) else str(msg)
+        print(clean)
+
+
+def ui_info(msg):
+    ui_print(f"  [info]ℹ[/info]  {msg}")
+
+def ui_success(msg):
+    ui_print(f"  [success]✔[/success]  {msg}")
+
+def ui_warn(msg):
+    ui_print(f"  [warning]⚠[/warning]  {msg}")
+
+def ui_error(msg):
+    ui_print(f"  [error]✖[/error]  {msg}")
+
+def ui_step(step, total, msg):
+    ui_print(f"  [header]\\[{step}/{total}][/header] {msg}")
+
+def ui_dim(msg):
+    ui_print(f"        [dim]{msg}[/dim]")
+
+def ui_log(msg, level="info"):
+    """Timestamped log line for daemon output."""
+    ts = datetime.now().strftime('%H:%M:%S')
+    style_map = {"info": "info", "success": "success", "warn": "warning", "error": "error"}
+    style = style_map.get(level, "info")
+    ui_print(f"  [{style}]{ts}[/{style}]  {msg}")
+
+
+def show_banner():
+    """Display the EDOG banner."""
+    if RICH_AVAILABLE:
+        banner_text = Text()
+        banner_text.append("🐕  EDOG DevMode", style="bold cyan")
+        banner_text.append(f"  v{EDOG_VERSION}\n", style="dim")
+        banner_text.append("FabricLiveTable Development Tool", style="dim white")
+        console.print(Panel(banner_text, border_style="cyan", padding=(0, 2)))
+    else:
+        print(f"\n  🐕  EDOG DevMode  v{EDOG_VERSION}")
+        print(f"  FabricLiveTable Development Tool\n")
+
+
+def show_config_table(config):
+    """Display config as a rich table."""
+    if RICH_AVAILABLE:
+        table = Table(show_header=False, border_style="dim", padding=(0, 2))
+        table.add_column("Field", style="label", min_width=12)
+        table.add_column("Value", style="value")
+        table.add_row("Username", config.get('username', DEFAULT_USERNAME + ' [dim](default)[/dim]'))
+        table.add_row("Workspace", config.get('workspace_id', '[dim]not set[/dim]'))
+        table.add_row("Artifact", config.get('artifact_id', '[dim]not set[/dim]'))
+        table.add_row("Capacity", config.get('capacity_id', '[dim]not set[/dim]'))
+        table.add_row("FLT Repo", config.get('flt_repo_path', '[dim]auto-detect[/dim]'))
+        console.print(table)
+    else:
+        print(f"   Username:  {config.get('username', DEFAULT_USERNAME + ' (default)')}")
+        print(f"   Workspace: {config.get('workspace_id', 'not set')}")
+        print(f"   Artifact:  {config.get('artifact_id', 'not set')}")
+        print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
+        print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect')}")
+
+
+def ui_status(msg):
+    """Context manager for spinner/status. Falls back to simple print."""
+    if RICH_AVAILABLE:
+        return console.status(f"  {msg}", spinner="dots")
+    else:
+        class _FallbackStatus:
+            def __enter__(self): print(f"  {msg}..."); return self
+            def __exit__(self, *a): pass
+        return _FallbackStatus()
+
+
+def ui_prompt(prompt_text, default=None, choices=None, example=None):
+    """Styled prompt. Falls back to input()."""
+    if example:
+        ui_dim(f"  Example: {example}")
+    if RICH_AVAILABLE:
+        return Prompt.ask(f"  {prompt_text}", default=default, choices=choices)
+    else:
+        suffix = f" [{default}]" if default else ""
+        choice_hint = f" ({'/'.join(choices)})" if choices else ""
+        return input(f"  {prompt_text}{choice_hint}{suffix}: ").strip() or default
+
+
+def ui_confirm(prompt_text, default=True):
+    """Styled yes/no confirm. Falls back to input()."""
+    if RICH_AVAILABLE:
+        return Confirm.ask(f"  {prompt_text}", default=default)
+    else:
+        yn = "[Y/n]" if default else "[y/N]"
+        answer = input(f"  {prompt_text} {yn}: ").strip().lower()
+        if not answer:
+            return default
+        return answer in ('y', 'yes')
+
+
+def ui_choose(prompt_text, options, show_path=False):
+    """Show numbered list and let user pick. Returns selected value."""
+    ui_print(f"\n  {prompt_text}")
+    for i, opt in enumerate(options, 1):
+        display = str(opt) if not show_path else str(opt)
+        ui_print(f"    [header]{i}.[/header] {display}")
+
+    while True:
+        choice = ui_prompt("Enter number", default="1")
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(options):
+                return options[idx]
+        except (ValueError, IndexError):
+            pass
+        ui_warn(f"Please enter a number between 1 and {len(options)}")
+
+
+# ============================================================================
+# GUID Validation & URL Extraction
+# ============================================================================
+GUID_PATTERN = re.compile(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+# Fabric portal URL patterns — field-aware extraction
+_FABRIC_URL_PATTERNS = {
+    'workspace': re.compile(
+        r'(?:app\.fabric\.microsoft\.com|app\.powerbi\.com|app\.fabric\.microsoft\.com/.*?'
+        r'|msit\.powerbi\.com|powerbi-df\.analysis-df\.windows-int\.net)'
+        r'.*?/groups/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
+    ),
+    'artifact': re.compile(
+        r'(?:lakehouses?|datasets?|notebooks?|warehouses?)'
+        r'/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
+    ),
+}
+
+
+def validate_guid(value):
+    """Validate GUID format. Returns True if valid."""
+    return bool(GUID_PATTERN.match(value.strip()))
+
+
+def try_extract_guid(value, field_name=None):
+    """Try to extract a GUID from raw input. Handles:
+    - Direct GUID string
+    - Fabric portal URL (field-aware extraction)
+    - Pasted text containing a GUID
+    Returns (guid, source_hint) or (None, error_hint).
+    """
+    value = value.strip()
+
+    # Direct GUID
+    if validate_guid(value):
+        return value, None
+
+    # Try field-aware URL extraction
+    if '/' in value or 'http' in value.lower():
+        if field_name and field_name in _FABRIC_URL_PATTERNS:
+            m = _FABRIC_URL_PATTERNS[field_name].search(value)
+            if m:
+                return m.group(1), f"extracted from URL ({field_name})"
+
+        # Try all patterns
+        for fname, pattern in _FABRIC_URL_PATTERNS.items():
+            m = pattern.search(value)
+            if m:
+                return m.group(1), f"extracted from URL ({fname})"
+
+    # Try to find any GUID in the string
+    guid_in_text = re.search(
+        r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+        value
+    )
+    if guid_in_text:
+        return guid_in_text.group(0), "extracted GUID from text"
+
+    return None, f"expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (got {len(value)} chars)"
+
+
+def prompt_guid_rich(prompt_text, field_name=None):
+    """Prompt for a GUID with validation, URL extraction, and retry."""
+    while True:
+        value = ui_prompt(prompt_text)
+        if not value:
+            ui_error(f"{field_name or 'Value'} is required")
+            continue
+
+        guid, hint = try_extract_guid(value, field_name=field_name)
+        if guid:
+            if hint:
+                ui_success(f"{hint}: [value]{guid}[/value]")
+            return guid
+
+        ui_error(f"Invalid format: {value}")
+        ui_dim(hint or "Expected a GUID or Fabric portal URL")
+        ui_dim("Tip: paste the Fabric portal URL and I'll extract the ID")
+
 
 # ============================================================================
 # Configuration
@@ -99,7 +337,7 @@ def load_config():
             with open(config_path, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"⚠️ Could not load config: {e}")
+            ui_warn(f"Could not load config: {e}")
     return {}
 
 
@@ -115,7 +353,7 @@ def save_config(config):
             token_cache.unlink()
         return True
     except Exception as e:
-        print(f"❌ Could not save config: {e}")
+        ui_error(f"Could not save config: {e}")
         return False
 
 
@@ -199,7 +437,7 @@ def write_workload_dev_mode_config(capacity_id, flt_repo_path=None):
         
         return True
     except Exception as e:
-        print(f"⚠️ Could not update workload-dev-mode.json: {e}")
+        ui_warn(f"Could not update workload-dev-mode.json: {e}")
         return False
 
 
@@ -243,10 +481,10 @@ def sync_capacity_from_workload(flt_repo_path=None, silent=False):
         save_config(config)
         
         if not silent:
-            print(f"\n🔄 Synced capacity_id from workload-dev-mode.json:")
+            ui_info("Synced capacity_id from workload-dev-mode.json")
             if old_val:
-                print(f"   Old: {old_val}")
-            print(f"   New: {workload_val}")
+                ui_dim(f"Old: {old_val}")
+            ui_dim(f"New: {workload_val}")
         
         return workload_val
     
@@ -260,30 +498,30 @@ def validate_guid(value):
 
 
 def prompt_guid(prompt_text, field_name):
-    """Prompt for a GUID with validation and retry."""
-    while True:
-        value = input(prompt_text).strip()
-        if not value:
-            print(f"   ❌ {field_name} is required")
-            continue
-        if validate_guid(value):
-            return value
-        print(f"   ❌ Invalid format: {value}")
-        print(f"      Expected: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars, got {len(value)})")
-        print(f"      Please try again.\n")
+    """Prompt for a GUID with validation, URL extraction, and retry. Delegates to prompt_guid_rich."""
+    return prompt_guid_rich(prompt_text, field_name=field_name)
 
 
 def prompt_for_config(flt_repo_path=None):
     """Prompt user to enter config values. Auto-detects capacity_id from workload-dev-mode.json if available."""
-    print("\n📝 First-time setup - please enter your EDOG environment details:")
-    print("   (You can find these in Fabric portal URL or workload-dev-mode.json)\n")
+    if RICH_AVAILABLE:
+        console.print()
+        console.print(Panel(
+            "[header]First-time setup[/header]\n"
+            "[dim]Enter your EDOG environment details.\n"
+            "Tip: paste a Fabric portal URL and I'll extract the IDs.[/dim]",
+            border_style="cyan", padding=(0, 2)
+        ))
+    else:
+        print("\n📝 First-time setup - please enter your EDOG environment details:")
+        print("   (You can find these in Fabric portal URL or workload-dev-mode.json)\n")
     
-    username = input(f"   Username/Email [{DEFAULT_USERNAME}]: ").strip()
+    username = ui_prompt(f"Username/Email", default=DEFAULT_USERNAME)
     if not username:
         username = DEFAULT_USERNAME
     
-    workspace_id = prompt_guid("   Workspace ID: ", "Workspace ID")
-    artifact_id = prompt_guid("   Artifact ID (Lakehouse): ", "Artifact ID")
+    workspace_id = prompt_guid_rich("Workspace ID", field_name="workspace")
+    artifact_id = prompt_guid_rich("Artifact ID (Lakehouse)", field_name="artifact")
     
     # Try to auto-detect capacity_id from workload-dev-mode.json
     workload_config = read_workload_dev_mode_config(flt_repo_path)
@@ -291,17 +529,16 @@ def prompt_for_config(flt_repo_path=None):
     
     if detected_capacity:
         workload_path = get_workload_dev_mode_path(flt_repo_path)
-        print(f"\n   ✅ Found CapacityGuid in workload-dev-mode.json:")
-        print(f"      Path: {workload_path}")
-        print(f"      Value: {detected_capacity}")
-        use_detected = input(f"   Use this capacity ID? [Y/n]: ").strip().lower()
-        if use_detected != 'n':
+        ui_success(f"Found CapacityGuid in workload-dev-mode.json")
+        ui_dim(f"Path: {workload_path}")
+        ui_dim(f"Value: {detected_capacity}")
+        if ui_confirm("Use this capacity ID?"):
             capacity_id = detected_capacity
-            print(f"   ✅ Using capacity ID from workload-dev-mode.json")
+            ui_success("Using capacity ID from workload-dev-mode.json")
         else:
-            capacity_id = prompt_guid("   Capacity ID: ", "Capacity ID")
+            capacity_id = prompt_guid_rich("Capacity ID", field_name=None)
     else:
-        capacity_id = prompt_guid("   Capacity ID: ", "Capacity ID")
+        capacity_id = prompt_guid_rich("Capacity ID", field_name=None)
     
     return {
         "username": username,
@@ -312,37 +549,42 @@ def prompt_for_config(flt_repo_path=None):
 
 
 def update_config(username=None, workspace_id=None, artifact_id=None, capacity_id=None, flt_repo_path=None):
-    """Update specific config values. Also syncs capacity_id to workload-dev-mode.json."""
+    """Update specific config values with GUID validation. Also syncs capacity_id to workload-dev-mode.json."""
     config = load_config()
     
     if username:
         config["username"] = username
     if workspace_id:
-        config["workspace_id"] = workspace_id
+        valid, cleaned = validate_guid(workspace_id, "workspace_id")
+        if not valid:
+            return False
+        config["workspace_id"] = cleaned
     if artifact_id:
-        config["artifact_id"] = artifact_id
+        valid, cleaned = validate_guid(artifact_id, "artifact_id")
+        if not valid:
+            return False
+        config["artifact_id"] = cleaned
     if capacity_id:
-        config["capacity_id"] = capacity_id
+        valid, cleaned = validate_guid(capacity_id, "capacity_id")
+        if not valid:
+            return False
+        config["capacity_id"] = cleaned
         # Also update workload-dev-mode.json for bidirectional sync
-        if write_workload_dev_mode_config(capacity_id, config.get("flt_repo_path")):
-            print(f"   🔄 Also updated CapacityGuid in workload-dev-mode.json")
+        if write_workload_dev_mode_config(cleaned, config.get("flt_repo_path")):
+            ui_info("Also updated CapacityGuid in workload-dev-mode.json")
     if flt_repo_path:
         # Validate the path
         repo_path = Path(flt_repo_path).resolve()
         if (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
             config["flt_repo_path"] = str(repo_path)
         else:
-            print(f"❌ Invalid FLT repo path: {repo_path}")
-            print("   Expected to find: Service/Microsoft.LiveTable.Service")
+            ui_error(f"Invalid FLT repo path: {repo_path}")
+            ui_dim("Expected to find: Service/Microsoft.LiveTable.Service")
             return False
     
     if save_config(config):
-        print("\n✅ Config updated:")
-        print(f"   Username:  {config.get('username', DEFAULT_USERNAME)}")
-        print(f"   Workspace: {config.get('workspace_id', 'not set')}")
-        print(f"   Artifact:  {config.get('artifact_id', 'not set')}")
-        print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
-        print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect')}")
+        ui_success("Config updated")
+        show_config_table(config)
         return True
     return False
 
@@ -362,36 +604,33 @@ def ensure_config():
             return None
         if not save_config(config):
             return None
-        print("\n✅ Config saved to edog-config.json")
+        ui_success("Config saved to edog-config.json")
     
     return config
 
 
 def show_config():
-    """Display current config with sync status."""
+    """Display current config with sync status using rich table."""
     config = load_config()
-    print("\n📋 Current EDOG config:")
-    if config:
-        print(f"   Username:  {config.get('username', DEFAULT_USERNAME + ' (default)')}")
-        print(f"   Workspace: {config.get('workspace_id', 'not set')}")
-        print(f"   Artifact:  {config.get('artifact_id', 'not set')}")
-        print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
-        print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect (current directory)')}")
-        print(f"\n   Config file: {get_config_path()}")
-        
-        # Check sync status with workload-dev-mode.json
-        is_synced, edog_val, workload_val, workload_path = check_capacity_sync(config.get("flt_repo_path"))
-        if workload_path and workload_path.exists():
-            print(f"\n   📁 workload-dev-mode.json: {workload_path}")
-            if is_synced:
-                print(f"   ✅ Capacity ID is in sync")
-            else:
-                print(f"   ⚠️  Capacity ID OUT OF SYNC:")
-                print(f"      edog-config.json:        {edog_val or 'not set'}")
-                print(f"      workload-dev-mode.json:  {workload_val or 'not set'}")
-                print(f"      Run 'edog' to auto-sync from workload-dev-mode.json")
-    else:
-        print("   No config found. Run 'edog' to set up.")
+    if not config:
+        ui_warn("No config found. Run 'edog' to set up.")
+        return
+
+    ui_step("Current EDOG Config")
+    show_config_table(config)
+    ui_dim(f"Config file: {get_config_path()}")
+
+    # Check sync status with workload-dev-mode.json
+    is_synced, edog_val, workload_val, workload_path = check_capacity_sync(config.get("flt_repo_path"))
+    if workload_path and workload_path.exists():
+        ui_dim(f"workload-dev-mode.json: {workload_path}")
+        if is_synced:
+            ui_success("Capacity ID is in sync")
+        else:
+            ui_warn("Capacity ID OUT OF SYNC:")
+            ui_dim(f"  edog-config.json:       {edog_val or 'not set'}")
+            ui_dim(f"  workload-dev-mode.json: {workload_val or 'not set'}")
+            ui_dim("  Run 'edog' to auto-sync from workload-dev-mode.json")
 
 # ============================================================================
 # Smart Pattern Matching (Anchor-Based Fuzzy Matching)
@@ -542,63 +781,6 @@ PATTERNS = {
 # ============================================================================
 
 
-def handle_certificate_dialog(username):
-    """Background thread to handle the Windows certificate selection dialog."""
-    print("   🔍 Watching for certificate dialog...")
-    
-    # Derive cert subject from username
-    cert_subject = username.replace("@", ".") if username else ""
-    
-    for attempt in range(30):  # Try for 30 seconds
-        time.sleep(1)
-        try:
-            desktop = Desktop(backend="uia")
-            dialog = None
-            for title in ["Windows Security", "Select a certificate", "Choose a digital certificate"]:
-                try:
-                    dialog = desktop.window(title_re=f".*{title}.*", visible_only=True)
-                    if dialog.exists():
-                        break
-                except:
-                    continue
-            
-            if not dialog or not dialog.exists():
-                continue
-                
-            print(f"   ✅ Found certificate dialog!")
-            
-            try:
-                list_ctrl = dialog.child_window(control_type="List")
-                if list_ctrl.exists():
-                    items = list_ctrl.children()
-                    for item in items:
-                        item_text = item.window_text()
-                        # Match cert based on configured username
-                        if cert_subject and cert_subject.lower() in item_text.lower():
-                            print(f"   ✅ Selecting certificate: {item_text[:50]}...")
-                            item.click_input()
-                            time.sleep(0.5)
-                            break
-            except Exception as e:
-                print(f"   ⚠️ Could not find cert in list: {e}")
-            
-            try:
-                ok_btn = dialog.child_window(title="OK", control_type="Button")
-                if ok_btn.exists():
-                    print("   ✅ Clicking OK...")
-                    ok_btn.click_input()
-                    return True
-            except Exception as e:
-                print(f"   ⚠️ Could not click OK: {e}")
-                
-        except ElementNotFoundError:
-            continue
-        except Exception:
-            continue
-    
-    print("   ⏳ Certificate dialog not found (may have been handled already)")
-    return False
-
 
 # ============================================================================
 # Token utilities
@@ -615,7 +797,7 @@ def parse_jwt_expiry(token):
         if exp_timestamp:
             return datetime.fromtimestamp(exp_timestamp)
     except Exception as e:
-        print(f"⚠️ Could not parse token expiry: {e}")
+        ui_warn(f"Could not parse token expiry: {e}")
     return None
 
 
@@ -644,13 +826,11 @@ def format_timedelta(td):
 # File modification utilities
 # ============================================================================
 def find_flt_repo():
-    """Search for FabricLiveTable repo by looking for its unique folder structure.
+    """Search for FabricLiveTable repo across targeted roots on C: and Q: drives.
     
-    Uses a fallback strategy: first searches up to depth 4 (fast ~0.3s), 
-    then falls back to depth 8 if not found (slower but more thorough).
+    Returns a list of all found repos (caller decides chooser UX).
+    Uses targeted candidate roots for speed — NOT full drive crawl.
     """
-    home = Path.home()
-    
     # Signature: repo must contain Service/Microsoft.LiveTable.Service
     def is_flt_repo(path):
         try:
@@ -661,9 +841,11 @@ def find_flt_repo():
     skip_dirs = {'.git', '.vs', '.vscode', 'node_modules', '__pycache__', 'bin', 'obj', 
                  'packages', 'AppData', '.nuget', '.dotnet', '.azure', 'OneDrive'}
     
+    found_repos = []
+    
     def search_dir(start_path, max_depth, current_depth=0):
         if current_depth > max_depth:
-            return None
+            return
         try:
             for entry in start_path.iterdir():
                 try:
@@ -671,32 +853,46 @@ def find_flt_repo():
                         continue
                 except (PermissionError, OSError):
                     continue
-                # Skip hidden folders and known non-repo dirs
                 if entry.name.startswith('.') or entry.name in skip_dirs:
                     continue
-                # Check if this is the FLT repo
                 if is_flt_repo(entry):
-                    return entry
-                # Recurse into subdirectory
-                found = search_dir(entry, max_depth, current_depth + 1)
-                if found:
-                    return found
+                    found_repos.append(entry)
+                    continue  # Don't recurse into a found repo
+                search_dir(entry, max_depth, current_depth + 1)
         except (PermissionError, OSError):
             pass
-        return None
     
-    # Fallback strategy: try shallow search first (fast), then deeper search if needed
-    result = search_dir(home, max_depth=4)
-    if result:
-        return result
+    # Build candidate roots: user home, common dev dirs on C: and Q:
+    home = Path.home()
+    candidate_roots = [home]
+    for drive in ["C:", "Q:"]:
+        drive_path = Path(f"{drive}\\")
+        if not drive_path.exists():
+            continue
+        for subdir in ["src", "repos", "dev", "projects", "code", "work", "git",
+                        "Users", "enlistments"]:
+            candidate = drive_path / subdir
+            if candidate.exists() and candidate != home:
+                candidate_roots.append(candidate)
     
-    # Not found at depth 4, try deeper search
-    print("   Searching deeper for FLT repo...")
-    return search_dir(home, max_depth=8)
+    ui_dim("Scanning for FLT repos...")
+    for root in candidate_roots:
+        search_dir(root, max_depth=4)
+    
+    # Deduplicate by resolved path
+    seen = set()
+    unique = []
+    for r in found_repos:
+        resolved = str(r.resolve())
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(r)
+    
+    return unique
 
 
 def get_repo_root():
-    """Get FLT repository root directory from config or auto-detect."""
+    """Get FLT repository root directory from config or auto-detect with chooser."""
     config = load_config()
     
     # First, check config for explicit repo path
@@ -705,8 +901,8 @@ def get_repo_root():
         if repo_path.exists() and (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
             return repo_path
         else:
-            print(f"⚠️ Configured FLT repo path no longer valid: {repo_path}")
-            print(f"   → Update with: edog --config -r <new_path>")
+            ui_warn(f"Configured FLT repo path no longer valid: {repo_path}")
+            ui_dim("Update with: edog --config -r <new_path>")
     
     # Try current working directory
     cwd = Path.cwd()
@@ -718,39 +914,51 @@ def get_repo_root():
         if (parent / "Service" / "Microsoft.LiveTable.Service").exists():
             return parent
     
-    # Auto-search common locations
-    found = find_flt_repo()
-    if found:
-        # Save it to config for future use
-        config["flt_repo_path"] = str(found)
-        save_config(config)
-        print(f"✅ Auto-detected FLT repo: {found}")
-        return found
+    # Auto-search common locations (returns list)
+    repos = find_flt_repo()
     
-    # Not found - prompt user for path
-    print("\n⚠️ FabricLiveTable repo not found automatically.")
-    print("   Please enter the path to your workload-fabriclivetable repo.\n")
+    if len(repos) == 1:
+        chosen = repos[0]
+        if ui_confirm(f"Found FLT repo: {chosen}", default=True):
+            config["flt_repo_path"] = str(chosen)
+            save_config(config)
+            ui_success(f"Saved FLT repo path: {chosen}")
+            return chosen
+    elif len(repos) > 1:
+        ui_info(f"Found {len(repos)} FLT repos:")
+        options = [str(r) for r in repos]
+        chosen_path = ui_choose("Select repo", options)
+        if chosen_path:
+            chosen = Path(chosen_path)
+            config["flt_repo_path"] = str(chosen)
+            save_config(config)
+            ui_success(f"Saved FLT repo path: {chosen}")
+            return chosen
+    
+    # Not found — prompt user for path with example
+    ui_warn("FabricLiveTable repo not found automatically.")
     
     while True:
-        repo_input = input("   FLT Repo Path (or 'q' to quit): ").strip()
-        if repo_input.lower() == 'q':
-            return None
+        repo_input = ui_prompt(
+            "FLT Repo Path",
+            default="",
+            example=r"C:\Users\you\repos\workload-fabriclivetable"
+        )
         if not repo_input:
-            print("   ❌ Path is required")
-            continue
+            return None
         
         repo_path = Path(repo_input).resolve()
         if not repo_path.exists():
-            print(f"   ❌ Path does not exist: {repo_path}")
+            ui_error(f"Path does not exist: {repo_path}")
             continue
         if not (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
-            print(f"   ❌ Not a valid FLT repo (missing Service/Microsoft.LiveTable.Service)")
+            ui_error("Not a valid FLT repo (missing Service/Microsoft.LiveTable.Service)")
             continue
         
         # Valid path - save to config
         config["flt_repo_path"] = str(repo_path)
         save_config(config)
-        print(f"   ✅ Saved FLT repo path: {repo_path}")
+        ui_success(f"Saved FLT repo path: {repo_path}")
         return repo_path
 
 
@@ -760,16 +968,15 @@ def read_file(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     except PermissionError:
-        print(f"❌ File is locked: {filepath.name}")
-        print(f"   → Close the file in Visual Studio/VS Code and retry")
+        ui_error(f"File is locked: {filepath.name}")
+        ui_dim("Close the file in Visual Studio/VS Code and retry")
         return None
     except FileNotFoundError:
-        print(f"❌ File not found: {filepath}")
-        print(f"   → Check if FLT repo path is correct: edog --config")
-        print(f"   → The codebase structure may have changed")
+        ui_error(f"File not found: {filepath}")
+        ui_dim("Check if FLT repo path is correct: edog --config")
         return None
     except Exception as e:
-        print(f"❌ Error reading {filepath.name}: {e}")
+        ui_error(f"Error reading {filepath.name}: {e}")
         return None
 
 
@@ -780,11 +987,11 @@ def write_file(filepath, content):
             f.write(content)
         return True
     except PermissionError:
-        print(f"❌ File is locked: {filepath.name}")
-        print(f"   → Close the file in Visual Studio/VS Code and retry")
+        ui_error(f"File is locked: {filepath.name}")
+        ui_dim("Close the file in Visual Studio/VS Code and retry")
         return False
     except Exception as e:
-        print(f"❌ Error writing {filepath.name}: {e}")
+        ui_error(f"Error writing {filepath.name}: {e}")
         return False
 
 
@@ -832,14 +1039,11 @@ def warn_uncommitted_edog_changes(repo_root):
     dirty_files = check_git_status(repo_root)
     
     if dirty_files:
-        print()
-        print("⚠️  WARNING: EDOG-modified files have uncommitted changes!")
-        print("   Don't commit these files with EDOG changes.")
-        print("   Run 'edog --revert' before committing.")
-        print()
+        ui_warn("EDOG-modified files have uncommitted changes!")
+        ui_dim("Don't commit these files with EDOG changes.")
+        ui_dim("Run 'edog --revert' before committing.")
         for f in dirty_files:
-            print(f"   • {f}")
-        print()
+            ui_dim(f"  • {f}")
         return True
     return False
 
@@ -850,7 +1054,7 @@ def install_git_hook(repo_root):
     hook_file = hooks_dir / "pre-commit"
     
     if not hooks_dir.exists():
-        print(f"❌ Git hooks directory not found: {hooks_dir}")
+        ui_error(f"Git hooks directory not found: {hooks_dir}")
         return False
     
     # Hook script content
@@ -884,25 +1088,25 @@ exit 0
     if hook_file.exists():
         existing = hook_file.read_text(encoding='utf-8', errors='ignore')
         if "EDOG DevMode pre-commit hook" in existing:
-            print("✅ EDOG pre-commit hook already installed")
+            ui_success("EDOG pre-commit hook already installed")
             return True
         else:
             # Backup existing hook
             backup = hook_file.with_suffix(".pre-edog-backup")
             hook_file.rename(backup)
-            print(f"   Backed up existing hook to: {backup.name}")
+            ui_dim(f"Backed up existing hook to: {backup.name}")
     
     try:
         hook_file.write_text(hook_script, encoding='utf-8')
         # Make executable (on Unix)
         import stat
         hook_file.chmod(hook_file.stat().st_mode | stat.S_IEXEC)
-        print(f"✅ Installed EDOG pre-commit hook")
-        print(f"   Location: {hook_file}")
-        print(f"   Commits with EDOG changes will now be blocked.")
+        ui_success("Installed EDOG pre-commit hook")
+        ui_dim(f"Location: {hook_file}")
+        ui_dim("Commits with EDOG changes will now be blocked.")
         return True
     except Exception as e:
-        print(f"❌ Failed to install hook: {e}")
+        ui_error(f"Failed to install hook: {e}")
         return False
 
 
@@ -911,27 +1115,27 @@ def uninstall_git_hook(repo_root):
     hook_file = repo_root / ".git" / "hooks" / "pre-commit"
     
     if not hook_file.exists():
-        print("   No pre-commit hook found")
+        ui_dim("No pre-commit hook found")
         return True
     
     content = hook_file.read_text()
     if "EDOG DevMode pre-commit hook" not in content:
-        print("   Pre-commit hook exists but is not EDOG's hook")
+        ui_dim("Pre-commit hook exists but is not EDOG's hook")
         return False
     
     try:
         hook_file.unlink()
-        print("✅ Removed EDOG pre-commit hook")
+        ui_success("Removed EDOG pre-commit hook")
         
         # Restore backup if exists
         backup = hook_file.with_suffix(".pre-edog-backup")
         if backup.exists():
             backup.rename(hook_file)
-            print(f"   Restored previous hook from backup")
+            ui_dim("Restored previous hook from backup")
         
         return True
     except Exception as e:
-        print(f"❌ Failed to remove hook: {e}")
+        ui_error(f"Failed to remove hook: {e}")
         return False
 
 
@@ -1002,7 +1206,7 @@ def generate_patch(original_contents, modified_contents, repo_root):
         patch_path.write_text(patch_content, encoding='utf-8')
         return True
     except Exception as e:
-        print(f"❌ Failed to write patch file: {e}")
+        ui_error(f"Failed to write patch file: {e}")
         return False
 
 
@@ -1047,8 +1251,8 @@ def apply_patch_reverse(repo_root):
         
         else:
             # Patch doesn't apply cleanly - files were modified
-            print("\n   ⚠️  Files were modified after EDOG changes were applied.")
-            print("   Attempting 3-way merge to preserve your changes...")
+            ui_warn("Files were modified after EDOG changes were applied.")
+            ui_dim("Attempting 3-way merge to preserve your changes...")
             
             # Try with --3way to do a 3-way merge
             result = subprocess.run(
@@ -1172,7 +1376,7 @@ def cache_bearer_token(token: str, expiry_timestamp: float, cache_dir: Path | No
         cache_path.write_text(encoded, encoding="utf-8")
         return True
     except OSError as e:
-        print(f"⚠️  Could not cache bearer token: {e}")
+        ui_warn(f"Could not cache bearer token: {e}")
         return False
 
 
@@ -1230,10 +1434,10 @@ def write_bearer_live_token(token, expiry_timestamp=None, workspace_id=None):
         tmp_path = live_path.with_suffix('.tmp')
         tmp_path.write_text(data, encoding='utf-8')
         tmp_path.replace(live_path)
-        print(f"  📄 Live bearer written to {live_path.name}")
+        ui_dim(f"Live bearer written to {live_path.name}")
         return True
     except OSError as e:
-        print(f"  ⚠️ Failed to write live bearer: {e}")
+        ui_warn(f"Failed to write live bearer: {e}")
         return False
 
 
@@ -1399,7 +1603,7 @@ def apply_gts_spark_client_change(content, repo_root=None, workspace_id=None):
         content, reverted = revert_gts_spark_client_change(content, repo_root)
         if not reverted:
             return content, "upgrade_failed"
-        print("  ⬆️  Upgrading from hardcoded to file-based bypass")
+        ui_dim("Upgrading from hardcoded to file-based bypass")
     
     # Case 3: Fresh apply — find the method and replace
     method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
@@ -1510,7 +1714,7 @@ def revert_gts_spark_client_change(content, repo_root=None):
             return new_content, True
             
         except Exception as e:
-            print(f"⚠️ Failed to decode stored original: {e}")
+            ui_warn(f"Failed to decode stored original: {e}")
     
     # No stored original - try to restore from git
     if repo_root:
@@ -1523,14 +1727,14 @@ def revert_gts_spark_client_change(content, repo_root=None):
                 text=True
             )
             if result.returncode == 0:
-                print("   ℹ️  Restored from git HEAD (no stored original found)")
+                ui_dim("Restored from git HEAD (no stored original found)")
                 return result.stdout, True
             else:
-                print(f"⚠️ Git show failed: {result.stderr.strip()}")
+                ui_warn(f"Git show failed: {result.stderr.strip()}")
         except Exception as e:
-            print(f"⚠️ Could not restore from git: {e}")
+            ui_warn(f"Could not restore from git: {e}")
     
-    print("⚠️ No stored original found. Please manually revert GTSBasedSparkClient.cs.")
+    ui_warn("No stored original found. Please manually revert GTSBasedSparkClient.cs.")
     return content, False
 
 
@@ -1719,7 +1923,7 @@ def apply_log_viewer_files(repo_root):
         src_file = src_dir / target.name
         
         if not src_file.exists():
-            print(f"   ⚠️  Source file not found: {src_file}")
+            ui_warn(f"Source file not found: {src_file}")
             continue
         
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1941,17 +2145,17 @@ def fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id):
             result = json.loads(response.read().decode('utf-8'))
             return result.get('Token') or result.get('token')
     except urllib.error.HTTPError as e:
-        print(f"❌ HTTP Error {e.code}: {e.reason}")
+        ui_error(f"HTTP Error {e.code}: {e.reason}")
         try:
-            print(f"   Response: {e.read().decode('utf-8')[:500]}")
+            ui_dim(f"Response: {e.read().decode('utf-8')[:500]}")
         except:
             pass
         return None
     except urllib.error.URLError as e:
-        print(f"❌ URL Error: {e.reason}")
+        ui_error(f"URL Error: {e.reason}")
         return None
     except Exception as e:
-        print(f"❌ Error fetching MWC token: {type(e).__name__}: {e}")
+        ui_error(f"Error fetching MWC token: {type(e).__name__}: {e}")
         return None
 
 
@@ -1971,7 +2175,7 @@ def _get_token_helper_exe():
     # Not built yet — try building
     csproj = helper_dir / "token-helper.csproj"
     if csproj.exists():
-        print("  Building token-helper...")
+        ui_dim("Building token-helper...")
         build = subprocess.run(
             ["dotnet", "build", str(csproj), "-v", "q"],
             capture_output=True, text=True,
@@ -1986,7 +2190,13 @@ def _get_token_helper_exe():
 
 def _find_cert_thumbprint(cert_subject: str):
     """Find certificate thumbprint from Windows cert store by CN.
-    Caches result to disk — the thumbprint never changes for a given CN.
+
+    Strategy:
+        1. Memory cache
+        2. Disk cache (survives restarts)
+        3. token-helper --list-certs (fast, returns all CBA certs as JSON)
+        4. PowerShell fallback
+    If multiple certs match, shows chooser.
     """
     if cert_subject in _thumbprint_cache:
         return _thumbprint_cache[cert_subject]
@@ -2004,6 +2214,49 @@ def _find_cert_thumbprint(cert_subject: str):
         except OSError:
             pass
 
+    # Try token-helper --list-certs first (faster than PowerShell, returns JSON)
+    helper_exe = _get_token_helper_exe()
+    if helper_exe:
+        try:
+            result = subprocess.run(
+                [str(helper_exe), "--list-certs"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                certs = json.loads(result.stdout.strip())
+                # Filter certs matching our subject
+                matches = [c for c in certs if cert_subject.lower() in c.get("cn", "").lower()
+                           or cert_subject.lower() in c.get("subject", "").lower()]
+                if len(matches) == 1:
+                    tp = matches[0]["thumbprint"]
+                    _thumbprint_cache[cert_subject] = tp
+                    try:
+                        cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
+                    except OSError:
+                        pass
+                    ui_dim(f"Cert: {matches[0].get('cn', cert_subject)} ({tp[:8]}...)")
+                    return tp
+                elif len(matches) > 1:
+                    ui_info(f"Found {len(matches)} CBA certificates matching '{cert_subject}':")
+                    options = []
+                    for c in matches:
+                        label = f"{c.get('cn', '?')}  thumbprint:{c['thumbprint'][:8]}...  expires:{c.get('notAfter', '?')[:10]}"
+                        options.append(label)
+                    chosen = ui_choose("Select certificate", options)
+                    if chosen:
+                        idx = options.index(chosen)
+                        tp = matches[idx]["thumbprint"]
+                        _thumbprint_cache[cert_subject] = tp
+                        try:
+                            cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
+                        except OSError:
+                            pass
+                        return tp
+                    return None
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+            pass
+
+    # Fallback: PowerShell cert store query
     tp = _query_cert_store(cert_subject)
     if tp:
         _thumbprint_cache[cert_subject] = tp
@@ -2011,6 +2264,9 @@ def _find_cert_thumbprint(cert_subject: str):
             cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
         except OSError:
             pass
+    else:
+        ui_error(f"No CBA certificate found for '{cert_subject}'")
+        ui_dim("Ensure the CBA cert is installed in CurrentUser\\My cert store")
     return tp
 
 
@@ -2073,7 +2329,7 @@ def _try_silent_cba(username: str, resource: str | None = None):
     if not helper_exe:
         return None
 
-    print(f"  Silent CBA: {cert_subject}" + (f" (audience: {resource})" if resource else ""))
+    ui_dim(f"Silent CBA: {cert_subject}" + (f" (audience: {resource})" if resource else ""))
     try:
         cmd = [str(helper_exe), thumbprint, username]
         if resource:
@@ -2086,18 +2342,18 @@ def _try_silent_cba(username: str, resource: str | None = None):
             capture_output=True, text=True, timeout=30,
         )
     except subprocess.TimeoutExpired:
-        print("  Silent CBA timed out")
+        ui_warn("Silent CBA timed out")
         return None
 
     if result.returncode == 0:
         token = result.stdout.strip()
         if token.startswith("eyJ"):
-            print(f"  Token acquired via Silent CBA ({len(token)} chars)")
+            ui_dim(f"Token acquired via Silent CBA ({len(token)} chars)")
             return token
 
     for line in (result.stderr or "").strip().split("\n"):
         if "ERROR" in line:
-            print(f"  Silent CBA: {line}")
+            ui_warn(f"Silent CBA: {line}")
     return None
 
 
@@ -2127,14 +2383,14 @@ def get_bearer_token(username):
         Bearer token string, or None on failure.
     """
     if not username:
-        print("❌ Username is required")
+        ui_error("Username is required")
         return None
 
     # --- 1. Try cache first ---
     cached_token, cached_expiry = load_cached_bearer_token()
     if cached_token:
         remaining = (cached_expiry - datetime.now()).total_seconds() / 60
-        print(f"  Using cached bearer token (expires in {remaining:.0f} min)")
+        ui_dim(f"Using cached bearer token (expires in {remaining:.0f} min)")
         return cached_token
 
     # --- 2. Silent CBA ---
@@ -2143,7 +2399,7 @@ def get_bearer_token(username):
         _cache_bearer(bearer_token)
         return bearer_token
 
-    print("  Failed to acquire token")
+    ui_error("Failed to acquire token")
     return None
 
 
@@ -2152,7 +2408,7 @@ def get_bearer_token(username):
 # ============================================================================
 def apply_all_changes(repo_root, workspace_id=None):
     """Apply all EDOG changes to codebase and generate a patch file for clean revert."""
-    print("\n📝 Applying EDOG changes...")
+    ui_step("Applying EDOG changes...")
     
     changes_made = []
     warnings = []
@@ -2266,18 +2522,17 @@ def apply_all_changes(repo_root, workspace_id=None):
     
     # Generate patch file for clean revert
     if generate_patch(original_contents, modified_contents, repo_root):
-        print(f"\n   📄 Patch file saved: {get_patch_file_path().name}")
-        print(f"      Use 'edog --revert' to cleanly undo all changes")
+        ui_dim(f"Patch file saved: {get_patch_file_path().name}")
+        ui_dim("Use 'edog --revert' to cleanly undo all changes")
     
     # Print summary
     for msg in changes_made:
-        print(f"   {msg}")
+        ui_print(f"   {msg}")
     
     # Print warnings
     if warnings:
-        print()
         for msg in warnings:
-            print(f"   {msg}")
+            ui_warn(msg)
     
     return len(warnings) == 0
 
@@ -2288,16 +2543,16 @@ def revert_all_changes(repo_root):
     Does NOT depend on the patch file — each change type has its own revert
     function that detects and removes EDOG modifications directly.
     """
-    print("\n🔄 Reverting EDOG changes...")
+    ui_step("Reverting EDOG changes...")
     
     all_success = True
     
     # 1. Revert log viewer files (created files, not patches)
     try:
         if revert_log_viewer_files(repo_root):
-            print(f"   ✅ Removed log viewer files")
+            ui_success("Removed log viewer files")
     except Exception as e:
-        print(f"   ⚠️ Error removing log viewer files: {e}")
+        ui_warn(f"Error removing log viewer files: {e}")
         all_success = False
     
     # 2. Revert GTSBasedSparkClient bypass
@@ -2309,11 +2564,11 @@ def revert_all_changes(repo_root):
             reverted, changed = revert_gts_spark_client_change(content, repo_root)
             if changed:
                 write_file(filepath, reverted)
-                print(f"   ✅ Reverted GTSBasedSparkClient bypass")
+                ui_success("Reverted GTSBasedSparkClient bypass")
             else:
-                print(f"   ⏭️  GTSBasedSparkClient (clean)")
+                ui_dim("GTSBasedSparkClient (clean)")
     except Exception as e:
-        print(f"   ⚠️ Error reverting GTSBasedSparkClient: {e}")
+        ui_warn(f"Error reverting GTSBasedSparkClient: {e}")
         all_success = False
     
     # 4. Revert Program.cs registration
@@ -2325,11 +2580,11 @@ def revert_all_changes(repo_root):
             reverted = revert_log_viewer_registration_program_cs(content)
             if reverted != content:
                 write_file(filepath, reverted)
-                print(f"   ✅ Reverted log viewer registration (Program.cs)")
+                ui_success("Reverted log viewer registration (Program.cs)")
             else:
-                print(f"   ⏭️  Program.cs (clean)")
+                ui_dim("Program.cs (clean)")
     except Exception as e:
-        print(f"   ⚠️ Error reverting Program.cs: {e}")
+        ui_warn(f"Error reverting Program.cs: {e}")
         all_success = False
     
     # 5. Revert WorkloadApp.cs interceptor
@@ -2341,11 +2596,11 @@ def revert_all_changes(repo_root):
             reverted = revert_log_viewer_registration_workloadapp_cs(content)
             if reverted != content:
                 write_file(filepath, reverted)
-                print(f"   ✅ Reverted telemetry interceptor (WorkloadApp.cs)")
+                ui_success("Reverted telemetry interceptor (WorkloadApp.cs)")
             else:
-                print(f"   ⏭️  WorkloadApp.cs (clean)")
+                ui_dim("WorkloadApp.cs (clean)")
     except Exception as e:
-        print(f"   ⚠️ Error reverting WorkloadApp.cs: {e}")
+        ui_warn(f"Error reverting WorkloadApp.cs: {e}")
         all_success = False
     
     # 6. Revert DisableFLTAuth in ParametersManifest.json and Test.json
@@ -2361,11 +2616,11 @@ def revert_all_changes(repo_root):
                 reverted = revert_fn(content)
                 if reverted != content:
                     write_file(filepath, reverted)
-                    print(f"   ✅ Reverted {desc}")
+                    ui_success(f"Reverted {desc}")
                 else:
-                    print(f"   ⏭️  {desc} (clean)")
+                    ui_dim(f"{desc} (clean)")
         except Exception as e:
-            print(f"   ⚠️ Error reverting {desc}: {e}")
+            ui_warn(f"Error reverting {desc}: {e}")
             all_success = False
     
     # 7. Clean up patch file (no longer needed)
@@ -2381,10 +2636,9 @@ def revert_all_changes(repo_root):
 
 def check_status(repo_root):
     """Check if EDOG changes are applied using smart pattern matching."""
-    print("\n🔍 Checking EDOG status...")
+    ui_step("Checking EDOG status...")
     
     status = []
-    warnings = []
     
     # Check GTSBasedSparkClient (legacy - exact match)
     filepath = repo_root / FILES["GTSBasedSparkClient"]
@@ -2429,26 +2683,23 @@ def check_status(repo_root):
     any_applied = any(s[1] for s in status) if status else False
     
     for desc, applied in status:
-        icon = "✅" if applied else "❌"
-        print(f"   {icon} {desc}")
+        if applied:
+            ui_success(desc)
+        else:
+            ui_error(desc)
     
-    # Print warnings
-    for msg in warnings:
-        print(f"   {msg}")
-    
-    print()
     if all_applied:
-        print("   ✅ All EDOG changes are applied")
+        ui_success("All EDOG changes are applied")
     elif any_applied:
-        print("   ⚠️  Some EDOG changes are applied (partial state)")
+        ui_warn("Some EDOG changes are applied (partial state)")
     else:
-        print("   ❌ No EDOG changes are applied")
+        ui_error("No EDOG changes are applied")
     
     # Check for patch file
     patch_path = get_patch_file_path()
     if patch_path.exists():
-        print(f"\n   📄 Patch file exists: {patch_path.name}")
-        print(f"      Run 'edog --revert' to cleanly undo changes")
+        ui_dim(f"Patch file exists: {patch_path.name}")
+        ui_dim("Run 'edog --revert' to cleanly undo changes")
     
     # Git safety warning
     if any_applied:
@@ -2468,21 +2719,21 @@ def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max
     """
     for attempt in range(max_retries):
         if attempt > 0:
-            print(f"\n  Retry {attempt + 1}/{max_retries}...")
+            ui_dim(f"Retry {attempt + 1}/{max_retries}...")
 
         bearer_token = get_bearer_token(username)
         if not bearer_token:
-            print("  Failed to capture Bearer token")
+            ui_warn("Failed to capture Bearer token")
             continue
 
-        print("  Fetching MWC token...")
+        ui_dim("Fetching MWC token...")
         mwc_token = fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id)
 
         if mwc_token:
             return mwc_token
 
         # MWC fetch failed — bearer might be stale, clear cache and retry
-        print("  MWC token fetch failed, clearing bearer cache...")
+        ui_warn("MWC token fetch failed, clearing bearer cache...")
         cache_path = get_bearer_cache_path()
         cache_path.unlink(missing_ok=True)
 
@@ -2509,14 +2760,14 @@ def start_flt_service(repo_root):
     
     entrypoint = get_entrypoint_path(repo_root)
     if not entrypoint.exists():
-        print(f"❌ EntryPoint not found: {entrypoint}")
+        ui_error(f"EntryPoint not found: {entrypoint}")
         return None
     
-    print(f"   Project: {entrypoint}")
+    ui_dim(f"Project: {entrypoint}")
     
     try:
         # Step 1: Build first to ensure changes are compiled
-        print(f"   ⏳ Building project (to compile code changes)...")
+        ui_step("Building project (to compile code changes)...")
         build_result = subprocess.run(
             ["dotnet", "build", str(entrypoint), "--no-incremental"],
             capture_output=True,
@@ -2525,16 +2776,16 @@ def start_flt_service(repo_root):
         )
         
         if build_result.returncode != 0:
-            print(f"   ❌ Build failed:")
-            for line in build_result.stdout.split('\n')[-20:]:  # Last 20 lines
+            ui_error("Build failed:")
+            for line in build_result.stdout.split('\n')[-20:]:
                 if line.strip():
-                    print(f"      {line}")
+                    ui_dim(f"  {line}")
             return None
         
-        print(f"   ✅ Build successful")
+        ui_success("Build successful")
         
         # Step 2: Run the service from the EntryPoint directory (required for WorkloadParameters)
-        print(f"   🚀 Launching service...")
+        ui_step("Launching service...")
         process = subprocess.Popen(
             ["dotnet", "run", "--no-build"],
             stdout=subprocess.PIPE,
@@ -2545,14 +2796,14 @@ def start_flt_service(repo_root):
         )
         
         FLT_SERVICE_PROCESS = process
-        print(f"   ✅ Service started (PID: {process.pid})")
+        ui_success(f"Service started (PID: {process.pid})")
         return process
         
     except FileNotFoundError:
-        print("❌ 'dotnet' not found. Make sure .NET SDK is installed and in PATH.")
+        ui_error("'dotnet' not found. Make sure .NET SDK is installed and in PATH.")
         return None
     except Exception as e:
-        print(f"❌ Failed to start service: {e}")
+        ui_error(f"Failed to start service: {e}")
         return None
 
 
@@ -2573,7 +2824,7 @@ def stop_flt_service(process=None, timeout=10):
         FLT_SERVICE_PROCESS = None
         return True
     
-    print(f"\n🛑 Stopping FLT Service (PID: {proc.pid})...")
+    ui_step(f"Stopping FLT Service (PID: {proc.pid})...")
     
     try:
         # Try graceful termination first
@@ -2581,19 +2832,19 @@ def stop_flt_service(process=None, timeout=10):
         
         try:
             proc.wait(timeout=timeout)
-            print(f"   ✅ Service stopped gracefully")
+            ui_success("Service stopped gracefully")
             FLT_SERVICE_PROCESS = None
             return True
         except subprocess.TimeoutExpired:
-            print(f"   ⚠️ Service didn't stop in {timeout}s, forcing kill...")
+            ui_warn(f"Service didn't stop in {timeout}s, forcing kill...")
             proc.kill()
             proc.wait(timeout=5)
-            print(f"   ✅ Service killed")
+            ui_success("Service killed")
             FLT_SERVICE_PROCESS = None
             return True
             
     except Exception as e:
-        print(f"   ❌ Error stopping service: {e}")
+        ui_error(f"Error stopping service: {e}")
         FLT_SERVICE_PROCESS = None
         return False
 
@@ -2608,103 +2859,61 @@ def stream_service_output(process, stop_event):
             line = process.stdout.readline()
             if line:
                 # Prefix service output to distinguish from edog messages
-                print(f"   [FLT] {line.rstrip()}")
+                ui_log(f"[FLT] {line.rstrip()}")
     except Exception:
         pass
 
 
-def handle_devmode_account_picker(username, timeout=30):
-    """
-    Handle the DevMode account picker popup that appears when FLT service starts.
-    Uses pywinauto to find the Edge window and keyboard to select the account.
-    """
-    if not PYWINAUTO_AVAILABLE:
-        print(f"\n   ⚠️ pywinauto not installed — please manually select account: {username}")
-        print(f"   Install with: pip install pywinauto")
-        return False
+def inject_devmode_token(username, flt_repo_path):
+    """Acquire a token with the MwcFrontendBaseEndpoint audience and inject
+    it as UserAuthorizationToken into workload-dev-mode.json.
 
-    from pywinauto import Desktop
-    import time as time_module
-    
-    # Extract account name for matching
-    account_name = username.split("@")[0] if "@" in username else username
-    
-    print(f"\n🔍 Watching for DevMode account picker...")
-    print(f"   Target account: {username}")
-    
-    start_time = time_module.time()
-    
-    while (time_module.time() - start_time) < timeout:
-        try:
-            desktop = Desktop(backend="uia")
-            
-            # Find all windows
-            windows = desktop.windows()
-            for win in windows:
-                try:
-                    title = win.window_text().lower()
-                    
-                    # Check if this is a Microsoft login/account picker window
-                    is_login_window = any(keyword in title for keyword in [
-                        "pick an account", "sign in to your account", 
-                        "login.microsoftonline", "sign in -"
-                    ])
-                    
-                    if is_login_window and "edge" in title:
-                        print(f"   📍 Found account picker window")
-                        
-                        try:
-                            # Bring window to foreground
-                            win.set_focus()
-                            time_module.sleep(0.5)
-                            
-                            # Use keyboard to interact with account picker
-                            # The account tiles are typically Tab-able
-                            # Press Tab a few times to reach the account, then Enter
-                            
-                            from pywinauto.keyboard import send_keys
-                            
-                            # First, try clicking in the window area to ensure focus
-                            try:
-                                win.click_input()
-                                time_module.sleep(0.3)
-                            except:
-                                pass
-                            
-                            # Send Tab to navigate to the first account tile
-                            # Then Enter to select it
-                            print(f"   ⌨️ Selecting first account (expected: {username})...")
-                            
-                            # Tab to first account and Enter (Microsoft account picker)
-                            send_keys("{TAB}{TAB}{ENTER}")
-                            time_module.sleep(1)
-                            
-                            print(f"   ✅ Selected account: {username} (first option in picker)")
-                            return True
-                            
-                        except Exception as e:
-                            print(f"   ⚠️ Error with keyboard: {e}")
-                            
-                except Exception:
-                    continue
-                    
-        except Exception as e:
-            pass
-        
-        time_module.sleep(1)
-    
-    # Fallback: notify user to manually select account
-    print(f"\n   ⚠️ Could not auto-select account within {timeout}s")
-    print(f"   👉 Please manually select: {username}")
-    print(f"   (The account picker window may need your attention)")
-    
-    # Show Windows notification
+    WCL SDK checks this field on startup — if present, it skips the browser
+    popup entirely.  Zero-popup auth, no pywinauto needed.
+
+    NOTE: This is a DIFFERENT token from the bearer live file.
+      - Live file bearer  → audience: PowerBI API → used for MWC generation
+      - This token         → audience: MwcFrontendBaseEndpoint → used by WCL SDK
+
+    Returns:
+        datetime expiry of the injected token, or None on failure.
+    """
+    devmode_path = get_workload_dev_mode_path(flt_repo_path)
+    if not devmode_path or not devmode_path.exists():
+        ui_warn("workload-dev-mode.json not found — browser popup may appear")
+        return None
+
     try:
-        show_notification("EDOG DevMode", f"Please select account: {username}")
-    except:
-        pass
-    
-    return False
+        data = json.loads(devmode_path.read_text(encoding="utf-8"))
+        mwc_endpoint = data.get("MwcFrontendBaseEndpoint", "")
+        if not mwc_endpoint:
+            ui_warn("No MwcFrontendBaseEndpoint in config — skipping token injection")
+            return None
+
+        # Strip trailing port/slash for the resource URI
+        resource = mwc_endpoint.rstrip("/")
+        if resource.endswith(":443"):
+            resource = resource[:-4]
+
+        # Acquire token with MwcFrontendBaseEndpoint as audience
+        ui_dim(f"Acquiring DevMode token (audience: {resource})...")
+        devmode_token = _try_silent_cba(username, resource=resource)
+        if not devmode_token:
+            ui_warn("Could not acquire DevMode token — browser popup may appear")
+            return None
+
+        data["UserAuthorizationToken"] = devmode_token
+        # Atomic write
+        tmp = devmode_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        tmp.replace(devmode_path)
+
+        expiry = parse_jwt_expiry(devmode_token)
+        ui_success(f"Injected UserAuthorizationToken → zero-popup auth (expires: {expiry.strftime('%H:%M:%S') if expiry else 'unknown'})")
+        return expiry
+    except Exception as e:
+        ui_warn(f"Token injection failed: {e} — browser popup may appear")
+        return None
 
 
 def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True):
@@ -2714,47 +2923,63 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     synced_capacity = sync_capacity_from_workload(str(repo_root), silent=False)
     if synced_capacity and synced_capacity.lower() != capacity_id.lower():
         capacity_id = synced_capacity
-        print(f"   Using synced capacity_id: {capacity_id}")
+        ui_dim(f"Using synced capacity_id: {capacity_id}")
     
-    print("=" * 70)
-    print("EDOG DevMode Token Manager")
-    print("=" * 70)
-    print(f"Username:  {username}")
-    print(f"Workspace: {workspace_id}")
-    print(f"Artifact:  {artifact_id}")
-    print(f"Capacity:  {capacity_id}")
-    print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
-    print("=" * 70)
+    # Show daemon banner
+    if RICH_AVAILABLE:
+        banner_config = {
+            "username": username,
+            "workspace_id": workspace_id,
+            "artifact_id": artifact_id,
+            "capacity_id": capacity_id,
+        }
+        show_banner()
+        show_config_table(banner_config)
+        ui_dim(f"Auto-launch: {'Yes' if launch_service else 'No'}")
+    else:
+        print("=" * 70)
+        print("EDOG DevMode Token Manager")
+        print("=" * 70)
+        print(f"Username:  {username}")
+        print(f"Workspace: {workspace_id}")
+        print(f"Artifact:  {artifact_id}")
+        print(f"Capacity:  {capacity_id}")
+        print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
+        print("=" * 70)
     
     # Get bearer token (C# service will use this to generate MWC tokens itself)
-    print("\n🔑 Acquiring bearer token...")
+    ui_step("Acquiring bearer token...")
     bearer_token = get_bearer_token(username)
     if not bearer_token:
-        print("\n❌ Failed to acquire bearer token")
+        ui_error("Failed to acquire bearer token")
         return 1
     
     bearer_expiry = parse_jwt_expiry(bearer_token)
-    print(f"✅ Bearer acquired (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
+    ui_success(f"Bearer acquired (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
     
     # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
     write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
     
     # Apply code patches (token-independent — C# reads bearer from file)
     if not apply_all_changes(repo_root, workspace_id=workspace_id):
-        print("\n⚠️  Some changes could not be applied")
+        ui_warn("Some changes could not be applied")
     
-    print("\n✅ Code changes applied successfully")
+    ui_success("Code changes applied successfully")
     
     # Start FLT service if requested
     service_process = None
     stop_event = None
     output_thread = None
-    popup_thread = None
     
+    # Track DevMode token expiry separately (different audience → different lifetime)
+    devmode_expiry = None
+
     if launch_service:
-        print("\n" + "=" * 70)
-        print("🚀 Starting FLT Service...")
-        print("=" * 70)
+        # Inject DevMode token into workload-dev-mode.json BEFORE service start
+        # WCL SDK picks this up → skips browser popup entirely
+        devmode_expiry = inject_devmode_token(username, str(repo_root))
+        
+        ui_step("Starting FLT Service...")
         service_process = start_flt_service(repo_root)
         if service_process:
             # Start background thread to stream service output
@@ -2765,70 +2990,64 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 daemon=True
             )
             output_thread.start()
-            
-            # Start background thread to handle DevMode account picker popup
-            popup_thread = threading.Thread(
-                target=handle_devmode_account_picker,
-                args=(username, 30),
-                daemon=True
-            )
-            popup_thread.start()
         else:
-            print("\n⚠️  Service failed to start, continuing with token management only")
+            ui_warn("Service failed to start, continuing with token management only")
     
     # Monitor loop
-    print("\n" + "=" * 70)
-    print("🔄 Monitoring token expiry (Ctrl+C to stop)")
-    print(f"   Check interval: {CHECK_INTERVAL_MINS} mins")
-    print(f"   Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
+    ui_step("Monitoring token expiry (Ctrl+C to stop)")
+    ui_dim(f"Check interval: {CHECK_INTERVAL_MINS} mins | Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
     if service_process:
-        print(f"   FLT Service: Running (PID: {service_process.pid})")
-    print("=" * 70)
+        ui_dim(f"FLT Service: Running (PID: {service_process.pid})")
     
     try:
         while True:
             # Check if service crashed
             if service_process and service_process.poll() is not None:
                 exit_code = service_process.returncode
-                print(f"\n⚠️  FLT Service exited (code: {exit_code})")
+                ui_warn(f"FLT Service exited (code: {exit_code})")
                 show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
                 service_process = None
             
-            # Calculate time remaining
-            remaining = get_token_time_remaining(bearer_expiry)
+            # Calculate time remaining — use the EARLIER expiry of the two tokens
+            bearer_remaining = get_token_time_remaining(bearer_expiry)
+            devmode_remaining = get_token_time_remaining(devmode_expiry) if devmode_expiry else None
+            remaining = min(bearer_remaining, devmode_remaining) if (bearer_remaining and devmode_remaining) else (bearer_remaining or devmode_remaining)
             remaining_str = format_timedelta(remaining)
             
-            status = f"Bearer: {remaining_str}"
+            status = f"Bearer: {format_timedelta(bearer_remaining)}"
+            if devmode_expiry:
+                status += f" | DevMode: {format_timedelta(devmode_remaining)}"
             if service_process:
                 status += " | Service: Running"
-            print(f"\n⏰ [{datetime.now().strftime('%H:%M:%S')}] {status}")
+            ui_info(f"[{datetime.now().strftime('%H:%M:%S')}] {status}")
             
-            # Check if refresh needed
+            # Check if refresh needed (triggers on whichever token expires first)
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
-                print(f"\n🔄 Bearer expiring soon, refreshing...")
-                show_notification("EDOG DevMode", "Bearer expiring, refreshing...")
+                ui_step("Token expiring soon, refreshing...")
+                show_notification("EDOG DevMode", "Token expiring, refreshing...")
                 
                 new_bearer = get_bearer_token(username)
                 
                 if new_bearer:
                     bearer_token = new_bearer
                     bearer_expiry = parse_jwt_expiry(bearer_token)
-                    print(f"✅ Bearer refreshed (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
+                    ui_success(f"Bearer refreshed (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
                     
-                    # Just update the live bearer file — no rebuild, no redeploy!
-                    # C# service will use the fresh bearer to generate new MWC tokens
+                    # Update the live bearer file (PowerBI API audience)
                     write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
-                    show_notification("EDOG DevMode", f"Bearer refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
+                    # Refresh UserAuthorizationToken (MwcFrontendBaseEndpoint audience)
+                    devmode_expiry = inject_devmode_token(username, str(repo_root))
+                    show_notification("EDOG DevMode", f"Tokens refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
                 else:
-                    print("❌ Failed to refresh bearer - continuing with old token")
-                    show_notification("EDOG DevMode", "⚠️ Bearer refresh failed!")
+                    ui_error("Failed to refresh tokens - continuing with old ones")
+                    show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
             
             # Wait for next check
-            print(f"   Next check in {CHECK_INTERVAL_MINS} mins...")
+            ui_dim(f"Next check in {CHECK_INTERVAL_MINS} mins...")
             time.sleep(CHECK_INTERVAL_MINS * 60)
             
     except KeyboardInterrupt:
-        print("\n\n👋 Shutting down...")
+        ui_step("Shutting down...")
         
         # Block further Ctrl+C during cleanup
         import signal
@@ -2842,16 +3061,22 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 stop_flt_service(service_process)
             
             # Step 2: Revert code changes
-            print("🔄 Reverting EDOG changes...")
             revert_all_changes(repo_root)
             
             # Step 3: Clean up live bearer file
             cleanup_bearer_live_token(workspace_id)
             
-            print("✅ Done. Goodbye!")
+            if RICH_AVAILABLE:
+                from rich.panel import Panel
+                console.print(Panel(
+                    "[bold]👋  EDOG DevMode stopped[/bold]\nAll changes reverted. Clean state.",
+                    border_style="dim", expand=False
+                ))
+            else:
+                print("✅ Done. Goodbye!")
         except Exception as e:
-            print(f"\n⚠️ Error during cleanup: {e}")
-            print("   Run 'edog --revert' to manually revert changes.")
+            ui_error(f"Error during cleanup: {e}")
+            ui_dim("Run 'edog --revert' to manually revert changes.")
         
         return 0
     
@@ -2875,9 +3100,13 @@ Examples:
   edog --config                     Show current config
   edog --config -u <email>          Update username/email
   edog --config -w <id> -a <id>     Update workspace and artifact IDs
-  edog --config -r C:\\path\\to\\FLT  Set FLT repo path (enables running from anywhere)
-  edog --install-hook               Install git pre-commit hook (blocks commits with EDOG changes)
+  edog --config -r C:\\path\\to\\FLT  Set FLT repo path
+  edog --install-hook               Install git pre-commit hook
   edog --uninstall-hook             Remove git pre-commit hook
+
+Token flow:
+  Silent CBA → bearer token → live file → C# reads → POST /generatemwctoken
+  Silent CBA → devmode token → workload-dev-mode.json → WCL SDK (no popup)
         """
     )
     
@@ -2908,15 +3137,15 @@ Examples:
     # Clear token command doesn't need repo_root
     if args.clear_token:
         clear_token_cache()
-        print("✅ Token cache cleared")
+        ui_success("Token cache cleared")
         sys.exit(0)
     
     # Logs command doesn't need repo_root
     if args.logs:
         import webbrowser
         webbrowser.open("http://localhost:5050")
-        print("🐕 Opening EDOG Log Viewer at http://localhost:5050")
-        print("   Make sure FLT service is running with EDOG changes applied.")
+        ui_info("Opening EDOG Log Viewer at http://localhost:5050")
+        ui_dim("Make sure FLT service is running with EDOG changes applied.")
         sys.exit(0)
     
     # All other commands need repo_root
@@ -2950,7 +3179,7 @@ Examples:
         if not workspace_id or not artifact_id or not capacity_id:
             config = ensure_config()
             if not config:
-                print("\n❌ Cannot proceed without config")
+                ui_error("Cannot proceed without config")
                 sys.exit(1)
             username = config.get("username") or DEFAULT_USERNAME
             workspace_id = config["workspace_id"]

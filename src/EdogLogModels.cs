@@ -30,7 +30,7 @@ namespace Microsoft.LiveTable.Service.DevMode
 
         public string Level { get; }
 
-        public string Message { get; }
+        public string Message { get; set; }
 
         public string Component { get; }
 
@@ -43,6 +43,13 @@ namespace Microsoft.LiveTable.Service.DevMode
         public string IterationId { get; set; }
 
         public string CodeMarkerName { get; set; }
+
+        /// <summary>
+        /// When server-side dedup collapses consecutive identical messages,
+        /// this holds the repeat count (≥2). Null/0 means no dedup occurred.
+        /// Frontend renders this as "×N" like Chrome DevTools.
+        /// </summary>
+        public int RepeatCount { get; set; }
     }
 
     /// <summary>

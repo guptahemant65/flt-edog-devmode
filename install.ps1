@@ -18,14 +18,22 @@ Write-Host ""
 $InstallDir = "$env:USERPROFILE\.edog"
 $RepoUrl = "https://github.com/guptahemant65/flt-edog-devmode/archive/refs/heads/main.zip"
 
-# Step 1: Check Python
-Write-Host "[1/5] Checking Python..." -ForegroundColor Yellow
+# Step 1: Check Python + .NET SDK
+Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 try {
     $pyVersion = python --version 2>&1
     Write-Host "       Found: $pyVersion" -ForegroundColor Green
 } catch {
     Write-Host "       ERROR: Python not found. Install from https://python.org" -ForegroundColor Red
     exit 1
+}
+
+try {
+    $dotnetVersion = dotnet --version 2>&1
+    Write-Host "       Found: .NET SDK $dotnetVersion" -ForegroundColor Green
+} catch {
+    Write-Host "       WARNING: .NET SDK not found. Install from https://dotnet.microsoft.com/download" -ForegroundColor Yellow
+    Write-Host "       token-helper will not be built (Silent CBA auth unavailable)" -ForegroundColor Gray
 }
 
 # Step 2: Create install directory
@@ -47,6 +55,12 @@ if ($ScriptDir -and (Test-Path "$ScriptDir\edog.py")) {
     Write-Host "       Copying from local repo..." -ForegroundColor Gray
     Copy-Item "$ScriptDir\edog.py" "$InstallDir\" -Force
     Copy-Item "$ScriptDir\edog.cmd" "$InstallDir\" -Force
+    if (Test-Path "$ScriptDir\scripts") {
+        Copy-Item "$ScriptDir\scripts" "$InstallDir\scripts" -Recurse -Force
+    }
+    if (Test-Path "$ScriptDir\src") {
+        Copy-Item "$ScriptDir\src" "$InstallDir\src" -Recurse -Force
+    }
     if (Test-Path "$ScriptDir\edog-config.json") {
         Copy-Item "$ScriptDir\edog-config.json" "$InstallDir\" -Force
     }
@@ -67,10 +81,31 @@ if ($ScriptDir -and (Test-Path "$ScriptDir\edog.py")) {
 }
 Write-Host "       Done." -ForegroundColor Green
 
-# Step 4: Install dependencies
-Write-Host "[4/5] Installing Python dependencies..." -ForegroundColor Yellow
-pip install playwright pywinauto --quiet --disable-pip-version-check 2>$null
-python -m playwright install msedge --quiet 2>$null
+# Step 4: Install dependencies + build token-helper
+Write-Host "[4/5] Installing dependencies..." -ForegroundColor Yellow
+pip install rich --quiet --disable-pip-version-check 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "       WARNING: 'rich' install failed. CLI will work but without styling." -ForegroundColor Yellow
+}
+
+# Build token-helper if .NET SDK is available
+$tokenHelperExe = "$InstallDir\scripts\token-helper\bin\Debug\net8.0\token-helper.exe"
+$tokenHelperCsproj = "$InstallDir\scripts\token-helper\token-helper.csproj"
+if (Test-Path $tokenHelperExe) {
+    Write-Host "       token-helper already built." -ForegroundColor Gray
+} elseif (Test-Path $tokenHelperCsproj) {
+    try {
+        Write-Host "       Building token-helper (Silent CBA)..." -ForegroundColor Gray
+        dotnet build $tokenHelperCsproj --nologo -v q 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "       token-helper built successfully." -ForegroundColor Green
+        } else {
+            Write-Host "       WARNING: token-helper build failed. Run: dotnet build scripts\token-helper\token-helper.csproj" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "       WARNING: Could not build token-helper." -ForegroundColor Yellow
+    }
+}
 Write-Host "       Done." -ForegroundColor Green
 
 # Step 5: Add to PATH

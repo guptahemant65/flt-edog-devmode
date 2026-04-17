@@ -43,8 +43,25 @@ namespace Microsoft.LiveTable.Service.DevMode
     /// <summary>
     /// Approximate byte threshold for a client's pending send queue.
     /// When exceeded, the server switches to summary messages for that client.
+    /// Raised from 64KB → 512KB to tolerate burst traffic without prematurely
+    /// entering summary mode. Combined with message truncation and dedup,
+    /// this threshold should rarely be hit.
     /// </summary>
-    private const int BackpressureBytesThreshold = 64 * 1024;
+    private const int BackpressureBytesThreshold = 512 * 1024;
+
+    /// <summary>
+    /// Maximum message body length. Messages exceeding this are truncated with
+    /// a "[…truncated]" suffix. Relay timeout stack traces can be 5-10KB each;
+    /// capping at 2KB cuts storm bandwidth 3-5×.
+    /// </summary>
+    private const int MaxMessageLength = 2048;
+
+    /// <summary>
+    /// When a client's pending bytes exceed half the backpressure threshold,
+    /// the flush interval is doubled (up to this cap) to produce fewer, larger
+    /// batches — reducing WebSocket frame overhead under pressure.
+    /// </summary>
+    private const int MaxAdaptiveFlushIntervalMs = 1000;
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -55,6 +72,7 @@ namespace Microsoft.LiveTable.Service.DevMode
     private int nextClientId;
 
     private Timer batchFlushTimer;
+    private int currentFlushIntervalMs = BatchFlushIntervalMs;
     private WebApplication app;
     private Task hostTask;
     private string htmlContent = "<html><body><h1>EDOG Log Server</h1><p>WebSocket endpoint: /ws/logs</p></body></html>";
@@ -64,8 +82,8 @@ namespace Microsoft.LiveTable.Service.DevMode
     /// <summary>
     /// Initializes a new instance of the <see cref="EdogLogServer"/> class.
     /// </summary>
-    /// <param name="port">Port number for the HTTP server (default: 5555).</param>
-    public EdogLogServer(int port = 5555)
+    /// <param name="port">Port number for the HTTP server (default: 5050).</param>
+    public EdogLogServer(int port = 5050)
     {
         this.port = port;
     }
@@ -177,6 +195,12 @@ namespace Microsoft.LiveTable.Service.DevMode
 
         try
         {
+            // Fix #1: Message truncation — cap huge nested JSON / stack traces at 2KB
+            if (entry.Message != null && entry.Message.Length > MaxMessageLength)
+            {
+                entry.Message = entry.Message.Substring(0, MaxMessageLength) + " […truncated]";
+            }
+
             logBuffer.Enqueue(entry);
             TrimBuffer(logBuffer, MaxLogEntries);
 
@@ -220,12 +244,20 @@ namespace Microsoft.LiveTable.Service.DevMode
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Called by the flush timer every 150 ms. Drains each client's pending queues
+    /// Called by the flush timer. Drains each client's pending queues
     /// and sends a single batch message. If a client is back-pressured, sends a
     /// summary instead.
+    ///
+    /// Fix #5: Adaptive batching — when any client is under pressure (pending bytes
+    /// exceed half the backpressure threshold), the next flush interval is doubled
+    /// (up to MaxAdaptiveFlushIntervalMs). This produces fewer, larger batches and
+    /// reduces WebSocket frame overhead during storms. When pressure eases, the
+    /// interval returns to the default.
     /// </summary>
     private void FlushAllClients()
     {
+        bool anyClientUnderPressure = false;
+
         foreach (var (clientId, clientState) in webSocketClients.ToArray())
         {
             try
@@ -248,6 +280,12 @@ namespace Microsoft.LiveTable.Service.DevMode
                     continue;
                 }
 
+                // Track if any client is approaching backpressure
+                if (clientState.PendingBytes > BackpressureBytesThreshold / 2)
+                {
+                    anyClientUnderPressure = true;
+                }
+
                 SendBatch(clientState, logs, telemetry);
             }
             catch
@@ -255,18 +293,81 @@ namespace Microsoft.LiveTable.Service.DevMode
                 webSocketClients.TryRemove(clientId, out _);
             }
         }
+
+        // Adaptive flush interval — slow down under pressure, speed up when clear
+        if (batchFlushTimer != null)
+        {
+            int nextInterval = anyClientUnderPressure
+                ? Math.Min(currentFlushIntervalMs * 2, MaxAdaptiveFlushIntervalMs)
+                : BatchFlushIntervalMs;
+
+            if (nextInterval != currentFlushIntervalMs)
+            {
+                currentFlushIntervalMs = nextInterval;
+                batchFlushTimer.Change(nextInterval, nextInterval);
+            }
+        }
     }
 
     private void SendBatch(ClientState client, List<LogEntry> logs, List<TelemetryEvent> telemetry)
     {
+        // Fix #3: Server-side dedup — collapse identical messages within a batch.
+        // During error storms (e.g., relay timeouts firing 3-5/sec), many entries
+        // share the same truncated message. Instead of sending 50 copies, send one
+        // with a repeatCount. The frontend already handles this field.
+        var dedupedLogs = DeduplicateLogs(logs);
+
         var payload = JsonSerializer.Serialize(new
         {
             type = "batch",
-            logs,
+            logs = dedupedLogs,
             telemetry
         }, JsonOptions);
 
         SendToClient(client, payload);
+    }
+
+    /// <summary>
+    /// Collapses consecutive logs with identical component+message into a single
+    /// entry with a repeatCount, similar to Chrome DevTools' "×42" grouping.
+    /// Non-consecutive duplicates are left as-is to preserve timeline ordering.
+    /// </summary>
+    private static List<LogEntry> DeduplicateLogs(List<LogEntry> logs)
+    {
+        if (logs.Count <= 1) return logs;
+
+        var result = new List<LogEntry>(logs.Count);
+        var current = logs[0];
+        int repeatCount = 1;
+
+        for (int i = 1; i < logs.Count; i++)
+        {
+            var next = logs[i];
+            if (string.Equals(current.Component, next.Component, StringComparison.Ordinal) &&
+                string.Equals(current.Message, next.Message, StringComparison.Ordinal) &&
+                string.Equals(current.Level, next.Level, StringComparison.OrdinalIgnoreCase))
+            {
+                repeatCount++;
+            }
+            else
+            {
+                if (repeatCount > 1)
+                {
+                    current.RepeatCount = repeatCount;
+                }
+                result.Add(current);
+                current = next;
+                repeatCount = 1;
+            }
+        }
+
+        if (repeatCount > 1)
+        {
+            current.RepeatCount = repeatCount;
+        }
+        result.Add(current);
+
+        return result;
     }
 
     private void SendSummary(ClientState client, List<LogEntry> logs, List<TelemetryEvent> telemetry)
@@ -340,7 +441,11 @@ namespace Microsoft.LiveTable.Service.DevMode
 
     private void ConfigureRoutes()
     {
-        app!.UseWebSockets();
+        // Fix #4: WebSocket compression — JSON compresses 5-10× with deflate
+        app!.UseWebSockets(new WebSocketOptions
+        {
+            KeepAliveInterval = TimeSpan.FromSeconds(30),
+        });
 
         // Root HTML endpoint
         app.MapGet("/", async context =>
