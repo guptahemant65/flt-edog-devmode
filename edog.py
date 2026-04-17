@@ -2321,22 +2321,11 @@ def _try_import_cert(cert_cn: str) -> bool:
         ui_error(f"Expected .pfx or .p12 file, got: {cert_file.suffix}")
         return False
     
-    # Ask for password (PFX files typically have one)
-    import getpass
-    password = getpass.getpass("  Certificate password (press Enter if none): ")
-    
     try:
-        if password:
-            ps_cmd = (
-                f'$pwd = ConvertTo-SecureString -String "{password}" -AsPlainText -Force; '
-                f'Import-PfxCertificate -FilePath "{cert_file}" '
-                f'-CertStoreLocation Cert:\\CurrentUser\\My -Password $pwd'
-            )
-        else:
-            ps_cmd = (
-                f'Import-PfxCertificate -FilePath "{cert_file}" '
-                f'-CertStoreLocation Cert:\\CurrentUser\\My'
-            )
+        ps_cmd = (
+            f'Import-PfxCertificate -FilePath "{cert_file}" '
+            f'-CertStoreLocation Cert:\\CurrentUser\\My'
+        )
         
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_cmd],
