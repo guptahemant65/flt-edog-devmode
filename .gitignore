@@ -11,9 +11,18 @@ edog-config.json
 
 # Token cache (sensitive)
 .edog-token-cache
+.edog-bearer-cache
+.edog-thumbprint-cache
+.edog-bearer-live-*
 
 # EDOG changes patch file
 .edog-changes.patch
+
+# Token-helper build artifacts
+scripts/token-helper/bin/
+scripts/token-helper/obj/
+scripts/token-helper/token-helper/bin/
+scripts/token-helper/token-helper/obj/
 
 # VS Code extension build
 extensions/vscode/node_modules/
