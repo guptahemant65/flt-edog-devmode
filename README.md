@@ -19,7 +19,7 @@
 
 <br/>
 
-*Silent CBA auth • Live token bypass • Auto-patching • Real-time log viewer*
+*Silent CBA auth • Live token bypass • Auto-patching • Real-time log viewer • API REPL*
 <br/>
 *Type `edog`. Go build things. The dog handles the rest.*
 
@@ -120,9 +120,10 @@ No separate setup step. No second script. EDOG detects what's needed and handles
     │          ▼                                                                   │
     │   ┌──────────────────────────────────────────────────────────────────┐       │
     │   │  🔄  Monitor Loop: token refresh + service health + log viewer  │       │
+    │   │  👀  Git Watcher: auto-reapply patches on external changes      │       │
     │   └──────────────────────────────────────────────────────────────────┘       │
     │                                                                              │
-    │   On Ctrl+C:  Stop Service → Revert All Patches → Clean Exit                │
+    │   On Ctrl+C:  Stop Service → Revert All Patches → Session Summary            │
     └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,6 +160,15 @@ All changes are tracked in `.edog-changes.patch` and reverted via direct functio
 | `edog --status` | Show current DevMode status and what's patched |
 | `edog --setup` | Re-run first-time setup (Python, .NET SDK, token-helper build) |
 
+### Diagnostics & Tools
+
+| Command | Description |
+|---------|-------------|
+| `edog --doctor` | One-shot diagnostic — checks all 14 dependencies and config |
+| `edog --bearer` | Show bearer token path, copy to clipboard, print curl/PowerShell examples |
+| `edog --api` | Interactive authenticated REPL — GET/POST with bearer auth, JSON pretty-print |
+| `edog --logs` | Open the web log viewer in your browser |
+
 ### Configuration
 
 | Command | Description |
@@ -175,6 +185,9 @@ All changes are tracked in `.edog-changes.patch` and reverted via direct functio
 | Command | Description |
 |---------|-------------|
 | `edog --clear-token` | Clear cached auth tokens |
+| `edog --no-update` | Skip auto-update check on startup |
+| `edog --install-hook` | Install git pre-commit hook (auto-installed on patch apply) |
+| `edog --uninstall-hook` | Remove git pre-commit hook |
 
 <br/>
 
@@ -306,6 +319,8 @@ flt-edog-devmode/
 | Repo not found | `edog --config -r <path>` to set manually |
 | First run fails | `edog --setup` to re-run setup |
 | Ctrl+C leaves patches | `edog --revert` (shouldn't happen — but just in case) |
+| Not sure what's wrong | `edog --doctor` to check all 14 dependencies |
+| Need bearer for Postman | `edog --bearer` — copies token to clipboard with usage examples |
 
 <br/>
 
