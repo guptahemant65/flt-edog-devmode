@@ -2447,7 +2447,8 @@ def _try_silent_cba(username: str, resource: str | None = None):
             ui_warn(f"Silent CBA: {line}")
     return None
 
-
+
+
 def _cache_bearer(token: str) -> None:
     """Parse JWT expiry and cache bearer token to disk."""
     try:
@@ -3419,7 +3420,8 @@ def inject_devmode_token(username, flt_repo_path):
         ui_warn(f"Token injection failed: {e} — browser popup may appear")
         return None
 
-def print_session_summary(session_start, stats):
+
+def print_session_summary(session_start, stats):
     """Print session summary on exit."""
     duration = datetime.now() - session_start
     total_secs = int(duration.total_seconds())
@@ -3725,6 +3727,7 @@ Token flow:
     parser.add_argument("--logs", action="store_true", help="Open log viewer in browser")
     parser.add_argument("--doctor", action="store_true", help="Run diagnostic checks")
     parser.add_argument("--no-update", action="store_true", help="Skip auto-update check")
+    parser.add_argument("--bearer", action="store_true", help="Show bearer token path and copy to clipboard")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -3750,7 +3753,7 @@ Token flow:
     # Auto-update (unless --no-update or a standalone command)
     if not args.no_update and not any([args.config, args.clear_token, args.doctor, args.setup,
                                        args.install_hook, args.uninstall_hook, args.logs,
-                                       getattr(args, 'bearer', False), getattr(args, 'api', False)]):
+                                       args.bearer, getattr(args, 'api', False)]):
         updated = auto_update()
         if updated:
             ui_dim("Please restart edog to use the updated version.")
@@ -3783,6 +3786,45 @@ Token flow:
         run_doctor()
         sys.exit(0)
     
+    # Bearer export command
+    if args.bearer:
+        config = load_config()
+        workspace_id = args.workspace or config.get("workspace_id")
+        if not workspace_id:
+            ui_error("No workspace_id configured. Run 'edog --config' first.")
+            sys.exit(1)
+        live_path = get_bearer_live_path(workspace_id)
+        if not live_path.exists():
+            ui_error(f"No bearer token found at {live_path}")
+            ui_dim("Start edog first to generate a token.")
+            sys.exit(1)
+
+        raw = live_path.read_text(encoding="utf-8").strip()
+        token = raw.split("|")[0] if "|" in raw else raw
+
+        show_banner()
+        ui_step("Bearer Token Export")
+        print()
+        ui_info(f"Token file: {live_path}")
+        ui_info(f"Token length: {len(token)} chars")
+        print()
+
+        # Usage examples
+        ui_step("Usage Examples")
+        ui_dim(f'  curl -H "Authorization: Bearer $(cat {live_path})" <url>')
+        ui_dim(f'  $token = (Get-Content "{live_path}").Split("|")[0]')
+        ui_dim(f'  Invoke-RestMethod -Headers @{{Authorization="Bearer $token"}} -Uri <url>')
+        print()
+
+        # Copy to clipboard
+        try:
+            subprocess.run(["clip"], input=token.encode(), check=True, timeout=5)
+            ui_success("Token copied to clipboard!")
+        except Exception:
+            ui_dim("Could not copy to clipboard — use the file path above")
+
+        sys.exit(0)
+
     # All other commands need repo_root
     repo_root = get_repo_root()
     if not repo_root:
