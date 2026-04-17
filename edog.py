@@ -2866,19 +2866,34 @@ def stop_flt_service(process=None, timeout=10):
         return False
 
 
-def stream_service_output(process, stop_event):
+def stream_service_output(process, stop_event, connected_event=None):
     """
     Stream service output to console in a background thread.
     Runs until stop_event is set or process ends.
+    
+    If connected_event is provided, suppresses output until
+    'Dev Connection established successfully' is seen (or timeout),
+    then signals the event and starts streaming.
     """
+    waiting_for_connection = connected_event is not None
     try:
         while not stop_event.is_set() and process.poll() is None:
             line = process.stdout.readline()
             if line:
-                # Prefix service output to distinguish from edog messages
-                ui_log(f"[FLT] {line.rstrip()}")
+                stripped = line.rstrip()
+                # Check for successful deployment
+                if waiting_for_connection and 'Dev Connection established successfully' in stripped:
+                    connected_event.set()
+                    waiting_for_connection = False
+                    continue
+                # Suppress noisy startup logs while waiting for connection
+                if not waiting_for_connection:
+                    ui_log(f"[FLT] {stripped}")
     except Exception:
         pass
+    # If process ended without connection signal, set event to unblock main thread
+    if connected_event and not connected_event.is_set():
+        connected_event.set()
 
 
 def inject_devmode_token(username, flt_repo_path):
@@ -3001,12 +3016,24 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         if service_process:
             # Start background thread to stream service output
             stop_event = threading.Event()
+            connected_event = threading.Event()
             output_thread = threading.Thread(
                 target=stream_service_output,
-                args=(service_process, stop_event),
+                args=(service_process, stop_event, connected_event),
                 daemon=True
             )
             output_thread.start()
+            
+            # Wait for Dev Connection (up to 120 seconds)
+            ui_dim("Waiting for Dev Connection...")
+            if connected_event.wait(timeout=120):
+                if service_process.poll() is None:
+                    ui_success("Deployed successfully! Logs available at http://localhost:5050")
+                else:
+                    ui_warn(f"Service exited during startup (code: {service_process.returncode})")
+            else:
+                ui_warn("Dev Connection not detected within 120s — service may still be starting")
+                ui_dim("Check logs at http://localhost:5050")
         else:
             ui_warn("Service failed to start, continuing with token management only")
     
