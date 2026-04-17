@@ -3339,7 +3339,17 @@ def stream_service_output(process, stop_event, connected_event=None):
                 # After connection: suppress all logs (use log viewer instead)
                 # Before connection: also suppress noisy startup logs
                 if not waiting_for_connection and not connected:
-                    ui_log(f"[FLT] {stripped}")
+                    # Detect log level for colored output
+                    line_upper = stripped.upper()
+                    if any(k in line_upper for k in ("ERROR", "FATAL", "EXCEPTION", "FAIL")):
+                        level = "error"
+                    elif any(k in line_upper for k in ("WARN", "WARNING")):
+                        level = "warn"
+                    elif "SUCCESS" in line_upper:
+                        level = "success"
+                    else:
+                        level = "info"
+                    ui_log(f"[FLT] {stripped}", level=level)
     except Exception:
         pass
     # If process ended without connection signal, set event to unblock main thread
