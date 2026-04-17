@@ -56,7 +56,7 @@ CONFIG_FILE = "edog-config.json"
 CHECK_INTERVAL_MINS = 5
 REFRESH_THRESHOLD_MINS = 10
 MAX_BROWSER_RETRIES = 3
-MWC_LIVE_TOKEN_FILE = ".edog-mwc-live"  # Live token file read by the running service
+MWC_LIVE_TOKEN_FILE = ".edog-bearer-live"  # Live bearer token file read by the running service
 
 # File paths relative to repo root
 SERVICE_PATH = Path("Service/Microsoft.LiveTable.Service")
@@ -1205,10 +1205,10 @@ def load_cached_bearer_token(cache_dir: Path | None = None) -> tuple:
 
 
 # ============================================================================
-# Live MWC token file (read by the running service, written by the daemon)
+# Live bearer token file (read by the C# service to generate MWC tokens)
 # ============================================================================
-def get_mwc_live_path(workspace_id=None):
-    """Get path to the live MWC token file.
+def get_bearer_live_path(workspace_id=None):
+    """Get path to the live bearer token file.
     
     Scoped per workspace to avoid collisions if multiple edog instances run.
     """
@@ -1216,30 +1216,30 @@ def get_mwc_live_path(workspace_id=None):
     return Path.home() / f"{MWC_LIVE_TOKEN_FILE}{suffix}"
 
 
-def write_mwc_live_token(token, expiry_timestamp=None, workspace_id=None):
-    """Write MWC token to the live file atomically.
+def write_bearer_live_token(token, expiry_timestamp=None, workspace_id=None):
+    """Write bearer token to the live file atomically.
     
     Uses temp-file + rename to prevent partial reads by the C# service.
     Format: token_string|unix_timestamp
     """
     if not token:
         return False
-    live_path = get_mwc_live_path(workspace_id)
+    live_path = get_bearer_live_path(workspace_id)
     data = f"{token}|{int(expiry_timestamp)}" if expiry_timestamp is not None else token
     try:
         tmp_path = live_path.with_suffix('.tmp')
         tmp_path.write_text(data, encoding='utf-8')
         tmp_path.replace(live_path)
-        print(f"  📄 Live token written to {live_path.name}")
+        print(f"  📄 Live bearer written to {live_path.name}")
         return True
     except OSError as e:
-        print(f"  ⚠️ Failed to write live token: {e}")
+        print(f"  ⚠️ Failed to write live bearer: {e}")
         return False
 
 
-def cleanup_mwc_live_token(workspace_id=None):
-    """Remove the live MWC token file."""
-    live_path = get_mwc_live_path(workspace_id)
+def cleanup_bearer_live_token(workspace_id=None):
+    """Remove the live bearer token file."""
+    live_path = get_bearer_live_path(workspace_id)
     try:
         live_path.unlink(missing_ok=True)
         live_path.with_suffix('.tmp').unlink(missing_ok=True)
@@ -1300,60 +1300,78 @@ def revert_simple_pattern(content, original, modified, description):
 
 
 
-def get_gts_spark_client_bypass(token_file_path):
-    """Get the bypass code for GTSBasedSparkClient (file-based token reading).
+def get_gts_spark_client_bypass(bearer_file_path, mwc_endpoint):
+    """Get the bypass code for GTSBasedSparkClient (bearer file → MWC generation).
     
-    The generated C# reads the MWC token from a file on disk instead of
-    using a hardcoded string. This eliminates rebuild/redeploy on token refresh.
+    The generated C# reads a bearer token from a file on disk, then calls
+    the metadata endpoint to generate an MWC token. The caller (GetMWCV1Token...)
+    already handles caching and auto-renewal via IsNullOrExpiringSoon.
     """
     bypass_code = f'''        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
         {{
-            // EDOG DevMode - bypassing OBO token exchange (file-based, auto-refreshed by edog daemon)
-            var tokenFilePath = @"{token_file_path}";
+            // EDOG DevMode - reads bearer from file, generates MWC via metadata endpoint
+            // Bearer file is kept fresh by the edog Python daemon (Silent CBA)
+            // MWC auto-renewal is handled by the caller's IsNullOrExpiringSoon check
+            var bearerFilePath = @"{bearer_file_path}";
             try
             {{
-                var tokenData = System.IO.File.ReadAllText(tokenFilePath).Trim();
-                if (string.IsNullOrWhiteSpace(tokenData))
-                    throw new System.IO.InvalidDataException("Token file is empty");
+                // Step 1: Read bearer token from file (written atomically by edog daemon)
+                string bearerData;
+                try
+                {{
+                    bearerData = System.IO.File.ReadAllText(bearerFilePath).Trim();
+                }}
+                catch (System.IO.IOException) when (!ct.IsCancellationRequested)
+                {{
+                    await Task.Delay(100, ct);
+                    bearerData = System.IO.File.ReadAllText(bearerFilePath).Trim();
+                }}
 
-                var parts = tokenData.Split('|');
-                var tokenValue = parts[0];
-                if (string.IsNullOrWhiteSpace(tokenValue))
-                    throw new System.IO.InvalidDataException("Token value is empty");
+                var bearerParts = bearerData.Split('|');
+                var bearer = bearerParts[0];
+                if (string.IsNullOrWhiteSpace(bearer))
+                    throw new InvalidOperationException("Bearer token file is empty");
 
-                var expiry = parts.Length > 1 && long.TryParse(parts[1], out var ts)
+                // Step 2: Call metadata endpoint to generate MWC token
+                var capacityContext = CustomerCapacityAsyncLocalContext.Value;
+                var capacityId = capacityContext?.CustomerCapacityObjectId ?? "";
+
+                var requestBody = $@"{{{{""capacityObjectId"":""{{capacityId}}"",""workspaceObjectId"":""{{this.workspaceId}}"",""workloadType"":""Lakehouse"",""artifactObjectIds"":[""{{this.artifactId}}""]}}}}";
+
+                using var httpClient = new System.Net.Http.HttpClient();
+                httpClient.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+
+                var response = await httpClient.PostAsync(
+                    "{mwc_endpoint}",
+                    new System.Net.Http.StringContent(requestBody, System.Text.Encoding.UTF8, "application/json"),
+                    ct);
+                response.EnsureSuccessStatusCode();
+
+                var responseJson = await response.Content.ReadAsStringAsync();
+                var mwcTokenObj = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(responseJson);
+                string mwcToken = mwcTokenObj.token;
+
+                if (string.IsNullOrWhiteSpace(mwcToken))
+                    throw new InvalidOperationException("MWC token generation returned empty token");
+
+                // Step 3: Parse expiry from bearer (use bearer expiry as upper bound)
+                var expiry = bearerParts.Length > 1 && long.TryParse(bearerParts[1], out var ts)
                     ? DateTimeOffset.FromUnixTimeSeconds(ts)
                     : DateTimeOffset.UtcNow.AddHours(1);
 
-                Tracer.LogSanitizedWarning($"[DevMode] File-based MWC token, expires: {{expiry:HH:mm:ss}}");
-                return await Task.FromResult(new Token
+                Tracer.LogSanitizedWarning($"[DevMode] Generated MWC token from bearer file, expiry: {{expiry:HH:mm:ss}}");
+                return new Token
                 {{
-                    Value = tokenValue,
+                    Value = mwcToken,
                     Expiry = expiry,
-                }});
+                }};
             }}
-            catch (System.IO.IOException) when (!ct.IsCancellationRequested)
+            catch (Exception ex)
             {{
-                // Retry once after brief delay (atomic write race)
-                await Task.Delay(100, ct);
-                var tokenData = System.IO.File.ReadAllText(tokenFilePath).Trim();
-                var parts = tokenData.Split('|');
-                var tokenValue = parts[0];
-                var expiry = parts.Length > 1 && long.TryParse(parts[1], out var ts)
-                    ? DateTimeOffset.FromUnixTimeSeconds(ts)
-                    : DateTimeOffset.UtcNow.AddHours(1);
-                Tracer.LogSanitizedWarning($"[DevMode] File-based MWC token (retry), expires: {{expiry:HH:mm:ss}}");
-                return await Task.FromResult(new Token
-                {{
-                    Value = tokenValue,
-                    Expiry = expiry,
-                }});
-            }}
-            catch (Exception ex) when (!(ex is System.IO.IOException))
-            {{
-                Tracer.LogSanitizedError(ex, "[DevMode] Failed to read MWC token file");
+                Tracer.LogSanitizedError(ex, "[DevMode] Failed to generate MWC token from bearer file");
                 throw new InvalidOperationException(
-                    $"EDOG DevMode: Cannot read token file at {{tokenFilePath}}. Ensure edog daemon is running.", ex);
+                    $"EDOG DevMode: Cannot generate MWC token. Ensure edog daemon is running and bearer file exists at {{bearerFilePath}}.", ex);
             }}
         }}'''
     return bypass_code
@@ -1428,9 +1446,9 @@ def apply_gts_spark_client_change(content, repo_root=None, workspace_id=None):
     original_content = content[method_start:method_end]
     original_encoded = base64.b64encode(original_content.encode('utf-8')).decode('ascii')
     
-    # Get the token file path for this workspace
-    token_file_path = get_mwc_live_path(workspace_id)
-    bypass_body = get_gts_spark_client_bypass(token_file_path)
+    # Get the bearer file path and MWC endpoint for this workspace
+    bearer_file_path = get_bearer_live_path(workspace_id)
+    bypass_body = get_gts_spark_client_bypass(bearer_file_path, MWC_TOKEN_ENDPOINT)
     
     bypass_code = f'''
         // EDOG_ORIGINAL_START:{original_encoded}
@@ -2708,30 +2726,20 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
     print("=" * 70)
     
-    # Check for cached token first
-    cached_token, cached_expiry = load_cached_token()
-    if cached_token:
-        print(f"\n✅ Using cached token (expires: {cached_expiry.strftime('%H:%M:%S')})")
-        mwc_token = cached_token
-        token_expiry = cached_expiry
-    else:
-        # Initial token fetch
-        mwc_token = fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id)
-        if not mwc_token:
-            print("\n❌ Failed to fetch initial token after all retries")
-            return 1
-        
-        token_expiry = parse_jwt_expiry(mwc_token)
-        print(f"\n✅ Token acquired (expires: {token_expiry.strftime('%H:%M:%S') if token_expiry else 'unknown'})")
-        
-        # Cache the token
-        if token_expiry:
-            cache_token(mwc_token, token_expiry.timestamp())
+    # Get bearer token (C# service will use this to generate MWC tokens itself)
+    print("\n🔑 Acquiring bearer token...")
+    bearer_token = get_bearer_token(username)
+    if not bearer_token:
+        print("\n❌ Failed to acquire bearer token")
+        return 1
     
-    # Apply changes (code patches are now token-independent)
-    # Write the live MWC token file BEFORE applying changes (C# needs the file to exist)
-    write_mwc_live_token(mwc_token, token_expiry.timestamp() if token_expiry else None, workspace_id)
+    bearer_expiry = parse_jwt_expiry(bearer_token)
+    print(f"✅ Bearer acquired (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
     
+    # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
+    write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
+    
+    # Apply code patches (token-independent — C# reads bearer from file)
     if not apply_all_changes(repo_root, workspace_id=workspace_id):
         print("\n⚠️  Some changes could not be applied")
     
@@ -2787,36 +2795,33 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 service_process = None
             
             # Calculate time remaining
-            remaining = get_token_time_remaining(token_expiry)
+            remaining = get_token_time_remaining(bearer_expiry)
             remaining_str = format_timedelta(remaining)
             
-            status = f"Token: {remaining_str}"
+            status = f"Bearer: {remaining_str}"
             if service_process:
                 status += " | Service: Running"
             print(f"\n⏰ [{datetime.now().strftime('%H:%M:%S')}] {status}")
             
             # Check if refresh needed
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
-                print(f"\n🔄 Token expiring soon, refreshing...")
-                show_notification("EDOG DevMode", "Token expiring, refreshing...")
+                print(f"\n🔄 Bearer expiring soon, refreshing...")
+                show_notification("EDOG DevMode", "Bearer expiring, refreshing...")
                 
-                new_token = fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id)
+                new_bearer = get_bearer_token(username)
                 
-                if new_token:
-                    mwc_token = new_token
-                    token_expiry = parse_jwt_expiry(mwc_token)
-                    print(f"✅ Token refreshed (expires: {token_expiry.strftime('%H:%M:%S') if token_expiry else 'unknown'})")
+                if new_bearer:
+                    bearer_token = new_bearer
+                    bearer_expiry = parse_jwt_expiry(bearer_token)
+                    print(f"✅ Bearer refreshed (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
                     
-                    # Cache the new token
-                    if token_expiry:
-                        cache_token(mwc_token, token_expiry.timestamp())
-                    
-                    # Just update the live token file — no rebuild, no redeploy!
-                    write_mwc_live_token(mwc_token, token_expiry.timestamp() if token_expiry else None, workspace_id)
-                    show_notification("EDOG DevMode", f"Token refreshed! Expires {token_expiry.strftime('%H:%M')}")
+                    # Just update the live bearer file — no rebuild, no redeploy!
+                    # C# service will use the fresh bearer to generate new MWC tokens
+                    write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
+                    show_notification("EDOG DevMode", f"Bearer refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
                 else:
-                    print("❌ Failed to refresh token - continuing with old token")
-                    show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
+                    print("❌ Failed to refresh bearer - continuing with old token")
+                    show_notification("EDOG DevMode", "⚠️ Bearer refresh failed!")
             
             # Wait for next check
             print(f"   Next check in {CHECK_INTERVAL_MINS} mins...")
@@ -2840,8 +2845,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             print("🔄 Reverting EDOG changes...")
             revert_all_changes(repo_root)
             
-            # Step 3: Clean up live token file
-            cleanup_mwc_live_token(workspace_id)
+            # Step 3: Clean up live bearer file
+            cleanup_bearer_live_token(workspace_id)
             
             print("✅ Done. Goodbye!")
         except Exception as e:
