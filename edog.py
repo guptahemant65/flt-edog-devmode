@@ -56,6 +56,7 @@ CONFIG_FILE = "edog-config.json"
 CHECK_INTERVAL_MINS = 5
 REFRESH_THRESHOLD_MINS = 10
 MAX_BROWSER_RETRIES = 3
+MWC_LIVE_TOKEN_FILE = ".edog-mwc-live"  # Live token file read by the running service
 
 # File paths relative to repo root
 SERVICE_PATH = Path("Service/Microsoft.LiveTable.Service")
@@ -1204,6 +1205,49 @@ def load_cached_bearer_token(cache_dir: Path | None = None) -> tuple:
 
 
 # ============================================================================
+# Live MWC token file (read by the running service, written by the daemon)
+# ============================================================================
+def get_mwc_live_path(workspace_id=None):
+    """Get path to the live MWC token file.
+    
+    Scoped per workspace to avoid collisions if multiple edog instances run.
+    """
+    suffix = f"-{workspace_id[:8]}" if workspace_id else ""
+    return Path.home() / f"{MWC_LIVE_TOKEN_FILE}{suffix}"
+
+
+def write_mwc_live_token(token, expiry_timestamp=None, workspace_id=None):
+    """Write MWC token to the live file atomically.
+    
+    Uses temp-file + rename to prevent partial reads by the C# service.
+    Format: token_string|unix_timestamp
+    """
+    if not token:
+        return False
+    live_path = get_mwc_live_path(workspace_id)
+    data = f"{token}|{int(expiry_timestamp)}" if expiry_timestamp is not None else token
+    try:
+        tmp_path = live_path.with_suffix('.tmp')
+        tmp_path.write_text(data, encoding='utf-8')
+        tmp_path.replace(live_path)
+        print(f"  📄 Live token written to {live_path.name}")
+        return True
+    except OSError as e:
+        print(f"  ⚠️ Failed to write live token: {e}")
+        return False
+
+
+def cleanup_mwc_live_token(workspace_id=None):
+    """Remove the live MWC token file."""
+    live_path = get_mwc_live_path(workspace_id)
+    try:
+        live_path.unlink(missing_ok=True)
+        live_path.with_suffix('.tmp').unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# ============================================================================
 # Desktop notifications
 # ============================================================================
 def show_notification(title, message):
@@ -1256,88 +1300,102 @@ def revert_simple_pattern(content, original, modified, description):
 
 
 
-def get_gts_spark_client_bypass(token):
-    """Get the bypass code for GTSBasedSparkClient."""
+def get_gts_spark_client_bypass(token_file_path):
+    """Get the bypass code for GTSBasedSparkClient (file-based token reading).
+    
+    The generated C# reads the MWC token from a file on disk instead of
+    using a hardcoded string. This eliminates rebuild/redeploy on token refresh.
+    """
     bypass_code = f'''        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
         {{
-            // EDOG DevMode - bypassing OBO token exchange (hardcoded by edog tool)
-            var hardcodedToken = "{token}";
-            Tracer.LogSanitizedWarning("[DevMode] Using hardcoded MWC V1 token");
-            return await Task.FromResult(new Token
+            // EDOG DevMode - bypassing OBO token exchange (file-based, auto-refreshed by edog daemon)
+            var tokenFilePath = @"{token_file_path}";
+            try
             {{
-                Value = hardcodedToken,
-                Expiry = DateTimeOffset.UtcNow.AddHours(1),
-            }});
+                var tokenData = System.IO.File.ReadAllText(tokenFilePath).Trim();
+                if (string.IsNullOrWhiteSpace(tokenData))
+                    throw new System.IO.InvalidDataException("Token file is empty");
+
+                var parts = tokenData.Split('|');
+                var tokenValue = parts[0];
+                if (string.IsNullOrWhiteSpace(tokenValue))
+                    throw new System.IO.InvalidDataException("Token value is empty");
+
+                var expiry = parts.Length > 1 && long.TryParse(parts[1], out var ts)
+                    ? DateTimeOffset.FromUnixTimeSeconds(ts)
+                    : DateTimeOffset.UtcNow.AddHours(1);
+
+                Tracer.LogSanitizedWarning($"[DevMode] File-based MWC token, expires: {{expiry:HH:mm:ss}}");
+                return await Task.FromResult(new Token
+                {{
+                    Value = tokenValue,
+                    Expiry = expiry,
+                }});
+            }}
+            catch (System.IO.IOException) when (!ct.IsCancellationRequested)
+            {{
+                // Retry once after brief delay (atomic write race)
+                await Task.Delay(100, ct);
+                var tokenData = System.IO.File.ReadAllText(tokenFilePath).Trim();
+                var parts = tokenData.Split('|');
+                var tokenValue = parts[0];
+                var expiry = parts.Length > 1 && long.TryParse(parts[1], out var ts)
+                    ? DateTimeOffset.FromUnixTimeSeconds(ts)
+                    : DateTimeOffset.UtcNow.AddHours(1);
+                Tracer.LogSanitizedWarning($"[DevMode] File-based MWC token (retry), expires: {{expiry:HH:mm:ss}}");
+                return await Task.FromResult(new Token
+                {{
+                    Value = tokenValue,
+                    Expiry = expiry,
+                }});
+            }}
+            catch (Exception ex) when (!(ex is System.IO.IOException))
+            {{
+                Tracer.LogSanitizedError(ex, "[DevMode] Failed to read MWC token file");
+                throw new InvalidOperationException(
+                    $"EDOG DevMode: Cannot read token file at {{tokenFilePath}}. Ensure edog daemon is running.", ex);
+            }}
         }}'''
     return bypass_code
 
 
 
-def apply_gts_spark_client_change(content, token, repo_root=None):
-    """Apply GTSBasedSparkClient bypass. Returns (new_content, status)."""
-    edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
+def apply_gts_spark_client_change(content, repo_root=None, workspace_id=None):
+    """Apply GTSBasedSparkClient bypass (file-based token reading). Returns (new_content, status).
+    
+    Handles 3 cases:
+    - New file-based marker present → already applied, skip
+    - Old hardcoded marker present → upgrade to file-based
+    - No marker → fresh apply
+    """
+    file_marker = '// EDOG DevMode - bypassing OBO token exchange (file-based'
+    old_marker = '// EDOG DevMode - bypassing OBO token exchange (hardcoded'
     original_marker_start = '// EDOG_ORIGINAL_START:'
-    original_marker_end = '// EDOG_ORIGINAL_END'
     
-    # Check if bypass exists
-    if edog_marker in content:
-        # Check if we have the original stored
-        has_original = original_marker_start in content and original_marker_end in content
-        
-        # Check if token is the same
-        if f'var hardcodedToken = "{token}"' in content:
-            return content, "already_applied"
-        
-        # If we have the original stored, just update the token
-        if has_original:
-            pattern = r'var hardcodedToken = "[^"]+";'
-            new_content = re.sub(pattern, f'var hardcodedToken = "{token}";', content)
-            if new_content != content:
-                return new_content, "token_updated"
-        
-        # No original stored - need to fetch from git and rebuild the bypass with original
-        if repo_root:
-            try:
-                file_rel_path = FILES["GTSBasedSparkClient"]
-                result = subprocess.run(
-                    ['git', 'show', f'HEAD:{file_rel_path}'],
-                    cwd=str(repo_root),
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode == 0:
-                    git_content = result.stdout
-                    # Recursively call to apply fresh bypass using git content as base
-                    # This will capture the original properly
-                    new_content, status = apply_gts_spark_client_change(git_content, token, None)
-                    if status == "applied":
-                        return new_content, "applied_with_git_original"
-            except Exception as e:
-                print(f"⚠️ Could not fetch original from git: {e}")
-        
-        # Fallback: just update the token (no original will be stored)
-        pattern = r'var hardcodedToken = "[^"]+";'
-        new_content = re.sub(pattern, f'var hardcodedToken = "{token}";', content)
-        if new_content != content:
-            return new_content, "token_updated"
+    # Case 1: Already has file-based bypass
+    if file_marker in content:
+        return content, "already_applied"
     
-    # Apply fresh bypass - find the method signature and replace the entire method
+    # Case 2: Has old hardcoded bypass → strip it first, then apply fresh
+    if old_marker in content:
+        content, reverted = revert_gts_spark_client_change(content, repo_root)
+        if not reverted:
+            return content, "upgrade_failed"
+        print("  ⬆️  Upgrading from hardcoded to file-based bypass")
+    
+    # Case 3: Fresh apply — find the method and replace
     method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
-    
     if method_sig not in content:
         return content, "pattern_not_found"
     
-    # Find the method start
     sig_start = content.find(method_sig)
     if sig_start == -1:
         return content, "pattern_not_found"
     
-    # Find the opening brace after signature
     brace_start = content.find('{', sig_start)
     if brace_start == -1:
         return content, "pattern_not_found"
     
-    # Find matching closing brace (count braces)
     brace_count = 1
     pos = brace_start + 1
     while pos < len(content) and brace_count > 0:
@@ -1352,110 +1410,89 @@ def apply_gts_spark_client_change(content, token, repo_root=None):
     
     method_end = pos
     
-    # Find the start of the method block (including any comments/attributes before the signature)
-    # Go back line by line until we hit a line that's not a comment, attribute, or whitespace
+    # Find start of method block (include preceding comments/attributes)
     line_start = content.rfind('\n', 0, sig_start) + 1
     method_start = line_start
-    
-    # Keep going back to include comments and attributes
     while method_start > 0:
         prev_line_end = method_start - 1
         if prev_line_end < 0:
             break
         prev_line_start = content.rfind('\n', 0, prev_line_end) + 1
         prev_line = content[prev_line_start:prev_line_end].strip()
-        
-        # Include lines that are comments, attributes, or empty
         if prev_line.startswith('//') or prev_line.startswith('/*') or prev_line.startswith('*') or prev_line.startswith('[') or prev_line == '':
             method_start = prev_line_start
         else:
             break
     
-    # Capture the original content (everything from method_start to method_end)
+    # Store original as base64 for safe revert
     original_content = content[method_start:method_end]
-    
-    # Base64 encode the original content for safe storage
     original_encoded = base64.b64encode(original_content.encode('utf-8')).decode('ascii')
     
-    # Build the bypass code with the original content stored as a comment
+    # Get the token file path for this workspace
+    token_file_path = get_mwc_live_path(workspace_id)
+    bypass_body = get_gts_spark_client_bypass(token_file_path)
+    
     bypass_code = f'''
         // EDOG_ORIGINAL_START:{original_encoded}
-        protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)
-        {{
-            // EDOG DevMode - bypassing OBO token exchange (hardcoded by edog tool)
-            var hardcodedToken = "{token}";
-            Tracer.LogSanitizedWarning("[DevMode] Using hardcoded MWC V1 token");
-            return await Task.FromResult(new Token
-            {{
-                Value = hardcodedToken,
-                Expiry = DateTimeOffset.UtcNow.AddHours(1),
-            }});
-        }}'''
+{bypass_body}'''
     
     new_content = content[:method_start] + bypass_code + content[method_end:]
     return new_content, "applied"
 
 
 def revert_gts_spark_client_change(content, repo_root=None):
-    """Revert GTSBasedSparkClient bypass - restore original method from stored backup or git."""
+    """Revert GTSBasedSparkClient bypass - restore original method from stored backup or git.
+    
+    Handles both old (hardcoded) and new (file-based) bypass markers.
+    """
+    file_marker = '// EDOG DevMode - bypassing OBO token exchange (file-based'
+    old_marker = '// EDOG DevMode - bypassing OBO token exchange (hardcoded'
     edog_marker = '// EDOG DevMode - bypassing OBO token exchange'
     original_marker_start = '// EDOG_ORIGINAL_START:'
-    original_marker_end = '// EDOG_ORIGINAL_END'
     
     if edog_marker not in content:
         return content, False
     
-    # Check if we have stored original content
-    if original_marker_start in content and original_marker_end in content:
-        # Extract the base64-encoded original
-        start_idx = content.find(original_marker_start) + len(original_marker_start)
-        end_idx = content.find(original_marker_end)
+    # Try to restore from stored original (base64 on same line as EDOG_ORIGINAL_START:)
+    if original_marker_start in content:
+        marker_pos = content.find(original_marker_start)
+        encoded_start = marker_pos + len(original_marker_start)
+        encoded_end = content.find('\n', encoded_start)
+        if encoded_end == -1:
+            encoded_end = len(content)
+        encoded_original = content[encoded_start:encoded_end].strip()
         
-        if start_idx < end_idx:
-            encoded_original = content[start_idx:end_idx].strip()  # strip newlines/whitespace
-            try:
-                original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
-                
-                # Find the start of the EDOG marker line
-                marker_pos = content.find(original_marker_start)
-                marker_line_start = content.rfind('\n', 0, marker_pos) + 1
-                
-                # The bypass block starts at marker_line_start and includes:
-                # 1. The EDOG_ORIGINAL marker line
-                # 2. The method signature and body
-                # We need to find the method end (closing brace)
-                method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
-                sig_start = content.find(method_sig, marker_line_start)
-                if sig_start == -1:
-                    return content, False
-                
-                brace_start = content.find('{', sig_start)
-                if brace_start == -1:
-                    return content, False
-                
-                brace_count = 1
-                pos = brace_start + 1
-                while pos < len(content) and brace_count > 0:
-                    if content[pos] == '{':
-                        brace_count += 1
-                    elif content[pos] == '}':
-                        brace_count -= 1
-                    pos += 1
-                
-                if brace_count != 0:
-                    return content, False
-                
-                method_end = pos
-                
-                # Replace the entire bypass block (from marker line to method end) with original
-                # The original_content already includes the method signature, body, and any preceding comments
-                # that were captured during apply - just restore it directly
-                new_content = content[:marker_line_start] + original_content + content[method_end:]
-                return new_content, True
-                
-            except Exception as e:
-                print(f"⚠️ Failed to decode stored original: {e}")
-                # Fall through to git-based restore
+        try:
+            original_content = base64.b64decode(encoded_original.encode('ascii')).decode('utf-8')
+            marker_line_start = content.rfind('\n', 0, marker_pos) + 1
+            
+            method_sig = 'protected async virtual Task<Token> GenerateMWCV1TokenForGTSWorkloadAsync(CancellationToken ct)'
+            sig_start = content.find(method_sig, marker_line_start)
+            if sig_start == -1:
+                return content, False
+            
+            brace_start = content.find('{', sig_start)
+            if brace_start == -1:
+                return content, False
+            
+            brace_count = 1
+            pos = brace_start + 1
+            while pos < len(content) and brace_count > 0:
+                if content[pos] == '{':
+                    brace_count += 1
+                elif content[pos] == '}':
+                    brace_count -= 1
+                pos += 1
+            
+            if brace_count != 0:
+                return content, False
+            
+            method_end = pos
+            new_content = content[:marker_line_start] + original_content + content[method_end:]
+            return new_content, True
+            
+        except Exception as e:
+            print(f"⚠️ Failed to decode stored original: {e}")
     
     # No stored original - try to restore from git
     if repo_root:
@@ -1475,9 +1512,7 @@ def revert_gts_spark_client_change(content, repo_root=None):
         except Exception as e:
             print(f"⚠️ Could not restore from git: {e}")
     
-    # Legacy fallback: no stored original found, cannot revert safely
-    print("⚠️ No stored original found. The bypass may have been applied with an older version.")
-    print("   Please manually revert GTSBasedSparkClient.cs using git checkout or restore from source control.")
+    print("⚠️ No stored original found. Please manually revert GTSBasedSparkClient.cs.")
     return content, False
 
 
@@ -2097,7 +2132,7 @@ def get_bearer_token(username):
 # ============================================================================
 # Main EDOG operations
 # ============================================================================
-def apply_all_changes(token, repo_root):
+def apply_all_changes(repo_root, workspace_id=None):
     """Apply all EDOG changes to codebase and generate a patch file for clean revert."""
     print("\n📝 Applying EDOG changes...")
     
@@ -2106,37 +2141,29 @@ def apply_all_changes(token, repo_root):
     original_contents = {}  # Store originals for patch generation
     modified_contents = {}  # Store modified for patch generation
     
-    # 1. GTSBasedSparkClient - Token bypass
+    # 1. GTSBasedSparkClient - File-based token bypass
     rel_path = FILES["GTSBasedSparkClient"]
     filepath = repo_root / rel_path
     content = read_file(filepath)
     if content:
-        new_content, status = apply_gts_spark_client_change(content, token, repo_root)
-        if status in ["applied", "applied_with_git_original"]:
+        new_content, status = apply_gts_spark_client_change(content, repo_root, workspace_id=workspace_id)
+        if status in ["applied"]:
             original_contents[rel_path] = content
             write_file(filepath, new_content)
             modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ GTSBasedSparkClient token bypass")
-        elif status == "token_updated":
-            # Token changed — compute pre-EDOG original for patch
-            reverted, reverted_ok = revert_gts_spark_client_change(content, repo_root)
-            if reverted_ok and reverted != content:
-                original_contents[rel_path] = reverted
-            else:
-                original_contents[rel_path] = content
-            write_file(filepath, new_content)
-            modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ GTSBasedSparkClient token bypass (updated)")
+            changes_made.append(f"✅ GTSBasedSparkClient file-based token bypass")
         elif status == "already_applied":
             reverted, reverted_ok = revert_gts_spark_client_change(content, repo_root)
             if reverted_ok and reverted != content:
                 original_contents[rel_path] = reverted
                 modified_contents[rel_path] = content
-            changes_made.append(f"⏭️  GTSBasedSparkClient token bypass (already)")
+            changes_made.append(f"⏭️  GTSBasedSparkClient file-based bypass (already)")
         elif status == "pattern_not_found":
             original_contents[rel_path] = content
             modified_contents[rel_path] = content
             warnings.append(f"⚠️  GTSBasedSparkClient: pattern not found")
+        elif status == "upgrade_failed":
+            warnings.append(f"⚠️  GTSBasedSparkClient: failed to upgrade from hardcoded to file-based")
     
     # 3. Deploy web log viewer files (creates new files in DevMode/)
     status, files = apply_log_viewer_files(repo_root)
@@ -2701,8 +2728,11 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         if token_expiry:
             cache_token(mwc_token, token_expiry.timestamp())
     
-    # Apply changes
-    if not apply_all_changes(mwc_token, repo_root):
+    # Apply changes (code patches are now token-independent)
+    # Write the live MWC token file BEFORE applying changes (C# needs the file to exist)
+    write_mwc_live_token(mwc_token, token_expiry.timestamp() if token_expiry else None, workspace_id)
+    
+    if not apply_all_changes(repo_root, workspace_id=workspace_id):
         print("\n⚠️  Some changes could not be applied")
     
     print("\n✅ Code changes applied successfully")
@@ -2781,8 +2811,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                     if token_expiry:
                         cache_token(mwc_token, token_expiry.timestamp())
                     
-                    # Update tokens in codebase
-                    apply_all_changes(mwc_token, repo_root)
+                    # Just update the live token file — no rebuild, no redeploy!
+                    write_mwc_live_token(mwc_token, token_expiry.timestamp() if token_expiry else None, workspace_id)
                     show_notification("EDOG DevMode", f"Token refreshed! Expires {token_expiry.strftime('%H:%M')}")
                 else:
                     print("❌ Failed to refresh token - continuing with old token")
@@ -2809,6 +2839,9 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             # Step 2: Revert code changes
             print("🔄 Reverting EDOG changes...")
             revert_all_changes(repo_root)
+            
+            # Step 3: Clean up live token file
+            cleanup_mwc_live_token(workspace_id)
             
             print("✅ Done. Goodbye!")
         except Exception as e:
