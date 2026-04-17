@@ -7,13 +7,13 @@ Commands:
   edog.cmd --status        - Check if EDOG changes are applied
 
 Features:
-  - Auto-fetches MWC token via browser automation
+  - Auto-fetches MWC token via Silent CBA (zero browser interaction)
+  - Bearer + MWC token caching for sub-second restarts
   - Applies EDOG bypass changes to codebase
   - Monitors token expiry and auto-refreshes when ≤10 mins remaining
   - Pattern-based revert (works even after script restart)
 """
 
-import asyncio
 import json
 import sys
 import os
@@ -35,26 +35,13 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-try:
-    from playwright.async_api import async_playwright
-except ImportError:
-    print("Installing playwright...")
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
-    subprocess.run([sys.executable, "-m", "playwright", "install", "msedge"], check=True)
-    from playwright.async_api import async_playwright
-
+# pywinauto — optional, used for DevMode account picker automation
 try:
     from pywinauto import Desktop
     from pywinauto.findwindows import ElementNotFoundError
     PYWINAUTO_AVAILABLE = True
 except ImportError:
-    print("Installing pywinauto...")
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "pywinauto"], check=True)
-    from pywinauto import Desktop
-    from pywinauto.findwindows import ElementNotFoundError
-    PYWINAUTO_AVAILABLE = True
+    PYWINAUTO_AVAILABLE = False
 
 # ============================================================================
 # Configuration
@@ -1167,6 +1154,56 @@ def clear_token_cache():
 
 
 # ============================================================================
+# Bearer token caching (for Silent CBA tokens)
+# ============================================================================
+def get_bearer_cache_path(cache_dir: Path | None = None) -> Path:
+    """Get path to the bearer token cache file."""
+    base = cache_dir if cache_dir is not None else Path(__file__).parent
+    return base / ".edog-bearer-cache"
+
+
+def cache_bearer_token(token: str, expiry_timestamp: float, cache_dir: Path | None = None) -> bool:
+    """Save bearer token to a dedicated cache file."""
+    cache_path = get_bearer_cache_path(cache_dir)
+    try:
+        data = f"{expiry_timestamp}|{token}"
+        encoded = base64.b64encode(data.encode()).decode()
+        cache_path.write_text(encoded, encoding="utf-8")
+        return True
+    except OSError as e:
+        print(f"⚠️  Could not cache bearer token: {e}")
+        return False
+
+
+def load_cached_bearer_token(cache_dir: Path | None = None) -> tuple:
+    """Load bearer token from cache if still valid (5-min safety buffer).
+    Returns (token, expiry_datetime) or (None, None).
+    """
+    cache_path = get_bearer_cache_path(cache_dir)
+    if not cache_path.exists():
+        return None, None
+
+    try:
+        encoded = cache_path.read_text(encoding="utf-8")
+        data = base64.b64decode(encoded.encode()).decode()
+        expiry_str, token = data.split("|", 1)
+        expiry_timestamp = float(expiry_str)
+
+        if time.time() < expiry_timestamp - 300:
+            expiry = datetime.fromtimestamp(expiry_timestamp)
+            return token, expiry
+        else:
+            cache_path.unlink(missing_ok=True)
+            return None, None
+    except (OSError, ValueError, UnicodeDecodeError):
+        try:
+            cache_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None, None
+
+
+# ============================================================================
 # Desktop notifications
 # ============================================================================
 def show_notification(title, message):
@@ -1895,28 +1932,71 @@ def _get_token_helper_exe():
 
 
 def _find_cert_thumbprint(cert_subject: str):
-    """Find certificate thumbprint by subject CN from Windows cert store."""
+    """Find certificate thumbprint from Windows cert store by CN.
+    Caches result to disk — the thumbprint never changes for a given CN.
+    """
     if cert_subject in _thumbprint_cache:
         return _thumbprint_cache[cert_subject]
 
-    helper_exe = _get_token_helper_exe()
-    if not helper_exe:
-        return None
+    # Check disk cache (survives restarts)
+    cache_file = Path(__file__).parent / ".edog-thumbprint-cache"
+    if cache_file.exists():
+        try:
+            for line in cache_file.read_text(encoding="utf-8").splitlines():
+                if line.startswith(cert_subject + "="):
+                    tp = line.split("=", 1)[1].strip()
+                    if len(tp) == 40:
+                        _thumbprint_cache[cert_subject] = tp
+                        return tp
+        except OSError:
+            pass
 
+    tp = _query_cert_store(cert_subject)
+    if tp:
+        _thumbprint_cache[cert_subject] = tp
+        try:
+            cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
+        except OSError:
+            pass
+    return tp
+
+
+def _query_cert_store(cert_cn: str) -> str | None:
+    """Query Windows cert store via PowerShell. Slow (~2-8s), called once."""
     try:
+        ps_cmd = (
+            'Import-Module PKI -ErrorAction SilentlyContinue; '
+            f'Get-ChildItem Cert:\\CurrentUser\\My | '
+            f'Where-Object {{ $_.Subject -like "*CN={cert_cn}*" }} | '
+            'Select-Object -First 1 -ExpandProperty Thumbprint'
+        )
         result = subprocess.run(
-            [str(helper_exe), "--list-certs"],
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
             capture_output=True, text=True, timeout=10,
         )
-        if result.returncode == 0:
-            certs = json.loads(result.stdout)
-            for c in certs:
-                if c.get("cn", "").lower() == cert_subject.lower():
-                    _thumbprint_cache[cert_subject] = c["thumbprint"]
-                    return c["thumbprint"]
+        tp = result.stdout.strip()
+        if tp and len(tp) == 40:
+            return tp
+
+        # Fallback: .NET cert store API
+        dotnet_cmd = (
+            'Add-Type -AssemblyName System.Security; '
+            '$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('
+            '"My", [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser); '
+            '$store.Open("ReadOnly"); '
+            f'$c = $store.Certificates | Where-Object {{ $_.Subject -like "*CN={cert_cn}*" }} | '
+            'Select-Object -First 1; '
+            '$store.Close(); '
+            'if ($c) { $c.Thumbprint }'
+        )
+        result2 = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", dotnet_cmd],
+            capture_output=True, text=True, timeout=10,
+        )
+        tp2 = result2.stdout.strip()
+        return tp2 if tp2 and len(tp2) == 40 else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _try_silent_cba(username: str, resource: str | None = None):
@@ -1968,84 +2048,50 @@ def _try_silent_cba(username: str, resource: str | None = None):
     return None
 
 
-async def _get_bearer_via_browser(username):
-    """Launch Edge via Playwright, capture Bearer token from Power BI."""
-    print("🚀 Starting browser...")
-    bearer_token = None
-
-    cert_subject = username.replace("@", ".")
-    cert_policy = f'{{"pattern":"*","filter":{{"SUBJECT":{{"CN":"{cert_subject}"}}}}}}'
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            channel="msedge",
-            headless=False,
-            args=[
-                f'--auto-select-certificate-for-urls={cert_policy}',
-                '--ignore-certificate-errors',
-            ]
-        )
-
-        context = await browser.new_context()
-        page = await context.new_page()
-
-        async def handle_request(request):
-            nonlocal bearer_token
-            auth = request.headers.get("authorization", "")
-            if auth.startswith("Bearer ey") and not bearer_token:
-                bearer_token = auth.replace("Bearer ", "")
-                print(f"✅ Captured Bearer token (length: {len(bearer_token)})")
-
-        page.on("request", handle_request)
-
-        print(f"📡 Navigating to {POWER_BI_URL}")
-        try:
-            await page.goto(POWER_BI_URL, wait_until="domcontentloaded", timeout=60000)
-        except Exception as e:
-            print(f"⚠️  Navigation: {type(e).__name__}")
-
-        print("🔐 Checking for login prompts...")
-
-        try:
-            email_input = await page.wait_for_selector('input[type="email"], input[name="loginfmt"]', timeout=5000)
-            if email_input:
-                print(f"   Entering username: {username}")
-                await email_input.fill(username)
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(3)
-        except:
-            print("   Already logged in or no username prompt")
-
-        print("   ⚠️  If certificate dialog appears, please select it manually")
-        await asyncio.sleep(5)
-
-        try:
-            yes_button = await page.wait_for_selector('#idSIButton9, input[value="Yes"]', timeout=5000)
-            if yes_button:
-                print("   Clicking 'Yes' on stay signed in...")
-                await yes_button.click()
-                await asyncio.sleep(2)
-        except:
-            pass
-
-        print("⏳ Waiting for Bearer token...")
-        for _ in range(20):
-            if bearer_token:
-                break
-            await asyncio.sleep(1)
-
-        await browser.close()
-
-    return bearer_token
+def _cache_bearer(token: str) -> None:
+    """Parse JWT expiry and cache bearer token to disk."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        claims = json.loads(base64.b64decode(payload).decode("utf-8", errors="replace"))
+        expiry_ts = float(claims.get("exp", time.time() + 3600))
+    except (ValueError, KeyError, IndexError, json.JSONDecodeError):
+        expiry_ts = time.time() + 3600
+    cache_bearer_token(token, expiry_ts)
 
 
-async def get_bearer_token(username):
-    """Acquire a user-delegated bearer token via Playwright browser capture."""
+def get_bearer_token(username):
+    """Acquire a user-delegated bearer token via Silent CBA.
+
+    Strategy:
+        1. Check disk cache first (sub-millisecond).
+        2. Silent CBA via C# token-helper (~3-5 seconds, zero browser).
+
+    Args:
+        username: CBA username, e.g. Admin1CBA@FabricFMLV08PPE.ccsctp.net.
+
+    Returns:
+        Bearer token string, or None on failure.
+    """
     if not username:
         print("❌ Username is required")
         return None
 
-    return await _get_bearer_via_browser(username)
+    # --- 1. Try cache first ---
+    cached_token, cached_expiry = load_cached_bearer_token()
+    if cached_token:
+        remaining = (cached_expiry - datetime.now()).total_seconds() / 60
+        print(f"  Using cached bearer token (expires in {remaining:.0f} min)")
+        return cached_token
+
+    # --- 2. Silent CBA ---
+    bearer_token = _try_silent_cba(username)
+    if bearer_token:
+        _cache_bearer(bearer_token)
+        return bearer_token
+
+    print("  Failed to acquire token")
+    return None
 
 
 # ============================================================================
@@ -2367,24 +2413,33 @@ def check_status(repo_root):
 
 
 def fetch_token_with_retry(username, workspace_id, artifact_id, capacity_id, max_retries=MAX_BROWSER_RETRIES):
-    """Fetch MWC token via Playwright browser capture with retry logic."""
+    """Fetch MWC token, using cached bearer when available.
+
+    Flow:
+        1. Check bearer cache — if valid, skip CBA entirely.
+        2. Otherwise acquire via Silent CBA (~3-5 seconds, zero browser).
+        3. Use bearer to fetch MWC token from redirect host.
+        4. On MWC failure, clear stale bearer cache and retry.
+    """
     for attempt in range(max_retries):
         if attempt > 0:
-            print(f"\n🔄 Retry {attempt + 1}/{max_retries}...")
+            print(f"\n  Retry {attempt + 1}/{max_retries}...")
 
-        bearer_token = asyncio.run(_get_bearer_via_browser(username))
-
+        bearer_token = get_bearer_token(username)
         if not bearer_token:
-            print("❌ Failed to capture Bearer token")
+            print("  Failed to capture Bearer token")
             continue
 
-        print("\n📡 Fetching MWC token...")
+        print("  Fetching MWC token...")
         mwc_token = fetch_mwc_token(bearer_token, workspace_id, artifact_id, capacity_id)
 
         if mwc_token:
             return mwc_token
 
-        print("❌ Failed to fetch MWC token")
+        # MWC fetch failed — bearer might be stale, clear cache and retry
+        print("  MWC token fetch failed, clearing bearer cache...")
+        cache_path = get_bearer_cache_path()
+        cache_path.unlink(missing_ok=True)
 
     return None
 
@@ -2518,6 +2573,11 @@ def handle_devmode_account_picker(username, timeout=30):
     Handle the DevMode account picker popup that appears when FLT service starts.
     Uses pywinauto to find the Edge window and keyboard to select the account.
     """
+    if not PYWINAUTO_AVAILABLE:
+        print(f"\n   ⚠️ pywinauto not installed — please manually select account: {username}")
+        print(f"   Install with: pip install pywinauto")
+        return False
+
     from pywinauto import Desktop
     import time as time_module
     
