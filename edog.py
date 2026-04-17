@@ -2711,6 +2711,144 @@ def revert_all_changes(repo_root):
     return all_success
 
 
+def run_setup(force=False):
+    """Run EDOG setup: check prerequisites, install deps, build token-helper, add to PATH.
+    
+    Returns True if setup is complete and ready to go.
+    """
+    edog_dir = Path(__file__).parent
+    errors = 0
+    
+    if RICH_AVAILABLE:
+        console.print()
+        console.print(Panel(
+            "[bold]EDOG DevMode[/bold]  [dim]Setup[/dim]\n[dim]FabricLiveTable Development Tool[/dim]",
+            border_style="cyan", expand=False
+        ))
+    else:
+        print("\n  EDOG DevMode Setup")
+        print("  " + "-" * 40)
+    
+    # Step 1: Prerequisites
+    ui_step("[1/4] Checking prerequisites")
+    
+    # Python (already running if we're here)
+    import platform
+    py_ver = platform.python_version()
+    ui_success(f"Python {py_ver}")
+    
+    # .NET SDK
+    try:
+        result = subprocess.run(["dotnet", "--version"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            ui_success(f".NET SDK {result.stdout.strip()}")
+        else:
+            ui_error(".NET SDK not found")
+            ui_dim("Install .NET SDK 8.0+ from: https://dotnet.microsoft.com/download")
+            return False
+    except FileNotFoundError:
+        ui_error(".NET SDK not found — 'dotnet' not in PATH")
+        ui_dim("Install .NET SDK 8.0+ from: https://dotnet.microsoft.com/download")
+        return False
+    except subprocess.TimeoutExpired:
+        ui_warn(".NET SDK check timed out")
+        errors += 1
+    
+    # Step 2: Python deps
+    ui_step("[2/4] Installing Python dependencies")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "rich", "--quiet", "--disable-pip-version-check"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            ui_success("rich installed")
+        else:
+            ui_warn("rich install failed — CLI will work without styling")
+            errors += 1
+    except Exception:
+        ui_warn("Could not install rich")
+        errors += 1
+    
+    # Step 3: Build token-helper
+    ui_step("[3/4] Building token-helper (Silent CBA auth)")
+    helper_dir = edog_dir / "scripts" / "token-helper"
+    helper_exe = None
+    for tfm in ("net8.0", "net472"):
+        exe = helper_dir / "bin" / "Debug" / tfm / "token-helper.exe"
+        if exe.exists():
+            helper_exe = exe
+            break
+    
+    if helper_exe:
+        ui_success("Already built")
+    else:
+        csproj = helper_dir / "token-helper.csproj"
+        if csproj.exists():
+            result = subprocess.run(
+                ["dotnet", "build", str(csproj), "--nologo", "-v", "q"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                ui_success("Build successful")
+            else:
+                ui_error("Build failed")
+                ui_dim(f"Try manually: dotnet build {csproj}")
+                errors += 1
+        else:
+            ui_error(f"token-helper.csproj not found at {helper_dir}")
+            errors += 1
+    
+    # Step 4: PATH
+    ui_step("[4/4] Adding edog to PATH")
+    edog_dir_str = str(edog_dir)
+    path_env = os.environ.get("PATH", "")
+    if edog_dir_str.lower() in path_env.lower():
+        ui_success("Already in PATH")
+    else:
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"$p = [Environment]::GetEnvironmentVariable('Path','User'); "
+                 f"if (-not $p -or $p -notlike '*{edog_dir_str}*') {{ "
+                 f"[Environment]::SetEnvironmentVariable('Path', \"$p;{edog_dir_str}\", 'User') }}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                ui_success("Added to PATH (restart terminal to use globally)")
+            else:
+                ui_warn(f"Could not add automatically — add manually: {edog_dir_str}")
+                errors += 1
+        except Exception:
+            ui_warn(f"Could not add to PATH — add manually: {edog_dir_str}")
+            errors += 1
+    
+    # Summary
+    print()
+    if errors == 0:
+        ui_success("Setup complete!")
+    else:
+        ui_warn(f"Setup complete with {errors} warning(s)")
+    
+    ui_dim("Quick start:")
+    ui_dim("  edog --config      Set workspace, artifact, capacity")
+    ui_dim("  edog               Start DevMode (launches FLT service)")
+    ui_dim("  edog --no-launch   Token management only")
+    ui_dim("  edog --revert      Undo all EDOG changes")
+    print()
+    
+    return errors == 0
+
+
+def _needs_setup():
+    """Check if first-time setup is needed (token-helper not built)."""
+    helper_dir = Path(__file__).parent / "scripts" / "token-helper"
+    for tfm in ("net8.0", "net472"):
+        if (helper_dir / "bin" / "Debug" / tfm / "token-helper.exe").exists():
+            return False
+    return True
+
+
 def check_status(repo_root):
     """Check if EDOG changes are applied using smart pattern matching."""
     ui_step("Checking EDOG status...")
@@ -3240,6 +3378,7 @@ Examples:
   edog --config -r C:\\path\\to\\FLT  Set FLT repo path
   edog --install-hook               Install git pre-commit hook
   edog --uninstall-hook             Remove git pre-commit hook
+  edog --setup                      Re-run setup (install deps, build helper)
 
 Token flow:
   Silent CBA → bearer token → live file → C# reads → POST /generatemwctoken
@@ -3254,6 +3393,7 @@ Token flow:
     parser.add_argument("--install-hook", action="store_true", help="Install git pre-commit hook")
     parser.add_argument("--uninstall-hook", action="store_true", help="Remove git pre-commit hook")
     parser.add_argument("--no-launch", action="store_true", help="Don't auto-launch FLT service (token management only)")
+    parser.add_argument("--setup", action="store_true", help="Run setup (install deps, build token-helper, add to PATH)")
     parser.add_argument("--logs", action="store_true", help="Open log viewer in browser")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
@@ -3262,6 +3402,20 @@ Token flow:
     parser.add_argument("-r", "--repo", help="FabricLiveTable repo path")
     
     args = parser.parse_args()
+    
+    # Setup command
+    if args.setup:
+        run_setup(force=True)
+        sys.exit(0)
+    
+    # Auto-setup on first run (token-helper not built)
+    if _needs_setup():
+        ui_info("First run detected — running setup...")
+        print()
+        if not run_setup():
+            ui_error("Setup failed. Fix the issues above and retry.")
+            sys.exit(1)
+        print()
     
     # Config command doesn't need repo_root
     if args.config:
