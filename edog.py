@@ -3035,6 +3035,48 @@ def run_doctor():
         ui_error(f"{failed} failed, {warnings} warning(s), {passed} passed")
 
 
+def auto_update():
+    """Pull latest EDOG code from git (fast-forward only).
+    
+    Returns True if updated, False if already up-to-date, None on error/skip.
+    """
+    edog_dir = Path(__file__).parent
+    
+    # Check if edog dir is a git repo
+    if not (edog_dir / ".git").exists():
+        return None
+    
+    try:
+        # Check for local changes first
+        status = subprocess.run(
+            ["git", "-C", str(edog_dir), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10
+        )
+        if status.stdout.strip():
+            ui_dim("Skipping auto-update (local changes detected)")
+            return None
+        
+        # Fetch + fast-forward
+        ui_dim("Checking for updates...")
+        result = subprocess.run(
+            ["git", "-C", str(edog_dir), "pull", "--ff-only", "--quiet"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            if "Already up to date" in (result.stdout + result.stderr):
+                ui_dim("Already up to date")
+                return False
+            else:
+                ui_success("Updated to latest version!")
+                ui_dim("Restart edog to use the new version.")
+                return True
+        else:
+            ui_dim("Auto-update skipped (pull failed — run manually if needed)")
+            return None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
 def _needs_setup():
     """Check if first-time setup is needed (token-helper not built)."""
     helper_dir = Path(__file__).parent / "scripts" / "token-helper"
@@ -3609,6 +3651,7 @@ Token flow:
     parser.add_argument("--setup", action="store_true", help="Run setup (install deps, build token-helper, add to PATH)")
     parser.add_argument("--logs", action="store_true", help="Open log viewer in browser")
     parser.add_argument("--doctor", action="store_true", help="Run diagnostic checks")
+    parser.add_argument("--no-update", action="store_true", help="Skip auto-update check")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -3630,6 +3673,15 @@ Token flow:
             ui_error("Setup failed. Fix the issues above and retry.")
             sys.exit(1)
         print()
+    
+    # Auto-update (unless --no-update or a standalone command)
+    if not args.no_update and not any([args.config, args.clear_token, args.doctor, args.setup,
+                                       args.install_hook, args.uninstall_hook, args.logs,
+                                       getattr(args, 'bearer', False), getattr(args, 'api', False)]):
+        updated = auto_update()
+        if updated:
+            ui_dim("Please restart edog to use the updated version.")
+            sys.exit(0)
     
     # Config command doesn't need repo_root
     if args.config:
