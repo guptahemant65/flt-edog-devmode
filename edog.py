@@ -2876,6 +2876,7 @@ def stream_service_output(process, stop_event, connected_event=None):
     then signals the event and starts streaming.
     """
     waiting_for_connection = connected_event is not None
+    connected = False
     try:
         while not stop_event.is_set() and process.poll() is None:
             line = process.stdout.readline()
@@ -2885,9 +2886,11 @@ def stream_service_output(process, stop_event, connected_event=None):
                 if waiting_for_connection and 'Dev Connection established successfully' in stripped:
                     connected_event.set()
                     waiting_for_connection = False
+                    connected = True
                     continue
-                # Suppress noisy startup logs while waiting for connection
-                if not waiting_for_connection:
+                # After connection: suppress all logs (use log viewer instead)
+                # Before connection: also suppress noisy startup logs
+                if not waiting_for_connection and not connected:
                     ui_log(f"[FLT] {stripped}")
     except Exception:
         pass
