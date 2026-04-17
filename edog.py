@@ -3586,10 +3586,78 @@ def print_session_summary(session_start, stats):
         print("✅ All changes reverted. Clean state.")
 
 
+def watch_for_git_changes(repo_root, workspace_id, stop_event, reapply_lock):
+    """Watch patched files for external changes (git pull/stash/checkout).
+    
+    If EDOG markers disappear from a patched file, revert all and reapply.
+    Uses polling (every 10s) on file mtimes to detect changes.
+    """
+    POLL_INTERVAL = 10  # seconds
+    MARKERS = ("// EDOG", "EDOG DevMode")
+    
+    # Snapshot initial mtimes of patched files
+    mtimes = {}
+    for file_key, rel_path in FILES.items():
+        try:
+            filepath = repo_root / rel_path
+            if filepath.exists():
+                mtimes[file_key] = filepath.stat().st_mtime
+        except Exception:
+            pass
+    
+    while not stop_event.is_set():
+        stop_event.wait(POLL_INTERVAL)
+        if stop_event.is_set():
+            break
+        
+        try:
+            changed_files = []
+            for file_key, rel_path in FILES.items():
+                try:
+                    filepath = repo_root / rel_path
+                    if not filepath.exists():
+                        continue
+                    current_mtime = filepath.stat().st_mtime
+                    prev_mtime = mtimes.get(file_key)
+                    if prev_mtime and current_mtime != prev_mtime:
+                        # File changed — check if EDOG markers are gone
+                        content = filepath.read_text(encoding="utf-8", errors="replace")
+                        if not any(marker in content for marker in MARKERS):
+                            changed_files.append(file_key)
+                    mtimes[file_key] = current_mtime
+                except Exception:
+                    pass
+            
+            if changed_files and not stop_event.is_set():
+                with reapply_lock:
+                    ui_warn(f"External change detected — EDOG markers lost in: {', '.join(changed_files)}")
+                    ui_step("Re-applying EDOG patches...")
+                    try:
+                        revert_all_changes(repo_root)
+                        apply_all_changes(repo_root, workspace_id=workspace_id)
+                        ui_success("Patches re-applied successfully")
+                        show_notification("EDOG DevMode", "Patches re-applied after external change")
+                        # Update mtimes after reapply
+                        for fk, rp in FILES.items():
+                            try:
+                                fp = repo_root / rp
+                                if fp.exists():
+                                    mtimes[fk] = fp.stat().st_mtime
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        ui_error(f"Re-apply failed: {e}")
+                        show_notification("EDOG DevMode", "⚠️ Patch re-apply failed!")
+        except Exception:
+            pass  # Watcher must not crash
+
+
 def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True):
     """Main daemon loop - fetch token, apply changes, optionally launch service, monitor and refresh."""
     session_start = datetime.now()
     session_stats = {"token_refreshes": 0, "refresh_failures": 0, "service_restarts": 0}
+    watcher_stop = threading.Event()
+    reapply_lock = threading.Lock()
 
     # Check and sync capacity_id from workload-dev-mode.json
     synced_capacity = sync_capacity_from_workload(str(repo_root), silent=False)
@@ -3702,6 +3770,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     except KeyboardInterrupt:
         # User hit Ctrl+C during setup/build/deploy — clean shutdown
         ui_step("Shutting down...")
+        watcher_stop.set()
         import signal
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         try:
@@ -3718,6 +3787,15 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             ui_dim("Run 'edog --revert' to manually revert changes.")
         return 0
     
+    # Start git change watcher thread
+    watcher_thread = threading.Thread(
+        target=watch_for_git_changes,
+        args=(repo_root, workspace_id, watcher_stop, reapply_lock),
+        daemon=True
+    )
+    watcher_thread.start()
+    ui_dim("Git change watcher active (auto-reapply on external changes)")
+
     # Monitor loop
     ui_step("Monitoring token expiry (Ctrl+C to stop)")
     ui_dim(f"Check interval: {CHECK_INTERVAL_MINS} mins | Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
@@ -3784,6 +3862,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             
     except KeyboardInterrupt:
         ui_step("Shutting down...")
+        watcher_stop.set()
         
         # Block further Ctrl+C during cleanup
         import signal
