@@ -2711,6 +2711,35 @@ def revert_all_changes(repo_root):
     return all_success
 
 
+def detect_stale_patches(repo_root):
+    """Scan patched files for leftover EDOG markers from a previous dirty exit.
+
+    Returns list of (file_key, rel_path) tuples where stale patches were found.
+    This is read-only — it never modifies any files.
+    """
+    MARKERS = ("// EDOG", "EDOG DevMode")
+    stale = []
+
+    # Check FILES entries for EDOG markers in the target source files
+    for file_key, rel_path in FILES.items():
+        try:
+            filepath = repo_root / rel_path
+            if not filepath.exists():
+                continue
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+            if any(marker in content for marker in MARKERS):
+                stale.append((file_key, str(rel_path)))
+        except Exception:
+            pass  # read-only scan — skip unreadable files
+
+    # Check if DevMode/ directory exists (created files, not patches)
+    devmode_dir = repo_root / SERVICE_PATH / "DevMode"
+    if devmode_dir.is_dir():
+        stale.append(("DevMode_dir", str(SERVICE_PATH / "DevMode")))
+
+    return stale
+
+
 def run_setup(force=False):
     """Run EDOG setup: check prerequisites, install deps, build token-helper, add to PATH.
     
@@ -3161,6 +3190,23 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     # Pre-warm cert cache so banner can show thumbprint
     cert_cn = username.replace("@", ".")
     _find_cert_thumbprint(cert_cn)
+    
+    # Detect stale patches from a previous dirty exit (BSOD, kill -9, crash)
+    try:
+        stale = detect_stale_patches(repo_root)
+        if stale:
+            ui_warn("Stale EDOG patches detected from a previous session!")
+            ui_dim("This usually means EDOG crashed or was killed without cleanup.")
+            for _file_key, rel_path in stale:
+                ui_dim(f"  • {rel_path}")
+            if ui_confirm("Revert stale patches before starting fresh?", default=True):
+                revert_all_changes(repo_root)
+                cleanup_bearer_live_token(workspace_id)
+                ui_success("Stale patches reverted — starting fresh")
+            else:
+                ui_dim("Keeping existing patches (may cause conflicts)")
+    except Exception as e:
+        ui_warn(f"Stale patch detection failed: {e} — continuing anyway")
     
     # Show daemon banner
     if RICH_AVAILABLE:
