@@ -2283,8 +2283,79 @@ def _find_cert_thumbprint(cert_subject: str):
             pass
     else:
         ui_error(f"No CBA certificate found for '{cert_subject}'")
-        ui_dim("Ensure the CBA cert is installed in CurrentUser\\My cert store")
+        ui_dim("The certificate is needed for Silent CBA authentication.")
+        
+        # Offer to import from file
+        if _try_import_cert(cert_subject):
+            # Re-query after import
+            tp = _query_cert_store(cert_subject)
+            if tp:
+                _thumbprint_cache[cert_subject] = tp
+                try:
+                    cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
+                except OSError:
+                    pass
+                ui_success(f"Certificate imported and ready ({tp[:8]}...)")
     return tp
+
+
+def _try_import_cert(cert_cn: str) -> bool:
+    """Prompt user for a .pfx/.p12 cert file and import into CurrentUser\\My store."""
+    if not ui_confirm("Do you have the certificate file (.pfx/.p12) to import?", default=False):
+        ui_dim("Install the CBA cert manually into CurrentUser\\My cert store, then retry.")
+        return False
+    
+    cert_path = ui_prompt("Certificate file path (.pfx or .p12)")
+    if not cert_path:
+        return False
+    
+    # Strip quotes (drag-and-drop paths often have them)
+    cert_path = cert_path.strip('"').strip("'")
+    cert_file = Path(cert_path)
+    
+    if not cert_file.exists():
+        ui_error(f"File not found: {cert_path}")
+        return False
+    
+    if cert_file.suffix.lower() not in ('.pfx', '.p12'):
+        ui_error(f"Expected .pfx or .p12 file, got: {cert_file.suffix}")
+        return False
+    
+    # Ask for password (PFX files typically have one)
+    import getpass
+    password = getpass.getpass("  Certificate password (press Enter if none): ")
+    
+    try:
+        if password:
+            ps_cmd = (
+                f'$pwd = ConvertTo-SecureString -String "{password}" -AsPlainText -Force; '
+                f'Import-PfxCertificate -FilePath "{cert_file}" '
+                f'-CertStoreLocation Cert:\\CurrentUser\\My -Password $pwd'
+            )
+        else:
+            ps_cmd = (
+                f'Import-PfxCertificate -FilePath "{cert_file}" '
+                f'-CertStoreLocation Cert:\\CurrentUser\\My'
+            )
+        
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True, text=True, timeout=30,
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            ui_success("Certificate imported into CurrentUser\\My store")
+            return True
+        else:
+            err = result.stderr.strip() or result.stdout.strip()
+            ui_error(f"Import failed: {err[:200]}")
+            return False
+    except subprocess.TimeoutExpired:
+        ui_error("Import timed out")
+        return False
+    except Exception as e:
+        ui_error(f"Import error: {e}")
+        return False
 
 
 def _query_cert_store(cert_cn: str) -> str | None:
