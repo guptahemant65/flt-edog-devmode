@@ -642,7 +642,7 @@ def ensure_config():
 
 
 def show_config():
-    """Display current config with sync status using rich table."""
+    """Display current config with sync status, then offer interactive edit."""
     config = load_config()
     if not config:
         ui_warn("No config found. Run 'edog' to set up.")
@@ -663,6 +663,84 @@ def show_config():
             ui_dim(f"  edog-config.json:       {edog_val or 'not set'}")
             ui_dim(f"  workload-dev-mode.json: {workload_val or 'not set'}")
             ui_dim("  Run 'edog' to auto-sync from workload-dev-mode.json")
+    
+    # Offer interactive edit
+    print()
+    if ui_confirm("Edit config?", default=False):
+        edit_config_interactive(config)
+
+
+def edit_config_interactive(config):
+    """Interactive config editor — shows current value, press Enter to keep."""
+    print()
+    ui_step("Interactive Config Editor")
+    ui_dim("Press Enter to keep current value, or type a new one.")
+    print()
+    
+    changed = False
+    
+    # Username
+    current = config.get("username", DEFAULT_USERNAME)
+    new_val = ui_prompt("Username/Email", default=current)
+    if new_val and new_val != current:
+        config["username"] = new_val
+        changed = True
+    
+    # Workspace ID
+    current = config.get("workspace_id", "")
+    ui_dim(f"  Current: {current or '(not set)'}")
+    new_val = prompt_guid_rich("Workspace ID", field_name="workspace") if not current else _prompt_guid_or_keep(current, "Workspace ID")
+    if new_val and new_val != current:
+        config["workspace_id"] = new_val
+        changed = True
+    
+    # Artifact ID
+    current = config.get("artifact_id", "")
+    ui_dim(f"  Current: {current or '(not set)'}")
+    new_val = prompt_guid_rich("Artifact ID", field_name="artifact") if not current else _prompt_guid_or_keep(current, "Artifact ID")
+    if new_val and new_val != current:
+        config["artifact_id"] = new_val
+        changed = True
+    
+    # Capacity ID
+    current = config.get("capacity_id", "")
+    ui_dim(f"  Current: {current or '(not set)'}")
+    new_val = prompt_guid_rich("Capacity ID", field_name=None) if not current else _prompt_guid_or_keep(current, "Capacity ID")
+    if new_val and new_val != current:
+        config["capacity_id"] = new_val
+        changed = True
+        if write_workload_dev_mode_config(new_val, config.get("flt_repo_path")):
+            ui_info("Also updated CapacityGuid in workload-dev-mode.json")
+    
+    # FLT Repo Path
+    current = config.get("flt_repo_path", "")
+    if current:
+        ui_dim(f"  Current repo: {current}")
+        new_path = input(f"  FLT repo path [{current}]: ").strip()
+        if new_path and new_path != current:
+            repo_path = Path(new_path).resolve()
+            if (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
+                config["flt_repo_path"] = str(repo_path)
+                changed = True
+            else:
+                ui_error(f"Invalid FLT repo path: {repo_path}")
+    
+    if changed:
+        if save_config(config):
+            print()
+            ui_success("Config updated!")
+            show_config_table(config)
+    else:
+        ui_dim("No changes made.")
+
+
+def _prompt_guid_or_keep(current, label):
+    """Prompt for a GUID, allowing Enter to keep current value."""
+    raw = input(f"  {label} [{current}]: ").strip()
+    if not raw:
+        return current
+    result = try_extract_guid(raw, label)
+    return result if result else current
 
 # ============================================================================
 # Smart Pattern Matching (Anchor-Based Fuzzy Matching)
