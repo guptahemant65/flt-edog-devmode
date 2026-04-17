@@ -21,23 +21,6 @@ edog-config.json
 # Token-helper build artifacts
 scripts/token-helper/bin/
 scripts/token-helper/obj/
-scripts/token-helper/token-helper/bin/
-scripts/token-helper/token-helper/obj/
-
-# VS Code extension build
-extensions/vscode/node_modules/
-extensions/vscode/out/
-extensions/vscode/*.vsix
-
-# VS 2022 extension build
-extensions/vs2022/bin/
-extensions/vs2022/obj/
-extensions/vs2022/*.vsix
-
-# Pip package build
-pip-package/dist/
-pip-package/build/
-pip-package/*.egg-info/
 
 # IDE
 .vscode/
