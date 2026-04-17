@@ -99,8 +99,11 @@ def ui_warn(msg):
 def ui_error(msg):
     ui_print(f"  [error]✖[/error]  {msg}")
 
-def ui_step(step, total, msg):
-    ui_print(f"  [header]\\[{step}/{total}][/header] {msg}")
+def ui_step(step_or_msg, total=None, msg=None):
+    if total is not None and msg is not None:
+        ui_print(f"  [header]\\[{step_or_msg}/{total}][/header] {msg}")
+    else:
+        ui_print(f"  [header]▸[/header] {step_or_msg}")
 
 def ui_dim(msg):
     ui_print(f"        [dim]{msg}[/dim]")
