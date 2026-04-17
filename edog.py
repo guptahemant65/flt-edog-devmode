@@ -131,22 +131,30 @@ def show_banner():
 
 def show_config_table(config):
     """Display config as a rich table."""
+    # Resolve cert info from username
+    cert_cn = config.get('username', '').replace('@', '.')
+    cert_tp = _thumbprint_cache.get(cert_cn, '')
+    cert_display = f"{cert_cn} ({cert_tp[:8]}...)" if cert_tp else cert_cn or '[dim]unknown[/dim]'
+    
     if RICH_AVAILABLE:
         table = Table(show_header=False, border_style="dim", padding=(0, 2))
         table.add_column("Field", style="label", min_width=12)
         table.add_column("Value", style="value")
         table.add_row("Username", config.get('username', DEFAULT_USERNAME + ' [dim](default)[/dim]'))
+        table.add_row("Certificate", cert_display)
         table.add_row("Workspace", config.get('workspace_id', '[dim]not set[/dim]'))
         table.add_row("Artifact", config.get('artifact_id', '[dim]not set[/dim]'))
         table.add_row("Capacity", config.get('capacity_id', '[dim]not set[/dim]'))
         table.add_row("FLT Repo", config.get('flt_repo_path', '[dim]auto-detect[/dim]'))
         console.print(table)
     else:
-        print(f"   Username:  {config.get('username', DEFAULT_USERNAME + ' (default)')}")
-        print(f"   Workspace: {config.get('workspace_id', 'not set')}")
-        print(f"   Artifact:  {config.get('artifact_id', 'not set')}")
-        print(f"   Capacity:  {config.get('capacity_id', 'not set')}")
-        print(f"   FLT Repo:  {config.get('flt_repo_path', 'auto-detect')}")
+        print(f"   Username:    {config.get('username', DEFAULT_USERNAME + ' (default)')}")
+        cert_plain = f"{cert_cn} ({cert_tp[:8]}...)" if cert_tp else cert_cn or 'unknown'
+        print(f"   Certificate: {cert_plain}")
+        print(f"   Workspace:   {config.get('workspace_id', 'not set')}")
+        print(f"   Artifact:    {config.get('artifact_id', 'not set')}")
+        print(f"   Capacity:    {config.get('capacity_id', 'not set')}")
+        print(f"   FLT Repo:    {config.get('flt_repo_path', 'auto-detect')}")
 
 
 def ui_status(msg):
@@ -2959,6 +2967,10 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     if synced_capacity and synced_capacity.lower() != capacity_id.lower():
         capacity_id = synced_capacity
         ui_dim(f"Using synced capacity_id: {capacity_id}")
+    
+    # Pre-warm cert cache so banner can show thumbprint
+    cert_cn = username.replace("@", ".")
+    _find_cert_thumbprint(cert_cn)
     
     # Show daemon banner
     if RICH_AVAILABLE:
