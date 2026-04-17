@@ -1537,11 +1537,13 @@ def get_gts_spark_client_bypass(bearer_file_path, mwc_endpoint):
                 var bearerParts = bearerData.Split('|');
                 var bearer = bearerParts[0];
                 if (string.IsNullOrWhiteSpace(bearer))
+                {{
                     throw new InvalidOperationException("Bearer token file is empty");
+                }}
 
                 // Step 2: Call metadata endpoint to generate MWC token
                 var capacityContext = CustomerCapacityAsyncLocalContext.Value;
-                var capacityId = capacityContext?.CustomerCapacityObjectId ?? "";
+                var capacityId = capacityContext?.CustomerCapacityObjectId ?? string.Empty;
 
                 var requestBody = $@"{{{{""capacityObjectId"":""{{capacityId}}"",""workspaceObjectId"":""{{this.workspaceId}}"",""workloadType"":""Lakehouse"",""artifactObjectIds"":[""{{this.artifactId}}""]}}}}";
 
@@ -1560,7 +1562,9 @@ def get_gts_spark_client_bypass(bearer_file_path, mwc_endpoint):
                 string mwcToken = mwcTokenObj.token;
 
                 if (string.IsNullOrWhiteSpace(mwcToken))
+                {{
                     throw new InvalidOperationException("MWC token generation returned empty token");
+                }}
 
                 // Step 3: Parse expiry from bearer (use bearer expiry as upper bound)
                 var expiry = bearerParts.Length > 1 && long.TryParse(bearerParts[1], out var ts)
@@ -1657,7 +1661,8 @@ def apply_gts_spark_client_change(content, repo_root=None, workspace_id=None):
     bearer_file_path = get_bearer_live_path(workspace_id)
     bypass_body = get_gts_spark_client_bypass(bearer_file_path, MWC_TOKEN_ENDPOINT)
     
-    bypass_code = f'''        // EDOG_ORIGINAL_START:{original_encoded}
+    bypass_code = f'''
+        // EDOG_ORIGINAL_START:{original_encoded}
 {bypass_body}'''
     
     new_content = content[:method_start] + bypass_code + content[method_end:]
