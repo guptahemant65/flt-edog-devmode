@@ -110,7 +110,7 @@ def ui_dim(msg):
 
 def ui_log(msg, level="info"):
     """Timestamped log line for daemon output."""
-    ts = datetime.now().strftime('%H:%M:%S')
+    ts = datetime.now().strftime('%I:%M:%S %p')
     style_map = {"info": "info", "success": "success", "warn": "warning", "error": "error"}
     style = style_map.get(level, "info")
     ui_print(f"  [{style}]{ts}[/{style}]  {msg}")
@@ -2912,7 +2912,7 @@ def inject_devmode_token(username, flt_repo_path):
         tmp.replace(devmode_path)
 
         expiry = parse_jwt_expiry(devmode_token)
-        ui_success(f"Injected UserAuthorizationToken → zero-popup auth (expires: {expiry.strftime('%H:%M:%S') if expiry else 'unknown'})")
+        ui_success(f"Injected UserAuthorizationToken → zero-popup auth (expires: {expiry.strftime('%I:%M:%S %p') if expiry else 'unknown'})")
         return expiry
     except Exception as e:
         ui_warn(f"Token injection failed: {e} — browser popup may appear")
@@ -2958,7 +2958,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         return 1
     
     bearer_expiry = parse_jwt_expiry(bearer_token)
-    ui_success(f"Bearer acquired (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
+    ui_success(f"Bearer acquired (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
     
     # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
     write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
@@ -3022,7 +3022,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 status += f" | DevMode: {format_timedelta(devmode_remaining)}"
             if service_process:
                 status += " | Service: Running"
-            ui_info(f"[{datetime.now().strftime('%H:%M:%S')}] {status}")
+            ui_info(f"[{datetime.now().strftime('%I:%M:%S %p')}] {status}")
             
             # Check if refresh needed (triggers on whichever token expires first)
             if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
@@ -3034,7 +3034,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 if new_bearer:
                     bearer_token = new_bearer
                     bearer_expiry = parse_jwt_expiry(bearer_token)
-                    ui_success(f"Bearer refreshed (expires: {bearer_expiry.strftime('%H:%M:%S') if bearer_expiry else 'unknown'})")
+                    ui_success(f"Bearer refreshed (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
                     
                     # Update the live bearer file (PowerBI API audience)
                     write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
