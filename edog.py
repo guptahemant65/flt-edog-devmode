@@ -2226,7 +2226,9 @@ def apply_debugger_launch_program_cs(content):
             "\n"
             "            // EDOG DevMode - Debugger attachment point\n"
             "            if (!System.Diagnostics.Debugger.IsAttached)\n"
+            "            {\n"
             "                System.Diagnostics.Debugger.Launch();\n"
+            "            }\n"
         )
         new_content = content[:match.end()] + injection + content[match.end():]
         return new_content, "applied"
@@ -2236,7 +2238,7 @@ def apply_debugger_launch_program_cs(content):
 
 def revert_debugger_launch_program_cs(content):
     """Revert Debugger.Launch() injection from Program.cs."""
-    pattern = r"\n[ \t]*// EDOG DevMode - Debugger attachment point\n[ \t]*if \(!System\.Diagnostics\.Debugger\.IsAttached\)\n[ \t]*System\.Diagnostics\.Debugger\.Launch\(\);\n"
+    pattern = r"\n[ \t]*// EDOG DevMode - Debugger attachment point\n[ \t]*if \(!System\.Diagnostics\.Debugger\.IsAttached\)\n[ \t]*\{\n[ \t]*System\.Diagnostics\.Debugger\.Launch\(\);\n[ \t]*\}\n"
     return re.sub(pattern, "", content)
 
 
