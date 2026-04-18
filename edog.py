@@ -2215,11 +2215,7 @@ def revert_log_viewer_registration_program_cs(content):
 
 
 def apply_debugger_launch_program_cs(content):
-    """Inject debugger wait-for-attach loop at the top of Main() for debug mode.
-    
-    Uses a polling loop instead of Debugger.Launch() to avoid the forced
-    initial breakpoint. User attaches from VS via Debug > Attach to Process.
-    """
+    """Inject Debugger.Launch() at the top of Main() for debug mode."""
     if "EDOG DevMode - Debugger attachment point" in content:
         return content, "already_applied"
 
@@ -2231,16 +2227,7 @@ def apply_debugger_launch_program_cs(content):
             "            // EDOG DevMode - Debugger attachment point\n"
             "            if (!System.Diagnostics.Debugger.IsAttached)\n"
             "            {\n"
-            '                var edogPid = System.Diagnostics.Process.GetCurrentProcess().Id;\n'
-            '                System.Console.WriteLine();\n'
-            '                System.Console.WriteLine($"  [EDOG Debug] Waiting for debugger... PID: {edogPid}");\n'
-            '                System.Console.WriteLine($"  [EDOG Debug] In Visual Studio: Debug > Attach to Process (Ctrl+Alt+P) > filter PID {edogPid}");\n'
-            '                System.Console.WriteLine();\n'
-            '                while (!System.Diagnostics.Debugger.IsAttached)\n'
-            "                {\n"
-            "                    System.Threading.Thread.Sleep(500);\n"
-            "                }\n"
-            '                System.Console.WriteLine("  [EDOG Debug] Debugger attached! Set your breakpoints — service starting...");\n'
+            "                System.Diagnostics.Debugger.Launch();\n"
             "            }\n"
         )
         new_content = content[:match.end()] + injection + content[match.end():]
@@ -2250,16 +2237,9 @@ def apply_debugger_launch_program_cs(content):
 
 
 def revert_debugger_launch_program_cs(content):
-    """Revert debugger wait-for-attach injection from Program.cs."""
-    # Match from EDOG comment through the outer closing brace, using DOTALL for multiline
-    pattern = (
-        r"\n[ \t]*// EDOG DevMode - Debugger attachment point\n"
-        r".*?System\.Threading\.Thread\.Sleep.*?\n"
-        r".*?\n"  # closing brace of while
-        r".*?\n"  # Console.WriteLine after attach
-        r"[ \t]*\}\n"  # closing brace of if
-    )
-    return re.sub(pattern, "\n", content, flags=re.DOTALL)
+    """Revert Debugger.Launch() injection from Program.cs."""
+    pattern = r"\n[ \t]*// EDOG DevMode - Debugger attachment point\n[ \t]*if \(!System\.Diagnostics\.Debugger\.IsAttached\)\n[ \t]*\{\n[ \t]*System\.Diagnostics\.Debugger\.Launch\(\);\n[ \t]*\}\n"
+    return re.sub(pattern, "", content)
 
 
 def check_visual_studio_installed():
