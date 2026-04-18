@@ -392,10 +392,15 @@ def save_config(config):
 # ============================================================================
 # Workload dev mode config sync
 # ============================================================================
+# EDOG MWC endpoint — constant for all EDOG devmode users
+EDOG_MWC_ENDPOINT = "https://edog.pbidedicated.windows-int.net:443/"
+
+
 def get_workload_dev_mode_path(flt_repo_path=None):
     """
     Get path to workload-dev-mode.json by reading launchSettings.json.
-    Returns Path or None if not found.
+    Falls back to <flt_repo_path>/workload-dev-mode.json if not configured.
+    Returns Path or None if flt_repo_path is unavailable.
     """
     if not flt_repo_path:
         config = load_config()
@@ -406,24 +411,23 @@ def get_workload_dev_mode_path(flt_repo_path=None):
     
     launch_settings = Path(flt_repo_path) / "Service" / "Microsoft.LiveTable.Service.EntryPoint" / "Properties" / "launchSettings.json"
     
-    if not launch_settings.exists():
-        return None
+    if launch_settings.exists():
+        try:
+            with open(launch_settings, 'r') as f:
+                settings = json.load(f)
+            
+            # Extract path from commandLineArgs: -DevMode:LocalConfigFilePath="C:\...\workload-dev-mode.json"
+            profiles = settings.get("profiles", {})
+            for profile in profiles.values():
+                args = profile.get("commandLineArgs", "")
+                match = re.search(r'-DevMode:LocalConfigFilePath="([^"]+)"', args)
+                if match:
+                    return Path(match.group(1))
+        except Exception:
+            pass
     
-    try:
-        with open(launch_settings, 'r') as f:
-            settings = json.load(f)
-        
-        # Extract path from commandLineArgs: -DevMode:LocalConfigFilePath="C:\...\workload-dev-mode.json"
-        profiles = settings.get("profiles", {})
-        for profile in profiles.values():
-            args = profile.get("commandLineArgs", "")
-            match = re.search(r'-DevMode:LocalConfigFilePath="([^"]+)"', args)
-            if match:
-                return Path(match.group(1))
-    except Exception:
-        pass
-    
-    return None
+    # Fallback: <user_home>/workload-dev-mode.json (standard EDOG location)
+    return Path.home() / "workload-dev-mode.json"
 
 
 def read_workload_dev_mode_config(flt_repo_path=None):
@@ -471,6 +475,103 @@ def write_workload_dev_mode_config(capacity_id, flt_repo_path=None):
     except Exception as e:
         ui_warn(f"Could not update workload-dev-mode.json: {e}")
         return False
+
+
+def ensure_workload_dev_mode(flt_repo_path, capacity_id, bearer_token=None):
+    """Ensure workload-dev-mode.json exists with correct TenantGuid and CapacityGuid.
+
+    - Creates the file if missing (all 5 required fields).
+    - Updates TenantGuid if cert changed (derived from bearer JWT tid claim).
+    - Updates CapacityGuid if it changed in edog-config.json.
+    - Warns if launchSettings.json doesn't reference the file.
+
+    Returns True if file is ready, False on failure.
+    """
+    path = get_workload_dev_mode_path(flt_repo_path)
+    if not path:
+        return False
+
+    # Extract tenant from bearer JWT
+    tenant_id = None
+    if bearer_token:
+        tenant_id = extract_tenant_from_jwt(bearer_token)
+
+    if path.exists():
+        # File exists — check if TenantGuid or CapacityGuid need updating
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            changed = False
+
+            if tenant_id and data.get("TenantGuid", "").lower() != tenant_id.lower():
+                old_tenant = data.get("TenantGuid", "(empty)")
+                data["TenantGuid"] = tenant_id
+                changed = True
+                ui_info(f"Updated TenantGuid in workload-dev-mode.json (cert change: {old_tenant[:8]}… → {tenant_id[:8]}…)")
+
+            if capacity_id and data.get("CapacityGuid", "").lower() != capacity_id.lower():
+                data["CapacityGuid"] = capacity_id
+                changed = True
+                ui_info("Updated CapacityGuid in workload-dev-mode.json")
+
+            if changed:
+                write_file(path, json.dumps(data, indent=4))
+
+            return True
+        except Exception as e:
+            ui_warn(f"Could not update workload-dev-mode.json: {e}")
+            return False
+    else:
+        # File doesn't exist — create it
+        if not tenant_id:
+            ui_warn("Cannot auto-create workload-dev-mode.json — no tenant ID (bearer token required)")
+            return False
+
+        data = {
+            "TenantGuid": tenant_id,
+            "CapacityGuid": capacity_id or "",
+            "MwcFrontendBaseEndpoint": EDOG_MWC_ENDPOINT,
+            "WorkloadStartUpMode": "DevMode",
+            "EnvironmentType": "PPE"
+        }
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if write_file(path, json.dumps(data, indent=4)):
+                ui_success(f"Auto-created workload-dev-mode.json at {path}")
+                _warn_if_launch_settings_missing(flt_repo_path, path)
+                return True
+            return False
+        except Exception as e:
+            ui_warn(f"Failed to create workload-dev-mode.json: {e}")
+            return False
+
+
+def _warn_if_launch_settings_missing(flt_repo_path, dev_mode_path):
+    """Warn if launchSettings.json doesn't reference workload-dev-mode.json.
+    
+    We never auto-edit launchSettings.json (it's a git-tracked repo file).
+    Instead we tell the user exactly what to add.
+    """
+    launch_settings = Path(flt_repo_path) / "Service" / "Microsoft.LiveTable.Service.EntryPoint" / "Properties" / "launchSettings.json"
+    if not launch_settings.exists():
+        ui_warn("launchSettings.json not found — the C# service may not find workload-dev-mode.json")
+        ui_dim(f'Add this to your launch profile commandLineArgs:')
+        ui_dim(f'  -DevMode:LocalConfigFilePath="{dev_mode_path}"')
+        return
+
+    try:
+        data = json.loads(launch_settings.read_text(encoding="utf-8"))
+        profiles = data.get("profiles", {})
+        for profile in profiles.values():
+            args = profile.get("commandLineArgs", "")
+            if "-DevMode:LocalConfigFilePath=" in args:
+                return  # Already configured
+        # Not configured in any profile
+        ui_warn("launchSettings.json does not reference workload-dev-mode.json")
+        ui_dim(f'Add this to your launch profile commandLineArgs:')
+        ui_dim(f'  -DevMode:LocalConfigFilePath="{dev_mode_path}"')
+    except Exception:
+        pass
 
 
 def check_capacity_sync(flt_repo_path=None):
@@ -912,6 +1013,17 @@ def parse_jwt_expiry(token):
     except Exception as e:
         ui_warn(f"Could not parse token expiry: {e}")
     return None
+
+
+def extract_tenant_from_jwt(token):
+    """Extract tenant ID (tid claim) from a JWT bearer token."""
+    try:
+        payload = token.split('.')[1]
+        payload += '=' * (4 - len(payload) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload))
+        return decoded.get('tid')
+    except Exception:
+        return None
 
 
 def get_token_time_remaining(expiry):
@@ -4102,6 +4214,11 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         
         # Write bearer to live file BEFORE applying changes (C# bypass reads from this file)
         write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
+        
+        # Ensure workload-dev-mode.json exists and is current (auto-create if missing,
+        # update TenantGuid on cert change, sync CapacityGuid)
+        if not ensure_workload_dev_mode(str(repo_root), capacity_id, bearer_token=bearer_token):
+            ui_warn("workload-dev-mode.json could not be set up — browser auth popup may appear")
         
         # Apply code patches (token-independent — C# reads bearer from file)
         if not apply_all_changes(repo_root, workspace_id=workspace_id, debug_mode=debug_mode):
