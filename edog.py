@@ -60,7 +60,7 @@ except ImportError:
 # ============================================================================
 # UI Abstraction Layer
 # ============================================================================
-EDOG_VERSION = "3.0.0"
+EDOG_VERSION = "3.1.0"
 
 _edog_theme = Theme({
     "info": "cyan",
@@ -2169,6 +2169,56 @@ def revert_log_viewer_registration_program_cs(content):
     return new_content
 
 
+def apply_debugger_launch_program_cs(content):
+    """Inject Debugger.Launch() at the top of Main() for debug mode."""
+    if "EDOG DevMode - Debugger attachment point" in content:
+        return content, "already_applied"
+
+    pattern = r"(public static async Task Main\(string\[\] args\)\s*\{)"
+    match = re.search(pattern, content)
+    if match:
+        injection = (
+            "\n"
+            "            // EDOG DevMode - Debugger attachment point\n"
+            "            if (!System.Diagnostics.Debugger.IsAttached)\n"
+            "                System.Diagnostics.Debugger.Launch();\n"
+        )
+        new_content = content[:match.end()] + injection + content[match.end():]
+        return new_content, "applied"
+
+    return content, "pattern_not_found"
+
+
+def revert_debugger_launch_program_cs(content):
+    """Revert Debugger.Launch() injection from Program.cs."""
+    pattern = r"\n[ \t]*// EDOG DevMode - Debugger attachment point\n[ \t]*if \(!System\.Diagnostics\.Debugger\.IsAttached\)\n[ \t]*System\.Diagnostics\.Debugger\.Launch\(\);\n"
+    return re.sub(pattern, "", content)
+
+
+def check_visual_studio_installed():
+    """Check if Visual Studio is available for JIT debugging."""
+    # Best: use vswhere.exe (ships with VS installer)
+    vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    try:
+        if os.path.exists(vswhere):
+            result = subprocess.run(
+                [vswhere, "-latest", "-property", "productPath"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return True
+    except Exception:
+        pass
+    # Fallback: check PATH for devenv
+    try:
+        result = subprocess.run(["where", "devenv"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def revert_log_viewer_registration_workloadapp_cs(content):
     """Revert log viewer telemetry interceptor registration from WorkloadApp.cs."""
     # Replace interceptor wrapper back with original registration
@@ -2583,7 +2633,7 @@ def get_bearer_token(username):
 # ============================================================================
 # Main EDOG operations
 # ============================================================================
-def apply_all_changes(repo_root, workspace_id=None):
+def apply_all_changes(repo_root, workspace_id=None, debug_mode=False):
     """Apply all EDOG changes to codebase and generate a patch file for clean revert."""
     ui_step("Applying EDOG changes...")
     
@@ -2697,6 +2747,29 @@ def apply_all_changes(repo_root, workspace_id=None):
                 modified_contents[rel_path] = content
                 warnings.append(f"⚠️  {desc}: pattern not found")
     
+    # 6. Debugger.Launch() injection (debug mode only)
+    if debug_mode:
+        rel_path = FILES["Program"]
+        filepath = repo_root / rel_path
+        content = read_file(filepath)  # Re-read after log viewer patch was written
+        if content:
+            new_content, status = apply_debugger_launch_program_cs(content)
+            if status == "applied":
+                if rel_path not in original_contents:
+                    original_contents[rel_path] = content
+                write_file(filepath, new_content)
+                modified_contents[rel_path] = new_content
+                changes_made.append(f"✅ Debugger.Launch() injection (Program.cs)")
+            elif status == "already_applied":
+                reverted = revert_debugger_launch_program_cs(content)
+                if reverted != content:
+                    if rel_path not in original_contents:
+                        original_contents[rel_path] = reverted
+                    modified_contents[rel_path] = content
+                changes_made.append(f"⏭️  Debugger.Launch() injection (already)")
+            elif status == "pattern_not_found":
+                warnings.append(f"⚠️  Debugger.Launch() injection: Main() pattern not found")
+
     # Generate patch file for clean revert
     if generate_patch(original_contents, modified_contents, repo_root):
         ui_dim(f"Patch file saved: {get_patch_file_path().name}")
@@ -2759,16 +2832,18 @@ def revert_all_changes(repo_root):
         ui_warn(f"Error reverting GTSBasedSparkClient: {e}")
         all_success = False
     
-    # 4. Revert Program.cs registration
+    # 4. Revert Program.cs (log viewer + debugger)
     try:
         rel_path = FILES["Program"]
         filepath = repo_root / rel_path
         content = read_file(filepath)
         if content:
-            reverted = revert_log_viewer_registration_program_cs(content)
-            if reverted != content:
-                write_file(filepath, reverted)
-                ui_success("Reverted log viewer registration (Program.cs)")
+            original = content
+            content = revert_log_viewer_registration_program_cs(content)
+            content = revert_debugger_launch_program_cs(content)
+            if content != original:
+                write_file(filepath, content)
+                ui_success("Reverted EDOG patches (Program.cs)")
             else:
                 ui_dim("Program.cs (clean)")
     except Exception as e:
@@ -3439,10 +3514,11 @@ def get_entrypoint_path(repo_root):
     return repo_root / "Service" / "Microsoft.LiveTable.Service.EntryPoint"
 
 
-def start_flt_service(repo_root):
+def start_flt_service(repo_root, debug_mode=False):
     """
     Start the FLT service using dotnet run.
     First builds to ensure code changes are compiled, then runs.
+    In debug mode, explicitly uses Debug configuration for PDB symbols.
     Returns the process handle or None on failure.
     """
     global FLT_SERVICE_PROCESS
@@ -3456,9 +3532,13 @@ def start_flt_service(repo_root):
     
     try:
         # Step 1: Build first to ensure changes are compiled
-        ui_step("Building project (to compile code changes)...")
+        build_label = "Building project (Debug config)..." if debug_mode else "Building project (to compile code changes)..."
+        ui_step(build_label)
+        build_cmd = ["dotnet", "build", str(entrypoint), "--no-incremental"]
+        if debug_mode:
+            build_cmd.extend(["--configuration", "Debug"])
         build_result = subprocess.run(
-            ["dotnet", "build", str(entrypoint), "--no-incremental"],
+            build_cmd,
             capture_output=True,
             text=True,
             cwd=str(repo_root)
@@ -3475,8 +3555,11 @@ def start_flt_service(repo_root):
         
         # Step 2: Run the service from the EntryPoint directory (required for WorkloadParameters)
         ui_step("Launching service...")
+        run_cmd = ["dotnet", "run", "--no-build"]
+        if debug_mode:
+            run_cmd.extend(["--configuration", "Debug"])
         process = subprocess.Popen(
-            ["dotnet", "run", "--no-build"],
+            run_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -3633,7 +3716,7 @@ def inject_devmode_token(username, flt_repo_path):
         return None
 
 
-def print_session_summary(session_start, stats):
+def print_session_summary(session_start, stats, debug_mode=False):
     """Print session summary on exit."""
     duration = datetime.now() - session_start
     total_secs = int(duration.total_seconds())
@@ -3653,6 +3736,8 @@ def print_session_summary(session_start, stats):
     restarts = stats.get("service_restarts", 0)
 
     parts = [f"Session: {dur_str}"]
+    if debug_mode:
+        parts.append("Mode: Debug")
     parts.append(f"{refreshes} token refresh{'es' if refreshes != 1 else ''}")
     if failures:
         parts.append(f"{failures} failure{'s' if failures != 1 else ''}")
@@ -3738,7 +3823,7 @@ def watch_for_git_changes(repo_root, workspace_id, stop_event, reapply_lock):
             pass  # Watcher must not crash
 
 
-def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True):
+def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True, debug_mode=False):
     """Main daemon loop - fetch token, apply changes, optionally launch service, monitor and refresh."""
     session_start = datetime.now()
     session_stats = {"token_refreshes": 0, "refresh_failures": 0, "service_restarts": 0}
@@ -3781,19 +3866,31 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             "capacity_id": capacity_id,
         }
         show_banner()
-        set_terminal_title("EDOG 🐕 | Starting...")
+        set_terminal_title("EDOG 🐕 [DEBUG] | Starting..." if debug_mode else "EDOG 🐕 | Starting...")
         show_config_table(banner_config)
         ui_dim(f"Auto-launch: {'Yes' if launch_service else 'No'}")
+        if debug_mode:
+            ui_dim("Mode: DEBUG (Visual Studio debugger attachment)")
     else:
         print("=" * 70)
-        print("EDOG DevMode Token Manager")
+        print("EDOG DevMode Token Manager" + (" [DEBUG]" if debug_mode else ""))
         print("=" * 70)
         print(f"Username:  {username}")
         print(f"Workspace: {workspace_id}")
         print(f"Artifact:  {artifact_id}")
         print(f"Capacity:  {capacity_id}")
         print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
+        if debug_mode:
+            print("Mode: DEBUG (Visual Studio debugger attachment)")
         print("=" * 70)
+    
+    # Debug mode: check for Visual Studio and show pre-launch info
+    if debug_mode:
+        if not check_visual_studio_installed():
+            ui_warn("Visual Studio not detected — JIT debugger dialog may not show VS as an option")
+            ui_dim("Install Visual Studio or check your installation")
+        ui_info("🔧 DEBUG MODE — A JIT debugger dialog will appear after service launch.")
+        ui_dim("Select your Visual Studio instance to attach the debugger from startup.")
     
     # Get bearer token (C# service will use this to generate MWC tokens itself)
     try:
@@ -3810,8 +3907,19 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
         
         # Apply code patches (token-independent — C# reads bearer from file)
-        if not apply_all_changes(repo_root, workspace_id=workspace_id):
+        if not apply_all_changes(repo_root, workspace_id=workspace_id, debug_mode=debug_mode):
             ui_warn("Some changes could not be applied")
+        
+        # Debug mode: verify Debugger.Launch() was injected (fatal if not)
+        if debug_mode:
+            program_cs = repo_root / FILES["Program"]
+            pc_content = read_file(program_cs)
+            if not pc_content or "EDOG DevMode - Debugger attachment point" not in pc_content:
+                ui_error("Failed to inject Debugger.Launch() into Program.cs — aborting debug mode")
+                ui_dim("Debug mode requires a recognizable Main() entry point in Program.cs")
+                revert_all_changes(repo_root)
+                cleanup_bearer_live_token(workspace_id)
+                return 1
         
         ui_success("Code changes applied successfully")
         
@@ -3829,7 +3937,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
 
         if launch_service:
             ui_step("Starting FLT Service...")
-            service_process = start_flt_service(repo_root)
+            service_process = start_flt_service(repo_root, debug_mode=debug_mode)
             if service_process:
                 # Start background thread to stream service output
                 stop_event = threading.Event()
@@ -3841,9 +3949,15 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 )
                 output_thread.start()
                 
-                # Wait for Dev Connection (up to 120 seconds)
-                ui_dim("Waiting for Dev Connection...")
-                if connected_event.wait(timeout=120):
+                if debug_mode:
+                    ui_info(f"Service PID: {service_process.pid}")
+                    ui_dim("Use VS Debug > Attach to Process if you need to re-attach after detaching")
+                
+                # Wait for Dev Connection (no timeout in debug mode — debugger pauses startup)
+                connection_timeout = None if debug_mode else 120
+                wait_msg = "Waiting for Dev Connection (no timeout — debugger may pause startup)..." if debug_mode else "Waiting for Dev Connection..."
+                ui_dim(wait_msg)
+                if connected_event.wait(timeout=connection_timeout):
                     if service_process.poll() is None:
                         ui_success("Deployed successfully! Logs available at http://localhost:5050")
                     else:
@@ -3867,20 +3981,23 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             revert_all_changes(repo_root)
             cleanup_bearer_live_token(workspace_id)
             reset_terminal_title()
-            print_session_summary(session_start, session_stats)
+            print_session_summary(session_start, session_stats, debug_mode=debug_mode)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
         return 0
     
-    # Start git change watcher thread
-    watcher_thread = threading.Thread(
-        target=watch_for_git_changes,
-        args=(repo_root, workspace_id, watcher_stop, reapply_lock),
-        daemon=True
-    )
-    watcher_thread.start()
-    ui_dim("Git change watcher active (auto-reapply on external changes)")
+    # Start git change watcher thread (disabled in debug mode — avoids breakpoint drift)
+    if not debug_mode:
+        watcher_thread = threading.Thread(
+            target=watch_for_git_changes,
+            args=(repo_root, workspace_id, watcher_stop, reapply_lock),
+            daemon=True
+        )
+        watcher_thread.start()
+        ui_dim("Git change watcher active (auto-reapply on external changes)")
+    else:
+        ui_dim("Git change watcher disabled (debug mode — avoids breakpoint drift)")
 
     # Monitor loop
     ui_step("Monitoring token expiry (Ctrl+C to stop)")
@@ -3914,7 +4031,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             # Update terminal title with token countdown
             if remaining:
                 total_mins = int(remaining.total_seconds() / 60)
-                title = f"EDOG 🐕 | Token: {total_mins}m left"
+                title_prefix = "EDOG 🐕 [DEBUG]" if debug_mode else "EDOG 🐕"
+                title = f"{title_prefix} | Token: {total_mins}m left"
                 if service_process:
                     title += " | Service: Running"
                 set_terminal_title(title)
@@ -3968,7 +4086,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             cleanup_bearer_live_token(workspace_id)
             
             reset_terminal_title()
-            print_session_summary(session_start, session_stats)
+            print_session_summary(session_start, session_stats, debug_mode=debug_mode)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
@@ -4020,6 +4138,7 @@ Token flow:
     parser.add_argument("--no-update", action="store_true", help="Skip auto-update check")
     parser.add_argument("--bearer", action="store_true", help="Show bearer token path and copy to clipboard")
     parser.add_argument("--api", action="store_true", help="Interactive API REPL with bearer auth")
+    parser.add_argument("--debug", action="store_true", help="Launch service with Visual Studio debugger attachment")
     parser.add_argument("-u", "--username", help="Username/Email for login")
     parser.add_argument("-w", "--workspace", help="Workspace ID")
     parser.add_argument("-a", "--artifact", help="Artifact ID")
@@ -4165,4 +4284,10 @@ Token flow:
             artifact_id = config["artifact_id"]
             capacity_id = config["capacity_id"]
         
-        sys.exit(run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=not args.no_launch))
+        # Debug mode conflict check
+        if args.debug and args.no_launch:
+            ui_error("Cannot use --debug with --no-launch (debugging requires launching the service)")
+            sys.exit(1)
+        
+        sys.exit(run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root,
+                            launch_service=not args.no_launch, debug_mode=args.debug))

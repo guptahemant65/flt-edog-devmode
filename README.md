@@ -4,7 +4,7 @@
 
 **One command. Zero popups. FabricLiveTable DevMode on autopilot.**
 
-[![v3.0.0](https://img.shields.io/badge/version-3.0.0-blue?style=for-the-badge)](https://github.com/guptahemant65/flt-edog-devmode)
+[![v3.1.0](https://img.shields.io/badge/version-3.1.0-blue?style=for-the-badge)](https://github.com/guptahemant65/flt-edog-devmode)
 [![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
@@ -12,7 +12,7 @@
 
 <br/>
 
-[Quick Start](#-quick-start) · [What's New in v3.0](#-whats-new-in-v30) · [Commands](#-command-reference) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
+[Quick Start](#-quick-start) · [What's New in v3.0](#-whats-new-in-v30) · [Commands](#-command-reference) · [Debug Mode](#-debug-mode) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
 
 <br/>
 
@@ -230,6 +230,7 @@ If EDOG crashes or your machine reboots mid-session, **crash recovery** detects 
 | Command | Description |
 |---------|-------------|
 | `edog` | **The big one.** Auth → patch → build → launch → monitor → revert on exit |
+| `edog --debug` | **Debug mode.** Everything above + Debugger.Launch() → VS attaches from line 1 |
 | `edog --no-launch` | Auth + patch only (skip build/launch — useful for token-only workflows) |
 | `edog --revert` | Revert all EDOG patches from the codebase |
 | `edog --status` | Show current DevMode status and what's patched |
@@ -408,6 +409,37 @@ flt-edog-devmode/
 | Need bearer for Postman | `edog --bearer` — copies token to clipboard with usage examples |
 | Want to test APIs quickly | `edog --api` — interactive REPL with authenticated requests |
 | Patches vanish after git pull | They don't — git watcher auto-re-patches for you 🐕 |
+| Debug mode: no JIT dialog | Check VS installation — `edog --doctor` validates this |
+| Debug mode: breakpoints not hit | Ensure you're using `--debug` flag — builds with Debug config for PDB symbols |
+
+<br/>
+
+---
+
+<br/>
+
+## 🔍 Debug Mode
+
+Attach Visual Studio's debugger to the FLT service from the very first line:
+
+```powershell
+edog --debug
+```
+
+**What happens:**
+1. EDOG runs all normal steps (auth, patch, build)
+2. Injects `Debugger.Launch()` at the top of `Main()` in Program.cs
+3. Builds with `--configuration Debug` (PDB symbols for breakpoints)
+4. Launches the service → .NET JIT debugger dialog appears
+5. Pick your Visual Studio instance → debugger attaches from startup
+6. Set breakpoints anywhere — they work from line 1
+
+**Debug mode differences:**
+- ⏳ No connection timeout (service pauses at `Debugger.Launch()`)
+- 🚫 Git auto-reapply disabled (avoids breakpoint drift and VS "file changed" warnings)
+- 🏷️ Terminal title shows `[DEBUG]`
+- 🔁 Service restart re-triggers `Debugger.Launch()` automatically
+- 🧹 All patches (including debugger) reverted cleanly on exit
 
 <br/>
 
