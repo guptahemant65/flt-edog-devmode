@@ -312,7 +312,7 @@ def prompt_guid_rich(prompt_text, field_name=None):
 POWER_BI_URL = "https://powerbi-df.analysis-df.windows.net/"
 MWC_TOKEN_ENDPOINT = "https://biazure-int-edog-redirect.analysis-df.windows.net/metadata/v201606/generatemwctoken"
 
-DEFAULT_USERNAME = "Admin1CBA@FabricFMLV07PPE.ccsctp.net"
+DEFAULT_USERNAME = "Admin1CBA@FabricFMLV09PPE.ccsctp.net"
 
 CONFIG_FILE = "edog-config.json"
 
@@ -666,9 +666,26 @@ def prompt_for_config(flt_repo_path=None):
         print("\n📝 First-time setup - please enter your EDOG environment details:")
         print("   (You can find these in Fabric portal URL or workload-dev-mode.json)\n")
     
-    username = ui_prompt(f"Username/Email", default=DEFAULT_USERNAME)
-    if not username:
-        username = DEFAULT_USERNAME
+    # Try to discover usernames from installed CBA certs
+    username = DEFAULT_USERNAME
+    cert_usernames = _discover_cert_usernames()
+    if cert_usernames:
+        options = cert_usernames.copy()
+        # Ensure default is in the list
+        if DEFAULT_USERNAME not in options:
+            options.append(DEFAULT_USERNAME)
+        options.append("Enter manually...")
+        chosen = ui_choose("Select username (from installed certs)", options)
+        if chosen == "Enter manually...":
+            username = ui_prompt("Username/Email", default=DEFAULT_USERNAME)
+            if not username:
+                username = DEFAULT_USERNAME
+        else:
+            username = chosen
+    else:
+        username = ui_prompt("Username/Email", default=DEFAULT_USERNAME)
+        if not username:
+            username = DEFAULT_USERNAME
     
     workspace_id = prompt_guid_rich("Workspace ID", field_name="workspace")
     artifact_id = prompt_guid_rich("Artifact ID (Lakehouse)", field_name="artifact")
@@ -2533,6 +2550,41 @@ def _get_token_helper_exe():
                 if exe.exists():
                     return exe
     return None
+
+
+def _discover_cert_usernames():
+    """Discover CBA usernames from installed certificates.
+    
+    Returns list of email-style usernames (e.g. Admin1CBA@FabricFMLV09PPE.ccsctp.net)
+    extracted from cert CNs. Returns empty list if token-helper unavailable or no certs.
+    """
+    helper_exe = _get_token_helper_exe()
+    if not helper_exe:
+        return []
+    try:
+        result = subprocess.run(
+            [str(helper_exe), "--list-certs"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        certs = json.loads(result.stdout.strip())
+        # Extract unique usernames from CN fields (CN uses dots, username uses @)
+        usernames = []
+        seen = set()
+        for c in certs:
+            cn = c.get("cn", "")
+            # CBA certs have CN like "Admin1CBA.FabricFMLV09PPE.ccsctp.net"
+            # Convert first dot to @ to get the email-style username
+            if "." in cn and cn.count(".") >= 3:
+                parts = cn.split(".", 1)
+                email = f"{parts[0]}@{parts[1]}"
+                if email.lower() not in seen:
+                    seen.add(email.lower())
+                    usernames.append(email)
+        return usernames
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+        return []
 
 
 def _find_cert_thumbprint(cert_subject: str):
