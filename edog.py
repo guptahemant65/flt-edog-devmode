@@ -1652,11 +1652,15 @@ def get_gts_spark_client_bypass(bearer_file_path, mwc_endpoint):
                 var capacityContext = CustomerCapacityAsyncLocalContext.Value;
                 var capacityId = capacityContext?.CustomerCapacityObjectId ?? string.Empty;
 
-                var requestBody = $@"{{{{""capacityObjectId"":""{{capacityId}}"",""workspaceObjectId"":""{{this.workspaceId}}"",""workloadType"":""Lakehouse"",""artifactObjectIds"":[""{{this.artifactId}}""]}}}}";
+                var requestBody = $@"{{{{""type"":""[Start] GetMWCToken"",""workloadType"":""Lakehouse"",""workspaceObjectId"":""{{this.workspaceId}}"",""artifactObjectIds"":[""{{this.artifactId}}""],""capacityObjectId"":""{{capacityId}}"",""asyncId"":""{{System.Guid.NewGuid()}}"",""iframeId"":""{{System.Guid.NewGuid()}}""}}}}";
 
                 using var httpClient = new System.Net.Http.HttpClient();
                 httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+                httpClient.DefaultRequestHeaders.Accept.Add(
+                    new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                httpClient.DefaultRequestHeaders.Add("activityid", System.Guid.NewGuid().ToString());
+                httpClient.DefaultRequestHeaders.Add("requestid", System.Guid.NewGuid().ToString());
 
                 var response = await httpClient.PostAsync(
                     "{mwc_endpoint}",
@@ -1666,11 +1670,11 @@ def get_gts_spark_client_bypass(bearer_file_path, mwc_endpoint):
 
                 var responseJson = await response.Content.ReadAsStringAsync();
                 var mwcTokenObj = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(responseJson);
-                string mwcToken = mwcTokenObj.token;
+                string mwcToken = mwcTokenObj.Token;
 
                 if (string.IsNullOrWhiteSpace(mwcToken))
                 {{
-                    throw new InvalidOperationException("MWC token generation returned empty token");
+                    throw new InvalidOperationException($"MWC token generation returned empty token. Response: {{responseJson?.Substring(0, System.Math.Min(responseJson.Length, 200))}}");
                 }}
 
                 // Step 3: Parse expiry from bearer (use bearer expiry as upper bound)
