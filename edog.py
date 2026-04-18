@@ -3166,14 +3166,22 @@ def auto_update():
             ui_dim("Skipping auto-update (local changes detected)")
             return None
         
-        # Fetch + fast-forward
+        # Fetch + fast-forward — compare HEAD before/after to detect real changes
         ui_dim("Checking for updates...")
+        head_before = subprocess.run(
+            ["git", "-C", str(edog_dir), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10
+        ).stdout.strip()
         result = subprocess.run(
             ["git", "-C", str(edog_dir), "pull", "--ff-only", "--quiet"],
             capture_output=True, text=True, timeout=30
         )
         if result.returncode == 0:
-            if "Already up to date" in (result.stdout + result.stderr):
+            head_after = subprocess.run(
+                ["git", "-C", str(edog_dir), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10
+            ).stdout.strip()
+            if head_before == head_after:
                 ui_dim("Already up to date")
                 return False
             else:
