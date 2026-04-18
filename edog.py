@@ -538,7 +538,7 @@ def ensure_workload_dev_mode(flt_repo_path, capacity_id, bearer_token=None):
             path.parent.mkdir(parents=True, exist_ok=True)
             if write_file(path, json.dumps(data, indent=4)):
                 ui_success(f"Auto-created workload-dev-mode.json at {path}")
-                _warn_if_launch_settings_missing(flt_repo_path, path)
+                _ensure_launch_settings_configured(flt_repo_path, path)
                 return True
             return False
         except Exception as e:
@@ -546,32 +546,54 @@ def ensure_workload_dev_mode(flt_repo_path, capacity_id, bearer_token=None):
             return False
 
 
-def _warn_if_launch_settings_missing(flt_repo_path, dev_mode_path):
-    """Warn if launchSettings.json doesn't reference workload-dev-mode.json.
-    
-    We never auto-edit launchSettings.json (it's a git-tracked repo file).
-    Instead we tell the user exactly what to add.
+def _ensure_launch_settings_configured(flt_repo_path, dev_mode_path):
+    """Ensure launchSettings.json has -DevMode:LocalConfigFilePath pointing to our file.
+
+    launchSettings.json is gitignored (developer-local), so safe to auto-edit.
+    Updates all profiles that have commandName=Project.
     """
     launch_settings = Path(flt_repo_path) / "Service" / "Microsoft.LiveTable.Service.EntryPoint" / "Properties" / "launchSettings.json"
+    dev_mode_arg = f'-DevMode:LocalConfigFilePath="{dev_mode_path}"'
+
     if not launch_settings.exists():
-        ui_warn("launchSettings.json not found — the C# service may not find workload-dev-mode.json")
-        ui_dim(f'Add this to your launch profile commandLineArgs:')
-        ui_dim(f'  -DevMode:LocalConfigFilePath="{dev_mode_path}"')
+        # Create minimal launchSettings.json
+        data = {
+            "profiles": {
+                "Microsoft.LiveTable.Service.EntryPoint": {
+                    "commandName": "Project",
+                    "commandLineArgs": dev_mode_arg
+                }
+            }
+        }
+        launch_settings.parent.mkdir(parents=True, exist_ok=True)
+        if write_file(launch_settings, json.dumps(data, indent=2)):
+            ui_success("Created launchSettings.json with DevMode config path")
+        else:
+            ui_warn("Could not create launchSettings.json")
+            ui_dim(f'Add this to your launch profile commandLineArgs:')
+            ui_dim(f'  {dev_mode_arg}')
         return
 
     try:
         data = json.loads(launch_settings.read_text(encoding="utf-8"))
         profiles = data.get("profiles", {})
-        for profile in profiles.values():
+        updated = False
+
+        for profile_name, profile in profiles.items():
             args = profile.get("commandLineArgs", "")
             if "-DevMode:LocalConfigFilePath=" in args:
-                return  # Already configured
-        # Not configured in any profile
-        ui_warn("launchSettings.json does not reference workload-dev-mode.json")
-        ui_dim(f'Add this to your launch profile commandLineArgs:')
-        ui_dim(f'  -DevMode:LocalConfigFilePath="{dev_mode_path}"')
-    except Exception:
-        pass
+                continue  # This profile already has it
+            # Add the arg to Project profiles (or any profile without it)
+            if profile.get("commandName") == "Project" or not profiles:
+                profile["commandLineArgs"] = f"{args} {dev_mode_arg}".strip() if args else dev_mode_arg
+                updated = True
+
+        if updated:
+            write_file(launch_settings, json.dumps(data, indent=2))
+            ui_success("Updated launchSettings.json with DevMode config path")
+    except Exception as e:
+        ui_warn(f"Could not update launchSettings.json: {e}")
+        ui_dim(f'Add manually: {dev_mode_arg}')
 
 
 def check_capacity_sync(flt_repo_path=None):
