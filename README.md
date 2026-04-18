@@ -4,6 +4,7 @@
 
 **One command. Zero popups. FabricLiveTable DevMode on autopilot.**
 
+[![v3.0.0](https://img.shields.io/badge/version-3.0.0-blue?style=for-the-badge)](https://github.com/guptahemant65/flt-edog-devmode)
 [![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
@@ -11,7 +12,7 @@
 
 <br/>
 
-[Quick Start](#-quick-start) · [Commands](#-command-reference) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
+[Quick Start](#-quick-start) · [What's New in v3.0](#-whats-new-in-v30) · [Commands](#-command-reference) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
 
 <br/>
 
@@ -19,7 +20,7 @@
 
 <br/>
 
-*Silent CBA auth • Auto-patching • Real-time log viewer • API REPL*
+*Silent CBA auth • Auto-patching • Crash recovery • Health diagnostics • API REPL • Auto-update*
 <br/>
 *Type `edog`. Go build things. The dog handles the rest.*
 
@@ -35,7 +36,7 @@ EDOG DevMode is the **EDOG whisperer** — it takes the painful multi-step Fabri
 
 <table>
 <tr>
-<td width="25%" align="center">
+<td width="20%" align="center">
 <br/>
 <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Locked%20with%20Key.png" width="60"/>
 <br/><br/>
@@ -44,7 +45,7 @@ EDOG DevMode is the **EDOG whisperer** — it takes the painful multi-step Fabri
 Certificate-based, zero popups
 <br/><br/>
 </td>
-<td width="25%" align="center">
+<td width="20%" align="center">
 <br/>
 <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png" width="60"/>
 <br/><br/>
@@ -53,7 +54,7 @@ Certificate-based, zero popups
 Bearer + DevMode, auto-refresh
 <br/><br/>
 </td>
-<td width="25%" align="center">
+<td width="20%" align="center">
 <br/>
 <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Gear.png" width="60"/>
 <br/><br/>
@@ -62,15 +63,85 @@ Bearer + DevMode, auto-refresh
 Apply on start, revert on exit
 <br/><br/>
 </td>
-<td width="25%" align="center">
+<td width="20%" align="center">
+<br/>
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Stethoscope.png" width="60"/>
+<br/><br/>
+<b>Health Diagnostics</b>
+<br/>
+14-point doctor check
+<br/><br/>
+</td>
+<td width="20%" align="center">
 <br/>
 <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Magnifying%20Glass%20Tilted%20Left.png" width="60"/>
 <br/><br/>
-<b>Web Log Viewer</b>
+<b>API REPL</b>
 <br/>
-Real-time logs in your browser
+Interactive authenticated shell
 <br/><br/>
 </td>
+</tr>
+</table>
+
+<br/>
+
+---
+
+<br/>
+
+## 🆕 What's New in v3.0
+
+<table>
+<tr>
+<td>🔄</td>
+<td><b>Crash Recovery</b></td>
+<td>Detects stale patches from crashed sessions and offers to clean them up automatically — no more manual <code>--revert</code> after a bad exit</td>
+</tr>
+<tr>
+<td>🩺</td>
+<td><b><code>edog --doctor</code></b></td>
+<td>One-shot health check — validates all 14 dependencies (Python, .NET, certs, config, repos, token-helper) with a clear pass/fail report</td>
+</tr>
+<tr>
+<td>⬆️</td>
+<td><b>Auto-Update</b></td>
+<td>Checks for updates on every startup via <code>git pull --ff-only</code>. Skip with <code>--no-update</code>. Never touches local changes.</td>
+</tr>
+<tr>
+<td>📊</td>
+<td><b>Session Summary</b></td>
+<td>On Ctrl+C, prints session duration, token refresh count, failure count, and restart count — a quick glance at how the session went</td>
+</tr>
+<tr>
+<td>🏷️</td>
+<td><b>Terminal Title</b></td>
+<td>Sets your terminal window title to <code>🐕 EDOG DevMode — {workspace}</code> while running, restores on exit</td>
+</tr>
+<tr>
+<td>🎨</td>
+<td><b>Colored Log Output</b></td>
+<td>Pre-connection service logs are color-coded (errors in red, warnings in yellow, info in cyan) for faster visual scanning</td>
+</tr>
+<tr>
+<td>🪝</td>
+<td><b>Hook Auto-Install</b></td>
+<td>Git pre-commit hook auto-installs when patches are applied — blocks accidental commits of EDOG markers</td>
+</tr>
+<tr>
+<td>📋</td>
+<td><b><code>edog --bearer</code></b></td>
+<td>Copies bearer token to clipboard with ready-to-paste <code>curl</code> and <code>Invoke-RestMethod</code> examples for Postman/API testing</td>
+</tr>
+<tr>
+<td>🔌</td>
+<td><b><code>edog --api</code></b></td>
+<td>Interactive REPL — type API paths, get authenticated JSON responses. Supports GET/POST, pretty-printing, and history</td>
+</tr>
+<tr>
+<td>👀</td>
+<td><b>Git Auto-Reapply</b></td>
+<td>Background watcher detects when you <code>git pull</code> or switch branches — automatically re-patches so you never lose DevMode state mid-session</td>
 </tr>
 </table>
 
@@ -119,11 +190,13 @@ No separate setup step. No second script. EDOG detects what's needed and handles
     │          │                                                                   │
     │          ▼                                                                   │
     │   ┌──────────────────────────────────────────────────────────────────┐       │
-    │   │  🔄  Monitor Loop: token refresh + service health + log viewer  │       │
-    │   │  👀  Git Watcher: auto-reapply patches on external changes      │       │
+    │   │  🔄 Token auto-refresh (bearer + DevMode, independent timers)   │       │
+    │   │  👀 Git watcher (re-patches after pull/branch switch)           │       │
+    │   │  🛡️ Pre-commit hook (blocks EDOG marker commits)                │       │
+    │   │  🏷️ Terminal title (workspace context at a glance)              │       │
     │   └──────────────────────────────────────────────────────────────────┘       │
     │                                                                              │
-    │   On Ctrl+C:  Stop Service → Revert All Patches → Session Summary            │
+    │   On Ctrl+C:  Stop → Revert Patches → Remove Hook → Session Summary         │
     └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -141,6 +214,8 @@ Every `edog` run applies **6 surgical code changes** to your FLT service, then *
 | **Test.json** | Sets `DisableFLTAuth = true` |
 
 All changes are tracked in `.edog-changes.patch` and reverted via direct function calls (not `git checkout`).
+
+If EDOG crashes or your machine reboots mid-session, **crash recovery** detects leftover patches on the next run and offers to clean them up automatically.
 
 <br/>
 
@@ -173,12 +248,14 @@ All changes are tracked in `.edog-changes.patch` and reverted via direct functio
 
 | Command | Description |
 |---------|-------------|
-| `edog --config` | Show current config with live cert + capacity sync status |
+| `edog --config` | Show current config, then offer interactive editing |
 | `edog --config -u <email>` | Set CBA username (e.g. `Admin1CBA@FabricFMLV08PPE.ccsctp.net`) |
 | `edog --config -w <guid>` | Set workspace ID |
 | `edog --config -a <guid>` | Set artifact ID |
 | `edog --config -c <guid>` | Set capacity ID (auto-syncs with `workload-dev-mode.json`) |
 | `edog --config -r <path>` | Set FLT repo path (usually auto-detected) |
+
+> **Tip:** Run `edog --config` with no flags to see your current config and edit any field interactively.
 
 ### Maintenance
 
@@ -186,7 +263,7 @@ All changes are tracked in `.edog-changes.patch` and reverted via direct functio
 |---------|-------------|
 | `edog --clear-token` | Clear cached auth tokens |
 | `edog --no-update` | Skip auto-update check on startup |
-| `edog --install-hook` | Install git pre-commit hook (auto-installed on patch apply) |
+| `edog --install-hook` | Install git pre-commit safety hook (auto-installed on patch apply) |
 | `edog --uninstall-hook` | Remove git pre-commit hook |
 
 <br/>
@@ -208,6 +285,10 @@ Config lives in `edog-config.json` (gitignored):
   "flt_repo_path": "auto-detect"
 }
 ```
+
+### Interactive Editing
+
+Run `edog --config` with no flags — it shows your current config, then asks if you want to edit. Say yes and it walks you through each field, showing the current value and letting you update or skip.
 
 ### Finding Your IDs
 
@@ -258,6 +339,8 @@ Override: `edog --config -r C:\path\to\workload-fabriclivetable`
 | **Refresh** | Auto-refresh before expiry with cached fallback |
 | **Change Tracking** | All patches recorded in `.edog-changes.patch` |
 | **Rollback** | Clean revert on Ctrl+C — always leaves your repo pristine |
+| **Crash Safety** | Stale patches from crashed sessions detected and cleaned on next run |
+| **Pre-commit Hook** | Auto-installed hook blocks accidental commits of EDOG markers |
 | **Secrets** | Tokens and config are gitignored; certs stay in Windows cert store |
 
 <br/>
@@ -277,6 +360,8 @@ EDOG injects a web-based log viewer into the FLT service. Once the service start
 - Search across all logs
 
 No separate tool needed — it's baked into the service while EDOG is running.
+
+Pre-connection service logs also stream to your terminal with **colored output** — errors in red, warnings in yellow, info in cyan — for quick visual scanning while the service boots.
 
 <br/>
 
@@ -318,9 +403,11 @@ flt-edog-devmode/
 | Build fails after patching | `edog --revert` to clean up, then check for upstream changes |
 | Repo not found | `edog --config -r <path>` to set manually |
 | First run fails | `edog --setup` to re-run setup |
-| Ctrl+C leaves patches | `edog --revert` (shouldn't happen — but just in case) |
-| Not sure what's wrong | `edog --doctor` to check all 14 dependencies |
+| Ctrl+C leaves patches | `edog --revert` (shouldn't happen — crash recovery catches this next run) |
+| Not sure what's wrong | `edog --doctor` — 14-point health check with clear pass/fail |
 | Need bearer for Postman | `edog --bearer` — copies token to clipboard with usage examples |
+| Want to test APIs quickly | `edog --api` — interactive REPL with authenticated requests |
+| Patches vanish after git pull | They don't — git watcher auto-re-patches for you 🐕 |
 
 <br/>
 
@@ -334,11 +421,18 @@ flt-edog-devmode/
 # Morning: one command
 edog
 
-# All day: code normally, logs at http://localhost:PORT/edog-logs
+# All day: code normally
+#   - Logs at http://localhost:PORT/edog-logs
+#   - git pull? Patches auto-reapply
+#   - Need an API call? edog --api in another terminal
+#   - Need the bearer token? edog --bearer
 
 # Done for the day: Ctrl+C
-# Service stops, patches revert, repo is clean
-# Commit your actual work without any EDOG artifacts
+#   → Service stops
+#   → Patches revert
+#   → Pre-commit hook removed
+#   → Session summary printed
+#   → Commit your actual work — repo is clean
 ```
 
 <br/>
@@ -346,5 +440,5 @@ edog
 ---
 
 <div align="center">
-<sub>Microsoft Internal · Built for FabricLiveTable developers who'd rather code than configure</sub>
+<sub>v3.0.0 · Microsoft Internal · Built for FabricLiveTable developers who'd rather code than configure</sub>
 </div>
