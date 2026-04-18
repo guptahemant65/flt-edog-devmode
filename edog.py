@@ -523,11 +523,6 @@ def sync_capacity_from_workload(flt_repo_path=None, silent=False):
     return edog_val
 
 
-def validate_guid(value):
-    """Validate GUID format. Returns True if valid."""
-    guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-    return bool(re.match(guid_pattern, value))
-
 
 def prompt_guid(prompt_text, field_name):
     """Prompt for a GUID with validation, URL extraction, and retry. Delegates to prompt_guid_rich."""
@@ -587,22 +582,25 @@ def update_config(username=None, workspace_id=None, artifact_id=None, capacity_i
     if username:
         config["username"] = username
     if workspace_id:
-        valid, cleaned = validate_guid(workspace_id, "workspace_id")
-        if not valid:
+        guid, hint = try_extract_guid(workspace_id, "workspace_id")
+        if not guid:
+            ui_error(f"Invalid workspace_id: {hint or 'not a valid GUID'}")
             return False
-        config["workspace_id"] = cleaned
+        config["workspace_id"] = guid
     if artifact_id:
-        valid, cleaned = validate_guid(artifact_id, "artifact_id")
-        if not valid:
+        guid, hint = try_extract_guid(artifact_id, "artifact_id")
+        if not guid:
+            ui_error(f"Invalid artifact_id: {hint or 'not a valid GUID'}")
             return False
-        config["artifact_id"] = cleaned
+        config["artifact_id"] = guid
     if capacity_id:
-        valid, cleaned = validate_guid(capacity_id, "capacity_id")
-        if not valid:
+        guid, hint = try_extract_guid(capacity_id, "capacity_id")
+        if not guid:
+            ui_error(f"Invalid capacity_id: {hint or 'not a valid GUID'}")
             return False
-        config["capacity_id"] = cleaned
+        config["capacity_id"] = guid
         # Also update workload-dev-mode.json for bidirectional sync
-        if write_workload_dev_mode_config(cleaned, config.get("flt_repo_path")):
+        if write_workload_dev_mode_config(guid, config.get("flt_repo_path")):
             ui_info("Also updated CapacityGuid in workload-dev-mode.json")
     if flt_repo_path:
         # Validate the path
@@ -739,8 +737,13 @@ def _prompt_guid_or_keep(current, label):
     raw = input(f"  {label} [{current}]: ").strip()
     if not raw:
         return current
-    result = try_extract_guid(raw, label)
-    return result if result else current
+    guid, hint = try_extract_guid(raw, label)
+    if guid:
+        if hint:
+            ui_dim(f"  ({hint})")
+        return guid
+    ui_warn(f"  Invalid GUID: {hint}")
+    return current
 
 # ============================================================================
 # Smart Pattern Matching (Anchor-Based Fuzzy Matching)
@@ -1091,17 +1094,34 @@ def read_file(filepath):
 
 
 def write_file(filepath, content):
-    """Write file content. Fails immediately if file is locked."""
+    """Write file content atomically. Writes to temp file first, then replaces.
+    
+    Prevents file corruption if EDOG crashes mid-write (power loss, Ctrl+C, etc.).
+    """
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
+        filepath = Path(filepath)
+        tmp_path = filepath.with_suffix(filepath.suffix + '.edog-tmp')
+        with open(tmp_path, 'w', encoding='utf-8') as f:
             f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(filepath)
         return True
     except PermissionError:
         ui_error(f"File is locked: {filepath.name}")
         ui_dim("Close the file in Visual Studio/VS Code and retry")
+        # Clean up temp file on failure
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
         return False
     except Exception as e:
         ui_error(f"Error writing {filepath.name}: {e}")
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
         return False
 
 
@@ -1167,13 +1187,19 @@ def install_git_hook(repo_root):
         ui_error(f"Git hooks directory not found: {hooks_dir}")
         return False
     
+    # Generate file list from FILES and DEVMODE_FILES dicts (stays in sync automatically)
+    all_file_basenames = set()
+    for path in list(FILES.values()) + list(DEVMODE_FILES.values()):
+        all_file_basenames.add(Path(path).name)
+    edog_files_str = " ".join(sorted(all_file_basenames))
+    
     # Hook script content
-    hook_script = '''#!/bin/sh
+    hook_script = f'''#!/bin/sh
 # EDOG DevMode pre-commit hook
 # Prevents accidental commits of EDOG-modified files
 
-# Files that EDOG modifies
-EDOG_FILES="LiveTableController.cs LiveTableSchedulerRunController.cs GTSBasedSparkClient.cs"
+# Files that EDOG modifies (auto-generated from FILES + DEVMODE_FILES)
+EDOG_FILES="{edog_files_str}"
 
 # Check if any EDOG files are staged
 for file in $EDOG_FILES; do
@@ -1462,10 +1488,19 @@ def load_cached_token():
 
 
 def clear_token_cache():
-    """Delete cached token."""
+    """Delete all cached tokens (legacy, bearer, thumbprint)."""
     cache_path = get_token_cache_path()
     if cache_path.exists():
         cache_path.unlink()
+    # Also clear bearer and thumbprint caches
+    bearer_cache = get_bearer_cache_path()
+    if bearer_cache.exists():
+        bearer_cache.unlink()
+        ui_dim("Cleared bearer cache")
+    thumbprint_cache = Path(__file__).parent / ".edog-thumbprint-cache"
+    if thumbprint_cache.exists():
+        thumbprint_cache.unlink()
+        ui_dim("Cleared thumbprint cache")
 
 
 # ============================================================================
@@ -1575,10 +1610,13 @@ def show_notification(title, message):
         # win10toast not installed, try PowerShell fallback
         try:
             import subprocess
+            from xml.sax.saxutils import escape as xml_escape
+            safe_title = xml_escape(str(title))
+            safe_message = xml_escape(str(message))
             ps_script = f'''
             [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
             [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-            $template = "<toast><visual><binding template='ToastText02'><text id='1'>{title}</text><text id='2'>{message}</text></binding></visual></toast>"
+            $template = "<toast><visual><binding template='ToastText02'><text id='1'>{safe_title}</text><text id='2'>{safe_message}</text></binding></visual></toast>"
             $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
             $xml.LoadXml($template)
             $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
@@ -1677,10 +1715,13 @@ def get_gts_spark_client_bypass(bearer_file_path, mwc_endpoint):
                     throw new InvalidOperationException($"MWC token generation returned empty token. Response: {{responseJson?.Substring(0, System.Math.Min(responseJson.Length, 200))}}");
                 }}
 
-                // Step 3: Parse expiry from bearer (use bearer expiry as upper bound)
-                var expiry = bearerParts.Length > 1 && long.TryParse(bearerParts[1], out var ts)
+                // Step 3: Use conservative expiry — min(bearer_expiry, utcnow+30min)
+                // MWC tokens have their own lifetime, don't assume bearer's full duration
+                var bearerExpiry = bearerParts.Length > 1 && long.TryParse(bearerParts[1], out var ts)
                     ? DateTimeOffset.FromUnixTimeSeconds(ts)
                     : DateTimeOffset.UtcNow.AddHours(1);
+                var conservativeExpiry = DateTimeOffset.UtcNow.AddMinutes(30);
+                var expiry = bearerExpiry < conservativeExpiry ? bearerExpiry : conservativeExpiry;
 
                 Tracer.LogSanitizedWarning($"[DevMode] Generated MWC token from bearer file, expiry: {{expiry:HH:mm:ss}}");
                 return new Token
@@ -2654,9 +2695,11 @@ def apply_all_changes(repo_root, workspace_id=None, debug_mode=False):
         new_content, status = apply_gts_spark_client_change(content, repo_root, workspace_id=workspace_id)
         if status in ["applied"]:
             original_contents[rel_path] = content
-            write_file(filepath, new_content)
-            modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ GTSBasedSparkClient file-based token bypass")
+            if not write_file(filepath, new_content):
+                warnings.append(f"❌ GTSBasedSparkClient: write failed (file locked?)")
+            else:
+                modified_contents[rel_path] = new_content
+                changes_made.append(f"✅ GTSBasedSparkClient file-based token bypass")
         elif status == "already_applied":
             reverted, reverted_ok = revert_gts_spark_client_change(content, repo_root)
             if reverted_ok and reverted != content:
@@ -2686,9 +2729,11 @@ def apply_all_changes(repo_root, workspace_id=None, debug_mode=False):
         new_content, status = apply_log_viewer_registration_program_cs(content)
         if status == "applied":
             original_contents[rel_path] = content
-            write_file(filepath, new_content)
-            modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ Log viewer server registration (Program.cs)")
+            if not write_file(filepath, new_content):
+                warnings.append(f"❌ Log viewer server registration: write failed")
+            else:
+                modified_contents[rel_path] = new_content
+                changes_made.append(f"✅ Log viewer server registration (Program.cs)")
         elif status == "already_applied":
             reverted = revert_log_viewer_registration_program_cs(content)
             if reverted != content:
@@ -2709,9 +2754,11 @@ def apply_all_changes(repo_root, workspace_id=None, debug_mode=False):
         if status == "applied":
             if rel_path not in original_contents:
                 original_contents[rel_path] = content
-            write_file(filepath, new_content)
-            modified_contents[rel_path] = new_content
-            changes_made.append(f"✅ Log viewer telemetry interceptor (WorkloadApp.cs)")
+            if not write_file(filepath, new_content):
+                warnings.append(f"❌ Log viewer telemetry interceptor: write failed")
+            else:
+                modified_contents[rel_path] = new_content
+                changes_made.append(f"✅ Log viewer telemetry interceptor (WorkloadApp.cs)")
         elif status == "already_applied":
             # Compute the pre-EDOG original by reverting the current content
             reverted = revert_log_viewer_registration_workloadapp_cs(content)
@@ -2737,9 +2784,11 @@ def apply_all_changes(repo_root, workspace_id=None, debug_mode=False):
             new_content, status = apply_fn(content)
             if status == "applied":
                 original_contents[rel_path] = content
-                write_file(filepath, new_content)
-                modified_contents[rel_path] = new_content
-                changes_made.append(f"✅ {desc}")
+                if not write_file(filepath, new_content):
+                    warnings.append(f"❌ {desc}: write failed")
+                else:
+                    modified_contents[rel_path] = new_content
+                    changes_made.append(f"✅ {desc}")
             elif status == "already_applied":
                 reverted = revert_fn(content)
                 if reverted != content:
@@ -2761,9 +2810,11 @@ def apply_all_changes(repo_root, workspace_id=None, debug_mode=False):
             if status == "applied":
                 if rel_path not in original_contents:
                     original_contents[rel_path] = content
-                write_file(filepath, new_content)
-                modified_contents[rel_path] = new_content
-                changes_made.append(f"✅ Debugger.Launch() injection (Program.cs)")
+                if not write_file(filepath, new_content):
+                    warnings.append(f"❌ Debugger.Launch() injection: write failed")
+                else:
+                    modified_contents[rel_path] = new_content
+                    changes_made.append(f"✅ Debugger.Launch() injection (Program.cs)")
             elif status == "already_applied":
                 reverted = revert_debugger_launch_program_cs(content)
                 if reverted != content:
@@ -2980,19 +3031,32 @@ def is_edog_running():
 
 
 def acquire_edog_lock():
-    """Acquire exclusive EDOG instance lock.
+    """Acquire exclusive EDOG instance lock using atomic file creation.
     
-    Returns True if lock acquired, False if another instance is running.
+    Uses O_EXCL (via 'x' mode) for atomic create — prevents TOCTOU races.
+    Returns (acquired: bool, existing_pid: int|None).
     """
+    # First, clean stale locks from crashed instances
     running, pid = is_edog_running()
     if running:
         return False, pid
+    
     try:
-        LOCK_FILE.write_text(str(os.getpid()))
+        # Atomic create — fails if file already exists (race-safe)
+        fd = os.open(str(LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
         return True, None
+    except FileExistsError:
+        # Another instance grabbed the lock between our check and create
+        try:
+            pid = int(LOCK_FILE.read_text().strip())
+            return False, pid
+        except Exception:
+            return False, None
     except Exception as e:
-        ui_warn(f"Could not create lock file: {e}")
-        return True, None  # Don't block on lock file write failure
+        ui_error(f"Could not create lock file: {e}")
+        return False, None  # Fail closed — don't run without a lock
 
 
 def release_edog_lock():
@@ -3665,8 +3729,9 @@ def start_flt_service(repo_root, debug_mode=False):
 
 def stop_flt_service(process=None, timeout=10):
     """
-    Stop the FLT service gracefully.
-    Sends SIGTERM first, then SIGKILL after timeout.
+    Stop the FLT service and its entire process tree.
+    Uses taskkill /T on Windows to kill child processes (MSBuild, dotnet workers).
+    Falls back to terminate/kill if taskkill unavailable.
     Returns True if stopped successfully.
     """
     global FLT_SERVICE_PROCESS
@@ -3680,26 +3745,35 @@ def stop_flt_service(process=None, timeout=10):
         FLT_SERVICE_PROCESS = None
         return True
     
-    ui_step(f"Stopping FLT Service (PID: {proc.pid})...")
+    pid = proc.pid
+    ui_step(f"Stopping FLT Service (PID: {pid}) and child processes...")
     
     try:
-        # Try graceful termination first
-        proc.terminate()
-        
-        try:
-            proc.wait(timeout=timeout)
-            ui_success("Service stopped gracefully")
+        # Use taskkill /T to kill the full process tree on Windows
+        result = subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(pid)],
+            capture_output=True, text=True, timeout=timeout
+        )
+        if result.returncode == 0:
+            ui_success("Service and child processes stopped")
             FLT_SERVICE_PROCESS = None
             return True
-        except subprocess.TimeoutExpired:
-            ui_warn(f"Service didn't stop in {timeout}s, forcing kill...")
+        else:
+            # taskkill failed — fall back to direct kill
+            ui_dim(f"taskkill returned {result.returncode}, falling back to direct kill")
             proc.kill()
             proc.wait(timeout=5)
-            ui_success("Service killed")
+            ui_success("Service killed (direct)")
             FLT_SERVICE_PROCESS = None
             return True
             
     except Exception as e:
+        # Last resort — try proc.kill()
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
         ui_error(f"Error stopping service: {e}")
         FLT_SERVICE_PROCESS = None
         return False
@@ -3800,7 +3874,27 @@ def inject_devmode_token(username, flt_repo_path):
         return None
 
 
-def print_session_summary(session_start, stats, debug_mode=False):
+def cleanup_devmode_token(flt_repo_path):
+    """Remove UserAuthorizationToken from workload-dev-mode.json on exit.
+    
+    Prevents credential residue on disk after EDOG stops.
+    """
+    try:
+        devmode_path = get_workload_dev_mode_path(flt_repo_path)
+        if not devmode_path or not devmode_path.exists():
+            return
+        data = json.loads(devmode_path.read_text(encoding="utf-8"))
+        if "UserAuthorizationToken" in data:
+            del data["UserAuthorizationToken"]
+            tmp = devmode_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")
+            tmp.replace(devmode_path)
+            ui_dim("Cleaned up UserAuthorizationToken from workload-dev-mode.json")
+    except Exception as e:
+        ui_dim(f"Could not clean UserAuthorizationToken: {e} — run 'edog --revert' if needed")
+
+
+def print_session_summary(session_start, stats, debug_mode=False, revert_clean=True):
     """Print session summary on exit."""
     duration = datetime.now() - session_start
     total_secs = int(duration.total_seconds())
@@ -3829,16 +3923,17 @@ def print_session_summary(session_start, stats, debug_mode=False):
         parts.append(f"{restarts} restart{'s' if restarts != 1 else ''}")
 
     summary = " · ".join(parts)
+    exit_msg = "All changes reverted. Clean state." if revert_clean else "⚠️  Revert may be incomplete — run 'edog --revert' to verify."
 
     if RICH_AVAILABLE:
         from rich.panel import Panel
         console.print(Panel(
-            f"[bold]👋  EDOG DevMode stopped[/bold]\n{summary}\nAll changes reverted. Clean state.",
+            f"[bold]👋  EDOG DevMode stopped[/bold]\n{summary}\n{exit_msg}",
             border_style="dim", expand=False
         ))
     else:
         print(f"👋  {summary}")
-        print("✅ All changes reverted. Clean state.")
+        print(f"{'✅' if revert_clean else '⚠️ '} {exit_msg}")
 
 
 def watch_for_git_changes(repo_root, workspace_id, stop_event, reapply_lock):
@@ -3944,6 +4039,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             if ui_confirm("Revert stale patches before starting fresh?", default=True):
                 revert_all_changes(repo_root)
                 cleanup_bearer_live_token(workspace_id)
+                cleanup_devmode_token(str(repo_root))
                 ui_success("Stale patches reverted — starting fresh")
             else:
                 ui_dim("Keeping existing patches (may cause conflicts)")
@@ -4012,6 +4108,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 ui_dim("Debug mode requires a recognizable Main() entry point in Program.cs")
                 revert_all_changes(repo_root)
                 cleanup_bearer_live_token(workspace_id)
+                cleanup_devmode_token(str(repo_root))
                 return 1
         
         ui_success("Code changes applied successfully")
@@ -4071,11 +4168,12 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 if stop_event:
                     stop_event.set()
                 stop_flt_service(service_process)
-            revert_all_changes(repo_root)
+            revert_clean = revert_all_changes(repo_root)
             cleanup_bearer_live_token(workspace_id)
+            cleanup_devmode_token(str(repo_root))
             release_edog_lock()
             reset_terminal_title()
-            print_session_summary(session_start, session_stats, debug_mode=debug_mode)
+            print_session_summary(session_start, session_stats, debug_mode=debug_mode, revert_clean=revert_clean)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
@@ -4137,6 +4235,14 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 ui_step("Token expiring soon, refreshing...")
                 show_notification("EDOG DevMode", "Token expiring, refreshing...")
                 
+                # Invalidate bearer cache so get_bearer_token fetches fresh
+                try:
+                    cache_path = get_bearer_cache_path()
+                    if cache_path.exists():
+                        cache_path.unlink()
+                except Exception:
+                    pass
+                
                 new_bearer = get_bearer_token(username)
                 
                 if new_bearer:
@@ -4161,6 +4267,10 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             
     except KeyboardInterrupt:
         ui_step("Shutting down...")
+    except Exception as e:
+        ui_error(f"Unexpected error: {e}")
+    finally:
+        # Cleanup runs on ALL exit paths — KeyboardInterrupt, exceptions, and normal exit
         watcher_stop.set()
         
         # Block further Ctrl+C during cleanup
@@ -4175,24 +4285,23 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 stop_flt_service(service_process)
             
             # Step 2: Revert code changes
-            revert_all_changes(repo_root)
+            revert_clean = revert_all_changes(repo_root)
             
-            # Step 3: Clean up live bearer file
+            # Step 3: Clean up live bearer file and devmode token
             cleanup_bearer_live_token(workspace_id)
+            cleanup_devmode_token(str(repo_root))
             
             # Step 4: Release instance lock
             release_edog_lock()
             
             reset_terminal_title()
-            print_session_summary(session_start, session_stats, debug_mode=debug_mode)
+            print_session_summary(session_start, session_stats, debug_mode=debug_mode, revert_clean=revert_clean)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
             release_edog_lock()
         
         return 0
-    
-    return 0
 
 
 # ============================================================================
