@@ -2951,6 +2951,12 @@ def revert_all_changes(repo_root):
     except Exception:
         pass
     
+    # 8. Uninstall pre-commit hook (only needed while EDOG changes are active)
+    try:
+        uninstall_git_hook(repo_root)
+    except Exception:
+        pass
+    
     return all_success
 
 
