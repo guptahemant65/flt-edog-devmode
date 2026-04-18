@@ -19,7 +19,7 @@
 
 <br/>
 
-*Silent CBA auth • Live token bypass • Auto-patching • Real-time log viewer • API REPL*
+*Silent CBA auth • Auto-patching • Real-time log viewer • API REPL*
 <br/>
 *Type `edog`. Go build things. The dog handles the rest.*
 
