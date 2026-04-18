@@ -12,7 +12,7 @@
 
 <br/>
 
-[Quick Start](#-quick-start) · [What's New in v3.0](#-whats-new-in-v30) · [Commands](#-command-reference) · [Debug Mode](#-debug-mode) · [Instance Protection](#-instance-protection) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
+[Quick Start](#-quick-start) · [What's New in v3.2](#-whats-new-in-v32) · [Commands](#-command-reference) · [Debug Mode](#-debug-mode) · [Instance Protection](#-instance-protection) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
 
 <br/>
 
@@ -20,7 +20,7 @@
 
 <br/>
 
-*Silent CBA auth • Auto-patching • Crash recovery • Health diagnostics • API REPL • Auto-update*
+*Silent CBA auth • Auto-patching • Crash recovery • Health diagnostics • API REPL • Auto-update • Debug mode • Auto-setup*
 <br/>
 *Type `edog`. Go build things. The dog handles the rest.*
 
@@ -90,58 +90,105 @@ Interactive authenticated shell
 
 <br/>
 
-## 🆕 What's New in v3.0
+## 🆕 What's New in v3.2
+
+### v3.2 — Smart Setup & Protection
+
+<table>
+<tr>
+<td>🔒</td>
+<td><b>Instance Protection</b></td>
+<td>PID-based lock prevents multiple EDOG instances from running simultaneously — no more accidental double-launches or conflicting reverts</td>
+</tr>
+<tr>
+<td>📄</td>
+<td><b>Auto-Create workload-dev-mode.json</b></td>
+<td>If missing, EDOG auto-creates it with TenantGuid from your JWT, CapacityGuid from config, and EDOG endpoint — zero manual editing</td>
+</tr>
+<tr>
+<td>⚙️</td>
+<td><b>Auto-Configure launchSettings.json</b></td>
+<td>Creates or updates launchSettings.json to point at your workload-dev-mode.json — one less file to set up manually</td>
+</tr>
+<tr>
+<td>🔐</td>
+<td><b>Cert-Based Username Discovery</b></td>
+<td>During setup, discovers installed CBA certificates and offers them as selectable usernames — no more remembering <code>Admin1CBA@FabricFMLV09PPE...</code></td>
+</tr>
+<tr>
+<td>🔄</td>
+<td><b>Tenant/Capacity Auto-Sync</b></td>
+<td>On every startup, detects if your cert (tenant) or capacity changed and updates workload-dev-mode.json automatically</td>
+</tr>
+</table>
+
+### v3.1 — Debug Mode
+
+<table>
+<tr>
+<td>🐛</td>
+<td><b><code>edog --debug</code></b></td>
+<td>Injects <code>Debugger.Launch()</code> at the top of Main() — Visual Studio attaches from line 1 with full PDB symbols</td>
+</tr>
+<tr>
+<td>🛡️</td>
+<td><b>Pre-commit Hook Lifecycle</b></td>
+<td>Hook auto-installs when patches are applied, auto-uninstalls on revert/exit — only present while EDOG changes exist</td>
+</tr>
+<tr>
+<td>🩹</td>
+<td><b>GTSBasedSparkClient Fix</b></td>
+<td>Corrected token casing (<code>Token</code> vs <code>token</code>) and added missing API fields for MWC token bypass</td>
+</tr>
+</table>
+
+### v3.0 — Feature Overhaul
 
 <table>
 <tr>
 <td>🔄</td>
 <td><b>Crash Recovery</b></td>
-<td>Detects stale patches from crashed sessions and offers to clean them up automatically — no more manual <code>--revert</code> after a bad exit</td>
+<td>Detects stale patches from crashed sessions and offers to clean them up automatically</td>
 </tr>
 <tr>
 <td>🩺</td>
 <td><b><code>edog --doctor</code></b></td>
-<td>One-shot health check — validates all 14 dependencies (Python, .NET, certs, config, repos, token-helper) with a clear pass/fail report</td>
+<td>One-shot health check — validates all 14 dependencies with a clear pass/fail report</td>
 </tr>
 <tr>
 <td>⬆️</td>
 <td><b>Auto-Update</b></td>
-<td>Checks for updates on every startup via <code>git pull --ff-only</code>. Skip with <code>--no-update</code>. Never touches local changes.</td>
+<td>Checks for updates on every startup via <code>git pull --ff-only</code>. Skip with <code>--no-update</code></td>
 </tr>
 <tr>
 <td>📊</td>
 <td><b>Session Summary</b></td>
-<td>On Ctrl+C, prints session duration, token refresh count, failure count, and restart count — a quick glance at how the session went</td>
+<td>On Ctrl+C, prints session duration, token refresh count, failure count, and restart count</td>
 </tr>
 <tr>
 <td>🏷️</td>
 <td><b>Terminal Title</b></td>
-<td>Sets your terminal window title to <code>🐕 EDOG DevMode — {workspace}</code> while running, restores on exit</td>
+<td>Sets terminal title to <code>🐕 EDOG DevMode — {workspace}</code> while running</td>
 </tr>
 <tr>
 <td>🎨</td>
 <td><b>Colored Log Output</b></td>
-<td>Pre-connection service logs are color-coded (errors in red, warnings in yellow, info in cyan) for faster visual scanning</td>
-</tr>
-<tr>
-<td>🪝</td>
-<td><b>Hook Auto-Install</b></td>
-<td>Git pre-commit hook auto-installs when patches are applied — blocks accidental commits of EDOG markers</td>
+<td>Pre-connection service logs are color-coded for faster visual scanning</td>
 </tr>
 <tr>
 <td>📋</td>
 <td><b><code>edog --bearer</code></b></td>
-<td>Copies bearer token to clipboard with ready-to-paste <code>curl</code> and <code>Invoke-RestMethod</code> examples for Postman/API testing</td>
+<td>Copies bearer token to clipboard with <code>curl</code> and <code>Invoke-RestMethod</code> examples</td>
 </tr>
 <tr>
 <td>🔌</td>
 <td><b><code>edog --api</code></b></td>
-<td>Interactive REPL — type API paths, get authenticated JSON responses. Supports GET/POST, pretty-printing, and history</td>
+<td>Interactive REPL — type API paths, get authenticated JSON responses</td>
 </tr>
 <tr>
 <td>👀</td>
 <td><b>Git Auto-Reapply</b></td>
-<td>Background watcher detects when you <code>git pull</code> or switch branches — automatically re-patches so you never lose DevMode state mid-session</td>
+<td>Detects <code>git pull</code> or branch switch — automatically re-patches</td>
 </tr>
 </table>
 
@@ -160,7 +207,9 @@ cd flt-edog-devmode
 
 edog
 # First run auto-detects missing setup and runs it for you
-# Then prompts for your Workspace ID, Artifact ID, and Capacity ID
+# Discovers your CBA certs and lets you pick a username
+# Prompts for Workspace ID, Artifact ID, and Capacity ID
+# Auto-creates workload-dev-mode.json and configures launchSettings.json
 ```
 
 No separate setup step. No second script. EDOG detects what's needed and handles it.
@@ -250,7 +299,7 @@ If EDOG crashes or your machine reboots mid-session, **crash recovery** detects 
 | Command | Description |
 |---------|-------------|
 | `edog --config` | Show current config, then offer interactive editing |
-| `edog --config -u <email>` | Set CBA username (e.g. `Admin1CBA@FabricFMLV08PPE.ccsctp.net`) |
+| `edog --config -u <email>` | Set CBA username (e.g. `Admin1CBA@FabricFMLV09PPE.ccsctp.net`) |
 | `edog --config -w <guid>` | Set workspace ID |
 | `edog --config -a <guid>` | Set artifact ID |
 | `edog --config -c <guid>` | Set capacity ID (auto-syncs with `workload-dev-mode.json`) |
@@ -279,7 +328,7 @@ Config lives in `edog-config.json` (gitignored):
 
 ```json
 {
-  "username": "Admin1CBA@FabricFMLV08PPE.ccsctp.net",
+  "username": "Admin1CBA@FabricFMLV09PPE.ccsctp.net",
   "workspace_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "artifact_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "capacity_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
@@ -302,8 +351,16 @@ https://{capacity_id}.pbidedicated.windows-int.net/.../capacities/{capacity_id}/
 ### Cert Discovery
 
 EDOG finds your CBA certificate automatically:
-1. **Memory cache** → **Disk cache** → **token-helper `--list-certs`** → **Windows Certificate Store**
-2. If not found anywhere → prompts you for a `.pfx` file and imports it (no password needed for CBA certs)
+1. **During setup** → discovers installed CBA certs and lets you pick a username (no typing needed)
+2. **At runtime** → **Memory cache** → **Disk cache** → **token-helper `--list-certs`** → **Windows Certificate Store**
+3. If not found anywhere → prompts you for a `.pfx` file and imports it
+
+### Auto-Setup
+
+On first run, EDOG auto-creates files you'd normally set up manually:
+- **`workload-dev-mode.json`** — created with TenantGuid from your JWT, CapacityGuid from config, and the EDOG endpoint
+- **`launchSettings.json`** — configured to point at workload-dev-mode.json
+- Both files stay in sync — if you switch certs (different tenant) or change capacity, EDOG updates them on next startup
 
 ### Capacity Sync
 
@@ -320,7 +377,7 @@ EDOG finds your CBA certificate automatically:
 EDOG finds your `workload-fabriclivetable` repo automatically:
 
 ```
-1. Configured path  →  2. Current directory  →  3. Parent dirs  →  4. Home (~8 levels deep)
+1. Configured path  →  2. Current directory  →  3. Parent dirs  →  4. Auto-scan (C: and Q: drives)
 ```
 
 Override: `edog --config -r C:\path\to\workload-fabriclivetable`
