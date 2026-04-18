@@ -2567,8 +2567,8 @@ def _discover_cert_usernames():
     """Discover CBA usernames from installed certificates.
     
     Returns list of email-style usernames (e.g. Admin1CBA@FabricFMLV09PPE.ccsctp.net)
-    extracted from cert CNs. Only includes certs matching the CBA naming pattern
-    (e.g. Admin*CBA.*PPE.ccsctp.net). Returns empty list if token-helper unavailable.
+    extracted from cert CNs. Only includes valid (non-expired) certs matching the CBA
+    naming pattern. Returns empty list if token-helper unavailable.
     """
     helper_exe = _get_token_helper_exe()
     if not helper_exe:
@@ -2581,20 +2581,32 @@ def _discover_cert_usernames():
         if result.returncode != 0 or not result.stdout.strip():
             return []
         certs = json.loads(result.stdout.strip())
-        # Only match CBA certs: CN pattern like "Admin1CBA.FabricFMLV09PPE.ccsctp.net"
         cba_pattern = re.compile(r'^[A-Za-z]+\d*CBA\..+\.ccsctp\.net$', re.IGNORECASE)
+        now = datetime.utcnow()
         usernames = []
         seen = set()
+        expired_skipped = 0
         for c in certs:
             cn = c.get("cn", "")
             if not cba_pattern.match(cn):
                 continue
-            # Convert first dot to @ to get the email-style username
+            # Check expiry — skip expired certs
+            not_after = c.get("notAfter", "")
+            if not_after:
+                try:
+                    expiry = datetime.fromisoformat(not_after.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if expiry < now:
+                        expired_skipped += 1
+                        continue
+                except (ValueError, TypeError):
+                    pass
             parts = cn.split(".", 1)
             email = f"{parts[0]}@{parts[1]}"
             if email.lower() not in seen:
                 seen.add(email.lower())
                 usernames.append(email)
+        if expired_skipped:
+            ui_dim(f"Skipped {expired_skipped} expired cert(s)")
         return usernames
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
         return []
@@ -2636,9 +2648,28 @@ def _find_cert_thumbprint(cert_subject: str):
             )
             if result.returncode == 0 and result.stdout.strip():
                 certs = json.loads(result.stdout.strip())
+                now = datetime.utcnow()
+                warn_days = 7  # warn if cert expires within this many days
                 # Filter certs matching our subject
                 matches = [c for c in certs if cert_subject.lower() in c.get("cn", "").lower()
                            or cert_subject.lower() in c.get("subject", "").lower()]
+                # Remove expired certs
+                valid_matches = []
+                for c in matches:
+                    not_after = c.get("notAfter", "")
+                    if not_after:
+                        try:
+                            expiry = datetime.fromisoformat(not_after.replace("Z", "+00:00")).replace(tzinfo=None)
+                            if expiry < now:
+                                ui_warn(f"Skipping expired cert: {c.get('cn', '?')} (expired {not_after[:10]})")
+                                continue
+                            days_left = (expiry - now).days
+                            if days_left <= warn_days:
+                                ui_warn(f"⚠️  Cert {c.get('cn', '?')} expires in {days_left} day(s)! ({not_after[:10]})")
+                        except (ValueError, TypeError):
+                            pass
+                    valid_matches.append(c)
+                matches = valid_matches
                 if len(matches) == 1:
                     tp = matches[0]["thumbprint"]
                     _thumbprint_cache[cert_subject] = tp
