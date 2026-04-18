@@ -667,25 +667,7 @@ def prompt_for_config(flt_repo_path=None):
         print("   (You can find these in Fabric portal URL or workload-dev-mode.json)\n")
     
     # Try to discover usernames from installed CBA certs
-    username = DEFAULT_USERNAME
-    cert_usernames = _discover_cert_usernames()
-    if cert_usernames:
-        options = cert_usernames.copy()
-        # Ensure default is in the list
-        if DEFAULT_USERNAME not in options:
-            options.append(DEFAULT_USERNAME)
-        options.append("Enter manually...")
-        chosen = ui_choose("Select username (from installed certs)", options)
-        if chosen == "Enter manually...":
-            username = ui_prompt("Username/Email", default=DEFAULT_USERNAME)
-            if not username:
-                username = DEFAULT_USERNAME
-        else:
-            username = chosen
-    else:
-        username = ui_prompt("Username/Email", default=DEFAULT_USERNAME)
-        if not username:
-            username = DEFAULT_USERNAME
+    username = _choose_username_from_certs(DEFAULT_USERNAME)
     
     workspace_id = prompt_guid_rich("Workspace ID", field_name="workspace")
     artifact_id = prompt_guid_rich("Artifact ID (Lakehouse)", field_name="artifact")
@@ -804,36 +786,10 @@ def edit_config_interactive(config):
     
     # Username — offer cert-based options if available
     current = config.get("username", DEFAULT_USERNAME)
-    cert_usernames = _discover_cert_usernames()
-    if cert_usernames:
-        ui_dim(f"  Current: {current}")
-        options = []
-        # Put current first if it's in the list
-        if current in cert_usernames:
-            options.append(f"{current} (current)")
-            for u in cert_usernames:
-                if u != current:
-                    options.append(u)
-        else:
-            options.append(f"{current} (current)")
-            options.extend(cert_usernames)
-        options.append("Enter manually...")
-        chosen = ui_choose("Select username", options)
-        if chosen == "Enter manually...":
-            new_val = ui_prompt("Username/Email", default=current)
-            if new_val and new_val != current:
-                config["username"] = new_val
-                changed = True
-        elif chosen.endswith(" (current)"):
-            pass  # keep current
-        elif chosen != current:
-            config["username"] = chosen
-            changed = True
-    else:
-        new_val = ui_prompt("Username/Email", default=current)
-        if new_val and new_val != current:
-            config["username"] = new_val
-            changed = True
+    new_val = _choose_username_from_certs(DEFAULT_USERNAME, current_username=current)
+    if new_val and new_val != current:
+        config["username"] = new_val
+        changed = True
     
     # Workspace ID
     current = config.get("workspace_id", "")
@@ -2561,6 +2517,57 @@ def _get_token_helper_exe():
                 if exe.exists():
                     return exe
     return None
+
+def _choose_username_from_certs(default_username, current_username=None):
+    """Show cert-based username chooser with refresh support.
+    
+    Returns selected username. If no certs found, falls back to manual prompt.
+    Args:
+        default_username: fallback default for manual input
+        current_username: if set, shown as "(current)" option (for edit mode)
+    """
+    while True:
+        cert_usernames = _discover_cert_usernames()
+        if cert_usernames:
+            options = []
+            if current_username:
+                # Edit mode — show current first
+                if current_username in cert_usernames:
+                    options.append(f"{current_username} (current)")
+                    for u in cert_usernames:
+                        if u != current_username:
+                            options.append(u)
+                else:
+                    options.append(f"{current_username} (current)")
+                    options.extend(cert_usernames)
+            else:
+                options = cert_usernames.copy()
+                if default_username not in options:
+                    options.append(default_username)
+            options.append("🔄 Refresh cert list")
+            options.append("Enter manually...")
+            chosen = ui_choose("Select username (from installed certs)", options)
+            if chosen == "🔄 Refresh cert list":
+                ui_dim("Re-scanning certificates...")
+                continue  # loop back, re-discover
+            elif chosen == "Enter manually...":
+                val = ui_prompt("Username/Email", default=current_username or default_username)
+                return val if val else (current_username or default_username)
+            elif chosen.endswith(" (current)"):
+                return current_username
+            else:
+                return chosen
+        else:
+            # No certs found — offer refresh or manual
+            ui_warn("No CBA certificates found in cert store")
+            options = ["🔄 Refresh cert list", "Enter manually..."]
+            chosen = ui_choose("Options", options)
+            if chosen == "🔄 Refresh cert list":
+                ui_dim("Re-scanning certificates...")
+                continue
+            else:
+                val = ui_prompt("Username/Email", default=current_username or default_username)
+                return val if val else (current_username or default_username)
 
 
 def _discover_cert_usernames():
