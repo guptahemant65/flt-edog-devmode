@@ -690,22 +690,7 @@ def prompt_for_config(flt_repo_path=None):
     workspace_id = prompt_guid_rich("Workspace ID", field_name="workspace")
     artifact_id = prompt_guid_rich("Artifact ID (Lakehouse)", field_name="artifact")
     
-    # Try to auto-detect capacity_id from workload-dev-mode.json
-    workload_config = read_workload_dev_mode_config(flt_repo_path)
-    detected_capacity = workload_config.get("capacity_id")
-    
-    if detected_capacity:
-        workload_path = get_workload_dev_mode_path(flt_repo_path)
-        ui_success(f"Found CapacityGuid in workload-dev-mode.json")
-        ui_dim(f"Path: {workload_path}")
-        ui_dim(f"Value: {detected_capacity}")
-        if ui_confirm("Use this capacity ID?"):
-            capacity_id = detected_capacity
-            ui_success("Using capacity ID from workload-dev-mode.json")
-        else:
-            capacity_id = prompt_guid_rich("Capacity ID", field_name=None)
-    else:
-        capacity_id = prompt_guid_rich("Capacity ID", field_name=None)
+    capacity_id = prompt_guid_rich("Capacity ID", field_name=None)
     
     return {
         "username": username,
@@ -817,12 +802,38 @@ def edit_config_interactive(config):
     
     changed = False
     
-    # Username
+    # Username — offer cert-based options if available
     current = config.get("username", DEFAULT_USERNAME)
-    new_val = ui_prompt("Username/Email", default=current)
-    if new_val and new_val != current:
-        config["username"] = new_val
-        changed = True
+    cert_usernames = _discover_cert_usernames()
+    if cert_usernames:
+        ui_dim(f"  Current: {current}")
+        options = []
+        # Put current first if it's in the list
+        if current in cert_usernames:
+            options.append(f"{current} (current)")
+            for u in cert_usernames:
+                if u != current:
+                    options.append(u)
+        else:
+            options.append(f"{current} (current)")
+            options.extend(cert_usernames)
+        options.append("Enter manually...")
+        chosen = ui_choose("Select username", options)
+        if chosen == "Enter manually...":
+            new_val = ui_prompt("Username/Email", default=current)
+            if new_val and new_val != current:
+                config["username"] = new_val
+                changed = True
+        elif chosen.endswith(" (current)"):
+            pass  # keep current
+        elif chosen != current:
+            config["username"] = chosen
+            changed = True
+    else:
+        new_val = ui_prompt("Username/Email", default=current)
+        if new_val and new_val != current:
+            config["username"] = new_val
+            changed = True
     
     # Workspace ID
     current = config.get("workspace_id", "")
@@ -2556,7 +2567,8 @@ def _discover_cert_usernames():
     """Discover CBA usernames from installed certificates.
     
     Returns list of email-style usernames (e.g. Admin1CBA@FabricFMLV09PPE.ccsctp.net)
-    extracted from cert CNs. Returns empty list if token-helper unavailable or no certs.
+    extracted from cert CNs. Only includes certs matching the CBA naming pattern
+    (e.g. Admin*CBA.*PPE.ccsctp.net). Returns empty list if token-helper unavailable.
     """
     helper_exe = _get_token_helper_exe()
     if not helper_exe:
@@ -2569,19 +2581,20 @@ def _discover_cert_usernames():
         if result.returncode != 0 or not result.stdout.strip():
             return []
         certs = json.loads(result.stdout.strip())
-        # Extract unique usernames from CN fields (CN uses dots, username uses @)
+        # Only match CBA certs: CN pattern like "Admin1CBA.FabricFMLV09PPE.ccsctp.net"
+        cba_pattern = re.compile(r'^[A-Za-z]+\d*CBA\..+\.ccsctp\.net$', re.IGNORECASE)
         usernames = []
         seen = set()
         for c in certs:
             cn = c.get("cn", "")
-            # CBA certs have CN like "Admin1CBA.FabricFMLV09PPE.ccsctp.net"
+            if not cba_pattern.match(cn):
+                continue
             # Convert first dot to @ to get the email-style username
-            if "." in cn and cn.count(".") >= 3:
-                parts = cn.split(".", 1)
-                email = f"{parts[0]}@{parts[1]}"
-                if email.lower() not in seen:
-                    seen.add(email.lower())
-                    usernames.append(email)
+            parts = cn.split(".", 1)
+            email = f"{parts[0]}@{parts[1]}"
+            if email.lower() not in seen:
+                seen.add(email.lower())
+                usernames.append(email)
         return usernames
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
         return []
