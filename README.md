@@ -16,7 +16,11 @@
 
 <br/>
 
-<img src="https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Dog/3D/dog_3d.png" width="120" alt="EDOG"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/edog-logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/edog-logo-light.svg">
+  <img alt="EDOG DevMode" src="assets/edog-logo-light.svg" width="400">
+</picture>
 
 <br/>
 
