@@ -184,26 +184,36 @@ def ui_status(msg):
 
 def ui_prompt(prompt_text, default=None, choices=None, example=None):
     """Styled prompt. Falls back to input()."""
-    if example:
-        ui_dim(f"  Example: {example}")
-    if RICH_AVAILABLE:
-        return Prompt.ask(f"  {prompt_text}", default=default, choices=choices)
-    else:
-        suffix = f" [{default}]" if default else ""
-        choice_hint = f" ({'/'.join(choices)})" if choices else ""
-        return input(f"  {prompt_text}{choice_hint}{suffix}: ").strip() or default
+    try:
+        if example:
+            ui_dim(f"  Example: {example}")
+        if RICH_AVAILABLE:
+            return Prompt.ask(f"  {prompt_text}", default=default, choices=choices)
+        else:
+            suffix = f" [{default}]" if default else ""
+            choice_hint = f" ({'/'.join(choices)})" if choices else ""
+            return input(f"  {prompt_text}{choice_hint}{suffix}: ").strip() or default
+    except KeyboardInterrupt:
+        print()
+        ui_step("Cancelled by user (Ctrl+C)")
+        sys.exit(0)
 
 
 def ui_confirm(prompt_text, default=True):
     """Styled yes/no confirm. Falls back to input()."""
-    if RICH_AVAILABLE:
-        return Confirm.ask(f"  {prompt_text}", default=default)
-    else:
-        yn = "[Y/n]" if default else "[y/N]"
-        answer = input(f"  {prompt_text} {yn}: ").strip().lower()
-        if not answer:
-            return default
-        return answer in ('y', 'yes')
+    try:
+        if RICH_AVAILABLE:
+            return Confirm.ask(f"  {prompt_text}", default=default)
+        else:
+            yn = "[Y/n]" if default else "[y/N]"
+            answer = input(f"  {prompt_text} {yn}: ").strip().lower()
+            if not answer:
+                return default
+            return answer in ('y', 'yes')
+    except KeyboardInterrupt:
+        print()
+        ui_step("Cancelled by user (Ctrl+C)")
+        sys.exit(0)
 
 
 def ui_choose(prompt_text, options, show_path=False):
@@ -526,9 +536,14 @@ def ensure_workload_dev_mode(flt_repo_path, capacity_id, bearer_token=None):
             ui_warn("Cannot auto-create workload-dev-mode.json — no tenant ID (bearer token required)")
             return False
 
+        if not capacity_id:
+            ui_warn("Cannot auto-create workload-dev-mode.json — no capacity ID configured")
+            ui_dim("Set capacity_id via: edog --config")
+            return False
+
         data = {
             "TenantGuid": tenant_id,
-            "CapacityGuid": capacity_id or "",
+            "CapacityGuid": capacity_id,
             "MwcFrontendBaseEndpoint": EDOG_MWC_ENDPOINT,
             "WorkloadStartUpMode": "DevMode",
             "EnvironmentType": "PPE"
@@ -575,6 +590,13 @@ def _ensure_launch_settings_configured(flt_repo_path, dev_mode_path):
         return
 
     try:
+        # Backup before modifying — launchSettings.json is developer-local config
+        backup_path = launch_settings.with_suffix('.json.bak')
+        try:
+            shutil.copy2(launch_settings, backup_path)
+        except OSError:
+            pass  # Best-effort backup
+
         data = json.loads(launch_settings.read_text(encoding="utf-8"))
         profiles = data.get("profiles", {})
         updated = False
@@ -591,6 +613,10 @@ def _ensure_launch_settings_configured(flt_repo_path, dev_mode_path):
         if updated:
             write_file(launch_settings, json.dumps(data, indent=2))
             ui_success("Updated launchSettings.json with DevMode config path")
+    except json.JSONDecodeError as e:
+        ui_warn(f"launchSettings.json has invalid JSON: {e}")
+        ui_dim(f"Backup saved at: {backup_path}")
+        ui_dim(f'Add manually: {dev_mode_arg}')
     except Exception as e:
         ui_warn(f"Could not update launchSettings.json: {e}")
         ui_dim(f'Add manually: {dev_mode_arg}')
@@ -1024,11 +1050,25 @@ def parse_jwt_expiry(token):
 def extract_tenant_from_jwt(token):
     """Extract tenant ID (tid claim) from a JWT bearer token."""
     try:
-        payload = token.split('.')[1]
+        parts = token.split('.')
+        if len(parts) != 3:
+            ui_warn(f"Token format invalid: expected 3 parts, got {len(parts)}")
+            return None
+        payload = parts[1]
         payload += '=' * (4 - len(payload) % 4)
         decoded = json.loads(base64.urlsafe_b64decode(payload))
-        return decoded.get('tid')
-    except Exception:
+        tid = decoded.get('tid')
+        if not tid:
+            ui_warn("Token missing 'tid' claim — cannot determine tenant ID")
+        return tid
+    except (base64.binascii.Error, UnicodeDecodeError) as e:
+        ui_warn(f"Token base64 decode failed: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        ui_warn(f"Token payload not valid JSON: {e}")
+        return None
+    except Exception as e:
+        ui_warn(f"Token parse error: {e}")
         return None
 
 
@@ -4454,9 +4494,31 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             # Check if service crashed
             if service_process and service_process.poll() is not None:
                 exit_code = service_process.returncode
-                ui_warn(f"FLT Service exited (code: {exit_code})")
+                ui_warn(f"FLT Service exited unexpectedly (code: {exit_code})")
                 show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
                 service_process = None
+
+                if launch_service:
+                    try:
+                        if ui_confirm("Restart service?", default=True):
+                            ui_step("Restarting FLT Service...")
+                            service_process = start_flt_service(repo_root, debug_mode=debug_mode)
+                            if service_process:
+                                # Restart output streaming thread
+                                stop_event = threading.Event()
+                                connected_event = threading.Event()
+                                output_thread = threading.Thread(
+                                    target=stream_service_output,
+                                    args=(service_process, stop_event, connected_event),
+                                    daemon=True
+                                )
+                                output_thread.start()
+                                ui_success(f"Service restarted (PID: {service_process.pid})")
+                            else:
+                                ui_error("Failed to restart service — continuing with token management only")
+                    except KeyboardInterrupt:
+                        # User hit Ctrl+C on the restart prompt — don't restart, keep monitoring
+                        ui_dim("Skipped restart — continuing with token management only")
             
             # Calculate time remaining — use the EARLIER expiry of the two tokens
             bearer_remaining = get_token_time_remaining(bearer_expiry)
@@ -4502,7 +4564,8 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                     session_stats["token_refreshes"] += 1
 
                     # Update the live bearer file (PowerBI API audience)
-                    write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id)
+                    if not write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id):
+                        ui_warn("Token refreshed but could not write to live file — service may lose connectivity")
                     # Refresh UserAuthorizationToken (MwcFrontendBaseEndpoint audience)
                     devmode_expiry = inject_devmode_token(username, str(repo_root))
                     show_notification("EDOG DevMode", f"Tokens refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
@@ -4584,6 +4647,7 @@ Token flow:
     )
     
     parser.add_argument("--revert", action="store_true", help="Revert all EDOG changes")
+    parser.add_argument("--version", action="version", version=f"EDOG v{EDOG_VERSION}")
     parser.add_argument("--status", action="store_true", help="Check if EDOG changes are applied")
     parser.add_argument("--config", action="store_true", help="Show or update config")
     parser.add_argument("--clear-token", action="store_true", help="Clear cached authentication token")
