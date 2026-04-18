@@ -60,7 +60,7 @@ except ImportError:
 # ============================================================================
 # UI Abstraction Layer
 # ============================================================================
-EDOG_VERSION = "3.1.0"
+EDOG_VERSION = "3.2.0"
 
 _edog_theme = Theme({
     "info": "cyan",
@@ -2926,6 +2926,86 @@ def detect_stale_patches(repo_root):
     return stale
 
 
+# ============================================================================
+# Instance Lock — prevent multiple EDOG daemons from running simultaneously
+# ============================================================================
+LOCK_FILE = Path(__file__).parent / ".edog.lock"
+
+
+def _is_pid_alive(pid):
+    """Check if a process with given PID is still running (Windows)."""
+    try:
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def is_edog_running():
+    """Check if another EDOG daemon instance is running.
+    
+    Returns (is_running: bool, pid: int|None).
+    Cleans up stale lock files from crashed instances.
+    """
+    if not LOCK_FILE.exists():
+        return False, None
+    try:
+        pid = int(LOCK_FILE.read_text().strip())
+    except (ValueError, OSError):
+        # Corrupted lock file — clean it up
+        try:
+            LOCK_FILE.unlink()
+        except Exception:
+            pass
+        return False, None
+    
+    if _is_pid_alive(pid):
+        return True, pid
+    
+    # PID is dead — stale lock from a crash, clean it up
+    try:
+        LOCK_FILE.unlink()
+    except Exception:
+        pass
+    return False, None
+
+
+def acquire_edog_lock():
+    """Acquire exclusive EDOG instance lock.
+    
+    Returns True if lock acquired, False if another instance is running.
+    """
+    running, pid = is_edog_running()
+    if running:
+        return False, pid
+    try:
+        LOCK_FILE.write_text(str(os.getpid()))
+        return True, None
+    except Exception as e:
+        ui_warn(f"Could not create lock file: {e}")
+        return True, None  # Don't block on lock file write failure
+
+
+def release_edog_lock():
+    """Release EDOG instance lock."""
+    try:
+        if LOCK_FILE.exists():
+            # Only remove if it's our PID (safety check)
+            try:
+                pid = int(LOCK_FILE.read_text().strip())
+                if pid == os.getpid():
+                    LOCK_FILE.unlink()
+            except (ValueError, OSError):
+                LOCK_FILE.unlink()
+    except Exception:
+        pass
+
+
 def run_setup(force=False):
     """Run EDOG setup: check prerequisites, install deps, build token-helper, add to PATH.
     
@@ -3825,6 +3905,15 @@ def watch_for_git_changes(repo_root, workspace_id, stop_event, reapply_lock):
 
 def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, launch_service=True, debug_mode=False):
     """Main daemon loop - fetch token, apply changes, optionally launch service, monitor and refresh."""
+    
+    # Instance lock — prevent multiple daemons from running simultaneously
+    acquired, existing_pid = acquire_edog_lock()
+    if not acquired:
+        ui_error(f"Another EDOG instance is already running (PID {existing_pid})")
+        ui_dim("Stop the other instance with Ctrl+C first, then try again.")
+        ui_dim(f"If the other instance crashed, delete: {LOCK_FILE}")
+        return 1
+    
     session_start = datetime.now()
     session_stats = {"token_refreshes": 0, "refresh_failures": 0, "service_restarts": 0}
     watcher_stop = threading.Event()
@@ -3980,11 +4069,13 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 stop_flt_service(service_process)
             revert_all_changes(repo_root)
             cleanup_bearer_live_token(workspace_id)
+            release_edog_lock()
             reset_terminal_title()
             print_session_summary(session_start, session_stats, debug_mode=debug_mode)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
+            release_edog_lock()
         return 0
     
     # Start git change watcher thread (disabled in debug mode — avoids breakpoint drift)
@@ -4085,11 +4176,15 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             # Step 3: Clean up live bearer file
             cleanup_bearer_live_token(workspace_id)
             
+            # Step 4: Release instance lock
+            release_edog_lock()
+            
             reset_terminal_title()
             print_session_summary(session_start, session_stats, debug_mode=debug_mode)
         except Exception as e:
             ui_error(f"Error during cleanup: {e}")
             ui_dim("Run 'edog --revert' to manually revert changes.")
+            release_edog_lock()
         
         return 0
     
@@ -4258,6 +4353,12 @@ Token flow:
         uninstall_git_hook(repo_root)
         sys.exit(0)
     elif args.revert:
+        # Block revert if daemon is running — patches would be pulled from under it
+        running, pid = is_edog_running()
+        if running:
+            ui_error(f"Cannot revert while EDOG daemon is running (PID {pid})")
+            ui_dim("Stop the running daemon with Ctrl+C first, then run edog --revert")
+            sys.exit(1)
         revert_all_changes(repo_root)
         sys.exit(0)
     elif args.status:

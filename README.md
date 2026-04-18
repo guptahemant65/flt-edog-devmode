@@ -4,7 +4,7 @@
 
 **One command. Zero popups. FabricLiveTable DevMode on autopilot.**
 
-[![v3.1.0](https://img.shields.io/badge/version-3.1.0-blue?style=for-the-badge)](https://github.com/guptahemant65/flt-edog-devmode)
+[![v3.2.0](https://img.shields.io/badge/version-3.2.0-blue?style=for-the-badge)](https://github.com/guptahemant65/flt-edog-devmode)
 [![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
@@ -12,7 +12,7 @@
 
 <br/>
 
-[Quick Start](#-quick-start) · [What's New in v3.0](#-whats-new-in-v30) · [Commands](#-command-reference) · [Debug Mode](#-debug-mode) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
+[Quick Start](#-quick-start) · [What's New in v3.0](#-whats-new-in-v30) · [Commands](#-command-reference) · [Debug Mode](#-debug-mode) · [Instance Protection](#-instance-protection) · [Configuration](#-configuration) · [Architecture](#-how-it-works) · [Troubleshooting](#-troubleshooting)
 
 <br/>
 
@@ -447,6 +447,30 @@ edog --debug
 
 <br/>
 
+## 🔒 Instance Protection
+
+EDOG prevents multiple instances from running simultaneously — no more accidental double-launches or conflicting reverts.
+
+**What's protected:**
+| Scenario | Behavior |
+|----------|----------|
+| `edog` when daemon already running | ❌ Blocked — shows running PID |
+| `edog --revert` when daemon running | ❌ Blocked — "stop daemon first" |
+| `edog --debug` when daemon running | ❌ Blocked — same as above |
+| `edog --doctor`, `--status`, `--bearer` | ✅ Allowed — read-only commands |
+
+**How it works:**
+- PID lock file (`.edog.lock`) created when daemon starts
+- On startup, checks if lock PID is still alive (Windows kernel API)
+- Stale locks from crashes are auto-cleaned
+- Lock released on normal exit (Ctrl+C) and crash recovery
+
+<br/>
+
+---
+
+<br/>
+
 ## 💼 Daily Workflow
 
 ```powershell
@@ -472,5 +496,5 @@ edog
 ---
 
 <div align="center">
-<sub>v3.0.0 · Microsoft Internal · Built for FabricLiveTable developers who'd rather code than configure</sub>
+<sub>v3.2.0 · Microsoft Internal · Built for FabricLiveTable developers who'd rather code than configure</sub>
 </div>

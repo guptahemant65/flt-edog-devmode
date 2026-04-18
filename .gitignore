@@ -18,6 +18,9 @@ edog-config.json
 # EDOG changes patch file
 .edog-changes.patch
 
+# Instance lock
+.edog.lock
+
 # Token-helper build artifacts
 scripts/token-helper/bin/
 scripts/token-helper/obj/
