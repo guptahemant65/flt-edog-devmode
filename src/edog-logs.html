@@ -2144,7 +2144,87 @@ mark {
   line-height: 1;
 }
 
-/* ===== API Activity Toast — floating card for quick API calls ===== */
+/* === css/stacktrace.css === */
+/* Feature 2: Stack Trace Parsing */
+.stack-trace-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.stack-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.stack-filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+.stack-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.stack-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.stack-frame {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  line-height: 1.5;
+}
+.stack-frame:last-child { border-bottom: none; }
+.stack-frame:hover { background: var(--surface-2); }
+.stack-frame-icon { color: var(--text-muted); font-size: 8px; flex-shrink: 0; width: 12px; text-align: center; }
+
+.stack-frame.flt-frame {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.stack-frame.flt-frame .stack-frame-icon { color: var(--accent); }
+.stack-frame.flt-frame .stack-frame-method { color: var(--accent); font-weight: 500; }
+
+.stack-frame.framework-frame { color: var(--text-muted); }
+.stack-frame.framework-frame .stack-frame-method { color: var(--text-muted); }
+
+.stack-frame-method { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack-frame-location { color: var(--text-dim); font-size: 10px; flex-shrink: 0; white-space: nowrap; }
+
+.stack-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.stack-group-header:hover { background: var(--surface-3); color: var(--text-dim); }
+.stack-group-chevron { font-size: 8px; transition: transform 0.15s; }
+.stack-group-header.expanded .stack-group-chevron { transform: rotate(90deg); }
+.stack-group-frames { display: none; }
+.stack-group-header.expanded + .stack-group-frames { display: contents; }
+
+/* ===== API Activity Toast— floating card for quick API calls ===== */
 .api-toast {
   display: none;
   position: fixed;
@@ -4464,6 +4544,7 @@ class DetailPanel {
       const customDataJson = JSON.stringify(entry.customData || {}, null, 2);
       const customDataKeys = Object.keys(entry.customData || {});
       const levelLower = (entry.level || '').toLowerCase();
+      const parsedFrames = StackTraceParser.hasStackTrace(entry.message) ? StackTraceParser.parse(entry.message) : [];
       
       content.innerHTML = `
         <div class="detail-section">
@@ -4508,6 +4589,10 @@ class DetailPanel {
           <h4>Custom Data (${customDataKeys.length}) <button class="copy-btn" data-copy="customData">copy</button></h4>
           <pre class="json-container">${syntaxHighlightJson(customDataJson)}</pre>
         </div>` : ''}
+        
+        ${parsedFrames.length > 0 ? StackTraceParser.renderSection(
+          parsedFrames, this.escapeHtml
+        ) : ''}
       `;
 
       // Bind copy buttons safely via addEventListener (no inline onclick)
@@ -4517,6 +4602,7 @@ class DetailPanel {
         customData: customDataJson
       };
       content.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+        if (btn.dataset.copy === 'stackTrace') return; // handled separately below
         btn.addEventListener('click', () => {
           copyToClipboard(btn, copyData[btn.dataset.copy]);
         });
@@ -4535,6 +4621,33 @@ class DetailPanel {
           }
         });
       });
+
+      // Stack trace group headers — addEventListener, not inline onclick
+      content.querySelectorAll('.stack-group-header').forEach(h => {
+        h.addEventListener('click', () => h.classList.toggle('expanded'));
+      });
+
+      // Stack trace FLT-only toggle
+      const fltBtn = content.querySelector('[data-action="flt-only"]');
+      if (fltBtn) {
+        fltBtn.addEventListener('click', () => {
+          fltBtn.classList.toggle('active');
+          const frames = content.querySelectorAll('.stack-frame:not(.flt-frame), .stack-group-header, .stack-group-frames');
+          const hide = fltBtn.classList.contains('active');
+          frames.forEach(f => f.style.display = hide ? 'none' : '');
+        });
+      }
+
+      // Stack trace copy
+      const stackCopyBtn = content.querySelector('[data-copy="stackTrace"]');
+      if (stackCopyBtn) {
+        const stackText = parsedFrames
+          .map(f => `  at ${f.method}${f.file ? ` in ${f.file}:${f.lineNum}` : ''}`)
+          .join('\n');
+        stackCopyBtn.addEventListener('click', () => {
+          copyToClipboard(stackCopyBtn, stackText);
+        });
+      }
     }
   }
   
@@ -5697,6 +5810,93 @@ class ErrorGrouping {
     this._updateUI();
     const body = document.getElementById('issues-body');
     if (body) body.innerHTML = '<div class="issues-empty">No errors detected</div>';
+  }
+}
+
+// === js/stack-trace.js ===
+/**
+ * StackTraceParser — Detects and renders C# stack traces in the detail panel.
+ */
+class StackTraceParser {
+  static STACK_LINE_REGEX = /^\s+at\s+(.+?)(?:\s+in\s+(.+?):line\s+(\d+))?$/;
+  static FLT_NAMESPACE = /^Microsoft\.LiveTable\./;
+  static FRAMEWORK_NAMESPACES = [
+    /^System\./,
+    /^Microsoft\.AspNetCore\./,
+    /^Microsoft\.Extensions\./,
+  ];
+
+  static hasStackTrace(message) {
+    return /\n\s+at\s+(System\.|Microsoft\.)/m.test(message || '');
+  }
+
+  static parse(message) {
+    const lines = (message || '').split('\n');
+    const frames = [];
+    for (const line of lines) {
+      const match = line.match(StackTraceParser.STACK_LINE_REGEX);
+      if (match) {
+        const method = match[1];
+        const file = match[2] || '';
+        const lineNum = match[3] || '';
+        const isFlt = StackTraceParser.FLT_NAMESPACE.test(method);
+        const isFramework = StackTraceParser.FRAMEWORK_NAMESPACES.some(rx => rx.test(method));
+        frames.push({ method, file, lineNum, isFlt, isFramework });
+      }
+    }
+    return frames;
+  }
+
+  static renderSection(frames, escapeHtml) {
+    if (frames.length === 0) return '';
+
+    // Group consecutive framework frames
+    const rendered = [];
+    let frameworkGroup = [];
+    const flushFrameworkGroup = () => {
+      if (frameworkGroup.length === 0) return;
+      if (frameworkGroup.length <= 2) {
+        frameworkGroup.forEach(f => rendered.push(StackTraceParser._renderFrame(f, escapeHtml)));
+      } else {
+        const ns = frameworkGroup[0].method.split('.').slice(0, 2).join('.');
+        rendered.push(`<div class="stack-group-header" data-action="toggle-group">
+          <span class="stack-group-chevron">▸</span>
+          ${escapeHtml(ns)} (${frameworkGroup.length} frames)
+        </div><div class="stack-group-frames">`);
+        frameworkGroup.forEach(f => rendered.push(StackTraceParser._renderFrame(f, escapeHtml)));
+        rendered.push('</div>');
+      }
+      frameworkGroup = [];
+    };
+
+    for (const frame of frames) {
+      if (frame.isFramework && !frame.isFlt) {
+        frameworkGroup.push(frame);
+      } else {
+        flushFrameworkGroup();
+        rendered.push(StackTraceParser._renderFrame(frame, escapeHtml));
+      }
+    }
+    flushFrameworkGroup();
+
+    return `
+      <div class="detail-section stack-trace-section">
+        <h4>Stack Trace (${frames.length} frames)
+          <button class="stack-filter-btn" data-action="flt-only">FLT only</button>
+          <button class="copy-btn" data-copy="stackTrace">copy</button>
+        </h4>
+        <div class="stack-frames">${rendered.join('')}</div>
+      </div>`;
+  }
+
+  static _renderFrame(frame, escapeHtml) {
+    const cls = frame.isFlt ? 'flt-frame' : (frame.isFramework ? 'framework-frame' : '');
+    const loc = frame.file ? `${frame.file}:${frame.lineNum}` : '';
+    return `<div class="stack-frame ${cls}">
+      <span class="stack-frame-icon">▸</span>
+      <span class="stack-frame-method">${escapeHtml(frame.method)}</span>
+      ${loc ? `<span class="stack-frame-location">${escapeHtml(loc)}</span>` : ''}
+    </div>`;
   }
 }
 
