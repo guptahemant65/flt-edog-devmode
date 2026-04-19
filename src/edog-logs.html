@@ -1954,24 +1954,24 @@ mark {
 /* === css/issues.css === */
 /* Feature 1: Error Grouping Panel — Chrome DevTools Issues style */
 .issues-panel {
-  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   background: var(--bg);
   overflow: hidden;
-  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
 }
-.issues-panel.collapsed { height: 0 !important; }
+.issues-panel.collapsed { width: 0 !important; border-left: none; }
 
 .issues-resize-handle {
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
-  height: 4px;
-  cursor: ns-resize;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
   z-index: 10;
   background: transparent;
   transition: background 0.15s;
@@ -3068,21 +3068,23 @@ mark {
             Filtered: <span id="correlation-id"></span> <button id="correlation-close">✕</button>
           </span>
         </div>
-        <div id="logs-container" class="log-scroll">
+        <div id="logs-main-area" style="display:flex; flex:1; overflow:hidden;">
+        <div id="logs-container" class="log-scroll" style="flex:1; min-width:0;">
           <div id="empty-state" class="empty-state">
             <div class="empty-icon">📡</div>
             <div class="empty-text">Waiting for logs...</div>
             <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
           </div>
         </div>
-        <!-- Feature 1: Error Grouping Panel -->
-        <div id="issues-panel" class="issues-panel collapsed" style="height: 220px;">
+        <!-- Feature 1: Error Grouping Panel (vertical right drawer) -->
+        <div id="issues-panel" class="issues-panel collapsed" style="width: 320px;">
           <div class="issues-resize-handle" id="issues-resize-handle"></div>
           <div class="issues-header">
             <h4>Error Groups <span class="issues-header-count" id="issues-count">0</span></h4>
-            <button class="issues-collapse-btn" id="issues-collapse-btn" title="Collapse issues">▾</button>
+            <button class="issues-collapse-btn" id="issues-collapse-btn" title="Collapse issues">✕</button>
           </div>
           <div class="issues-body" id="issues-body"></div>
+        </div>
         </div>
         <div class="logs-status" id="logs-status-bar">
           Showing <span id="visible-count">0</span> of <span id="total-count">0</span> logs
@@ -7018,20 +7020,20 @@ class EdogLogViewer {
       issuesCollapse.addEventListener('click', () => this.errorGrouping.togglePanel());
     }
 
-    // Issues panel resize handle
+    // Issues panel resize handle (horizontal — ew-resize for vertical drawer)
     const resizeHandle = document.getElementById('issues-resize-handle');
     if (resizeHandle) {
-      let startY, startHeight;
+      let startX, startWidth;
       resizeHandle.addEventListener('mousedown', (e) => {
         e.preventDefault(); // prevent text selection during drag
-        startY = e.clientY;
+        startX = e.clientX;
         const panel = document.getElementById('issues-panel');
-        startHeight = panel ? panel.offsetHeight : 220;
+        startWidth = panel ? panel.offsetWidth : 320;
         resizeHandle.classList.add('dragging');
         const onMove = (e2) => {
-          const delta = startY - e2.clientY;
-          const newHeight = Math.max(100, Math.min(500, startHeight + delta));
-          if (panel) panel.style.height = newHeight + 'px';
+          const delta = startX - e2.clientX;
+          const newWidth = Math.max(200, Math.min(600, startWidth + delta));
+          if (panel) panel.style.width = newWidth + 'px';
         };
         const onUp = () => {
           resizeHandle.classList.remove('dragging');
