@@ -5721,6 +5721,12 @@ class ErrorGrouping {
 
   processLog = (entry) => {
     if ((entry.level || '').toLowerCase() !== 'error') return;
+
+    // Only track errors from FLT-relevant components
+    const comp = entry.component || '';
+    const fltPatterns = FilterManager.COMPONENT_PRESETS.flt.include;
+    if (!fltPatterns.some(p => p.test(comp))) return;
+
     const code = this._extractErrorCode(entry.message || '');
 
     // Cap group count to prevent memory leak in long sessions
