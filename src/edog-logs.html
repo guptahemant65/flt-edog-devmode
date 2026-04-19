@@ -4069,15 +4069,10 @@ class Renderer {
   passesFilter = (entry) => {
     const component = entry.component || 'Unknown';
 
-    // Level filter — but allow Verbose from FLT-relevant components
+    // Level filter — strict: only show levels that are toggled ON
     const level = entry.level || 'Message';
     if (!this.state.activeLevels.has(level)) {
-      // If Verbose is off but preset is FLT, still show Verbose from included components
-      if (level !== 'Verbose' || this.state.activePreset !== 'flt') return false;
-      if (this.state.excludedComponents.has(component)) return false;
-      const fltPreset = FilterManager.COMPONENT_PRESETS.flt;
-      if (fltPreset.include && !fltPreset.include.some(p => p.test(component))) return false;
-      // Falls through — this is a Verbose log from an FLT-relevant component
+      return false;
     }
 
     // Correlation filter
