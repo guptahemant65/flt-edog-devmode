@@ -2224,6 +2224,51 @@ mark {
 .stack-group-frames { display: none; }
 .stack-group-header.expanded + .stack-group-frames { display: contents; }
 
+/* === css/token-correlation.css === */
+/* Feature 4: Token Correlation View */
+.token-flow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.token-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  cursor: pointer;
+  position: relative;
+}
+.token-step:last-child { border-bottom: none; }
+.token-step:hover { background: var(--surface-2); }
+.token-step.current-step { background: var(--accent-dim); border-left: 3px solid var(--accent); }
+.token-step-icon { font-size: 12px; flex-shrink: 0; width: 18px; text-align: center; }
+.token-step-info { flex: 1; min-width: 0; }
+.token-step-label { font-weight: 500; color: var(--text); }
+.token-step-time { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+.token-step-status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
+.token-step-status.success { background: #16a34a22; color: #22c55e; }
+.token-step-status.error { background: #dc262622; color: #ef4444; }
+.token-step-status.pending { background: #eab30822; color: #eab308; }
+
+.token-connector {
+  position: absolute;
+  left: 20px;
+  top: -1px;
+  width: 1px;
+  height: calc(100% + 2px);
+  background: var(--border);
+}
+.token-step:first-child .token-connector { top: 50%; height: 50%; }
+.token-step:last-child .token-connector { height: 50%; }
+
 /* ===== API Activity Toast— floating card for quick API calls ===== */
 .api-toast {
   display: none;
@@ -4546,6 +4591,11 @@ class DetailPanel {
       const levelLower = (entry.level || '').toLowerCase();
       const parsedFrames = StackTraceParser.hasStackTrace(entry.message) ? StackTraceParser.parse(entry.message) : [];
       
+      // Token correlation — detect steps for same RAID
+      const tokenSteps = TokenCorrelation.isTokenRelated(entry) 
+        ? TokenCorrelation.detectSteps(window.edogViewer?.state?.logBuffer || [], entry)
+        : [];
+
       content.innerHTML = `
         <div class="detail-section">
           <h4>Properties</h4>
@@ -4592,6 +4642,10 @@ class DetailPanel {
         
         ${parsedFrames.length > 0 ? StackTraceParser.renderSection(
           parsedFrames, this.escapeHtml
+        ) : ''}
+        
+        ${tokenSteps.length > 0 ? TokenCorrelation.renderSection(
+          tokenSteps, this.escapeHtml
         ) : ''}
       `;
 
@@ -4648,6 +4702,16 @@ class DetailPanel {
           copyToClipboard(stackCopyBtn, stackText);
         });
       }
+
+      // Token correlation step click — navigate to that log entry
+      content.querySelectorAll('.token-step[data-token-step-idx]').forEach(el => {
+        el.addEventListener('click', () => {
+          const idx = parseInt(el.dataset.tokenStepIdx, 10);
+          if (tokenSteps[idx] && tokenSteps[idx].entry && !tokenSteps[idx].isCurrent) {
+            this.showLogDetail(panel, tokenSteps[idx].entry);
+          }
+        });
+      });
     }
   }
   
@@ -5897,6 +5961,84 @@ class StackTraceParser {
       <span class="stack-frame-method">${escapeHtml(frame.method)}</span>
       ${loc ? `<span class="stack-frame-location">${escapeHtml(loc)}</span>` : ''}
     </div>`;
+  }
+}
+
+// === js/token-correlation.js ===
+/**
+ * TokenCorrelation — Detects token-related log entries and renders a lifecycle breadcrumb trail.
+ * Shows all token steps for the same RAID in chronological order.
+ */
+class TokenCorrelation {
+  static TOKEN_KEYWORDS = [
+    'token', 'refresh', 'credential', 'auth', 'bearer',
+    'accesstoken', 'mwc', 'aad', 'oauth', 'jwt'
+  ];
+  
+  static TOKEN_STEP_PATTERNS = [
+    { pattern: /token\s*(request|fetch|acquire|obtain)/i, label: 'Token Request', icon: '🔑', order: 1 },
+    { pattern: /auth(enticat|oriz)/i, label: 'Authentication', icon: '🔐', order: 2 },
+    { pattern: /token\s*(response|received|acquired|granted)/i, label: 'Token Received', icon: '✅', order: 3 },
+    { pattern: /token\s*(refresh|renew)/i, label: 'Token Refresh', icon: '🔄', order: 4 },
+    { pattern: /token\s*(expir|invalid|revok)/i, label: 'Token Expired/Invalid', icon: '⚠️', order: 5 },
+    { pattern: /token\s*(fail|error|denied)/i, label: 'Token Error', icon: '❌', order: 6 },
+    { pattern: /credential/i, label: 'Credential Operation', icon: '🔑', order: 7 },
+    { pattern: /bearer/i, label: 'Bearer Token', icon: '🎫', order: 8 },
+  ];
+
+  static isTokenRelated(entry) {
+    const msg = (entry.message || '').toLowerCase();
+    const comp = (entry.component || '').toLowerCase();
+    return TokenCorrelation.TOKEN_KEYWORDS.some(kw => msg.includes(kw) || comp.includes(kw));
+  }
+
+  static detectSteps(logBuffer, currentEntry) {
+    if (!currentEntry.rootActivityId) return [];
+    const raid = currentEntry.rootActivityId;
+    
+    // Find all token-related entries with same RAID
+    const related = logBuffer
+      .filter(e => e.rootActivityId === raid && TokenCorrelation.isTokenRelated(e))
+      .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+    
+    if (related.length <= 1) return [];
+    
+    return related.map(entry => {
+      const matched = TokenCorrelation.TOKEN_STEP_PATTERNS.find(p => p.pattern.test(entry.message || ''));
+      const level = (entry.level || '').toLowerCase();
+      const statusClass = level === 'error' ? 'error' : (level === 'warning' ? 'pending' : 'success');
+      return {
+        label: matched ? matched.label : (entry.component || 'Token Step'),
+        icon: matched ? matched.icon : '📋',
+        time: entry.timestamp || '',
+        status: entry.level || 'Info',
+        statusClass,
+        isCurrent: entry === currentEntry,
+        entry
+      };
+    });
+  }
+
+  static renderSection(steps, escapeHtml) {
+    if (steps.length === 0) return '';
+    
+    const stepsHtml = steps.map((step, i) => `
+      <div class="token-step ${step.isCurrent ? 'current-step' : ''}" data-token-step-idx="${i}">
+        ${i > 0 ? '<div class="token-connector"></div>' : ''}
+        <span class="token-step-icon">${step.icon}</span>
+        <div class="token-step-info">
+          <div class="token-step-label">${escapeHtml(step.label)}</div>
+          <div class="token-step-time">${escapeHtml(step.time)}</div>
+        </div>
+        <span class="token-step-status ${step.statusClass}">${escapeHtml(step.status)}</span>
+      </div>
+    `).join('');
+
+    return `
+      <div class="detail-section token-correlation-section">
+        <h4>Token Flow (${steps.length} steps)</h4>
+        <div class="token-flow-steps">${stepsHtml}</div>
+      </div>`;
   }
 }
 
