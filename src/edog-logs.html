@@ -1951,6 +1951,199 @@ mark {
   to { opacity: 1; }
 }
 
+/* === css/issues.css === */
+/* Feature 1: Error Grouping Panel — Chrome DevTools Issues style */
+.issues-panel {
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+.issues-panel.collapsed { height: 0 !important; }
+
+.issues-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+}
+.issues-resize-handle:hover,
+.issues-resize-handle.dragging { background: var(--accent); }
+
+.issues-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.issues-header h4 {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  border: none;
+  padding: 0;
+}
+.issues-header-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(248,113,113,0.15);
+  color: var(--level-error);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 16px;
+}
+.issues-collapse-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.issues-collapse-btn:hover { background: var(--surface-3); color: var(--text); }
+
+.issues-body {
+  overflow-y: auto;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.issue-group-card {
+  background: rgba(248, 113, 113, 0.05);
+  border: 1px solid rgba(248, 113, 113, 0.15);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.issue-group-card:hover { border-color: rgba(248, 113, 113, 0.35); background: rgba(248, 113, 113, 0.08); }
+.issue-group-card.active { border-color: var(--level-error); background: rgba(248, 113, 113, 0.1); }
+
+.issue-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.issue-group-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--level-error);
+  flex: 1;
+}
+.issue-group-count {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--level-error);
+  color: #000;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 16px;
+}
+.issue-group-chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.issue-group-card.expanded .issue-group-chevron { transform: rotate(90deg); }
+
+.issue-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.issue-group-components { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.issue-group-samples {
+  display: none;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(248,113,113,0.1);
+  flex-direction: column;
+  gap: 4px;
+}
+.issue-group-card.expanded .issue-group-samples { display: flex; }
+.issue-sample {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+
+.issues-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 16px;
+  font-style: italic;
+}
+
+/* Issues toggle button in toolbar */
+.issues-toggle {
+  color: var(--level-error);
+  border-color: rgba(248,113,113,0.3);
+  position: relative;
+}
+.issues-toggle:hover { background: rgba(248,113,113,0.1); color: var(--level-error); border-color: var(--level-error); }
+.issues-toggle.active { background: rgba(248,113,113,0.15); border-color: var(--level-error); color: var(--level-error); }
+.issues-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--level-error);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
 /* ===== API Activity Toast — floating card for quick API calls ===== */
 .api-toast {
   display: none;
@@ -2734,6 +2927,9 @@ mark {
       <button id="export-btn" class="action-btn" title="Export JSON">📥 Export</button>
       <button id="pause-btn" class="action-btn" title="Pause (Space)">⏸ Pause</button>
       <button id="btn-next-error" class="action-btn error-jump" title="Jump to next error (↓E)">↓E</button>
+      <button id="issues-toggle-btn" class="action-btn issues-toggle" title="Toggle error grouping panel" style="display:none">
+        ⚡ Issues <span class="issues-count-badge" id="issues-badge-count">0</span>
+      </button>
     </div>
   </div>
 
@@ -2753,6 +2949,15 @@ mark {
             <div class="empty-text">Waiting for logs...</div>
             <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
           </div>
+        </div>
+        <!-- Feature 1: Error Grouping Panel -->
+        <div id="issues-panel" class="issues-panel collapsed" style="height: 220px;">
+          <div class="issues-resize-handle" id="issues-resize-handle"></div>
+          <div class="issues-header">
+            <h4>Error Groups <span class="issues-header-count" id="issues-count">0</span></h4>
+            <button class="issues-collapse-btn" id="issues-collapse-btn" title="Collapse issues">▾</button>
+          </div>
+          <div class="issues-body" id="issues-body"></div>
         </div>
         <div class="logs-status" id="logs-status-bar">
           Showing <span id="visible-count">0</span> of <span id="total-count">0</span> logs
@@ -5324,8 +5529,178 @@ class AnomalyDetector {
   }
 }
 
+// === js/error-grouping.js ===
+/**
+ * ErrorGrouping — Groups errors by error code/pattern for the Issues panel.
+ * Chrome DevTools Issues-style collapsible panel.
+ */
+class ErrorGrouping {
+  static MAX_GROUPS = 200; // Cap to prevent unbounded memory growth
+
+  constructor(state) {
+    this.state = state;
+    this.groups = new Map();
+    this.panelOpen = false;
+    this._uiDirty = false;
+    this._bindPanelEvents();
+  }
+
+  processLog = (entry) => {
+    if ((entry.level || '').toLowerCase() !== 'error') return;
+    const code = this._extractErrorCode(entry.message || '');
+
+    // Cap group count to prevent memory leak in long sessions
+    if (!this.groups.has(code) && this.groups.size >= ErrorGrouping.MAX_GROUPS) return;
+
+    if (!this.groups.has(code)) {
+      this.groups.set(code, {
+        code,
+        count: 0,
+        firstSeen: entry.timestamp,
+        lastSeen: entry.timestamp,
+        components: new Set(),
+        samples: [],
+        expanded: false
+      });
+    }
+    const group = this.groups.get(code);
+    group.count++;
+    group.lastSeen = entry.timestamp;
+    group.components.add(entry.component || 'Unknown');
+    if (group.samples.length < 3) {
+      group.samples.push(entry.message || '');
+    }
+
+    // Debounce DOM updates with rAF to avoid jank during batch processing
+    if (!this._uiDirty) {
+      this._uiDirty = true;
+      requestAnimationFrame(() => {
+        this._updateUI();
+        if (this.panelOpen) this.renderGroups();
+        this._uiDirty = false;
+      });
+    }
+  }
+
+  _extractErrorCode = (message) => {
+    const codeMatch = message.match(/ErrorCode[=:]\s*(\w+)/i)
+      || message.match(/Error[=:]\s*(\w+)/i)
+      || message.match(/(\w+Error)\b/);
+    if (codeMatch) return codeMatch[1];
+    // Aggressive normalization for better grouping
+    return message.substring(0, 80)
+      .replace(/[0-9a-f]{8,}/gi, 'X')
+      .replace(/\d+/g, 'N')
+      .replace(/[^a-zA-Z ]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 60) || 'Unknown';
+  }
+
+  _updateUI = () => {
+    const badge = document.getElementById('issues-badge-count');
+    const headerCount = document.getElementById('issues-count');
+    const toggleBtn = document.getElementById('issues-toggle-btn');
+    const count = this.groups.size;
+    if (badge) badge.textContent = count;
+    if (headerCount) headerCount.textContent = count;
+    if (toggleBtn) toggleBtn.style.display = count > 0 ? '' : 'none';
+  }
+
+  togglePanel = () => {
+    this.panelOpen = !this.panelOpen;
+    const panel = document.getElementById('issues-panel');
+    const btn = document.getElementById('issues-toggle-btn');
+    if (panel) panel.classList.toggle('collapsed', !this.panelOpen);
+    if (btn) btn.classList.toggle('active', this.panelOpen);
+    if (this.panelOpen) this.renderGroups();
+  }
+
+  renderGroups = () => {
+    const body = document.getElementById('issues-body');
+    if (!body) return;
+
+    if (this.groups.size === 0) {
+      body.innerHTML = '<div class="issues-empty">No errors detected</div>';
+      return;
+    }
+
+    const sorted = [...this.groups.values()].sort((a, b) => b.count - a.count);
+    body.innerHTML = sorted.map(g => {
+      const comps = [...g.components].map(c => {
+        const cat = this._getComponentCategory(c);
+        return `<span class="log-component" data-category="${cat}">${this._escapeHtml(c)}</span>`;
+      }).join('');
+      const samples = g.samples.map(s =>
+        `<div class="issue-sample">${this._escapeHtml(s)}</div>`
+      ).join('');
+      const firstTime = g.firstSeen ? new Date(g.firstSeen).toLocaleTimeString() : '—';
+      const lastTime = g.lastSeen ? new Date(g.lastSeen).toLocaleTimeString() : '—';
+      const expandedClass = g.expanded ? ' expanded' : '';
+      return `
+        <div class="issue-group-card${expandedClass}" data-code="${this._escapeHtml(g.code)}">
+          <div class="issue-group-header">
+            <span class="issue-group-code">${this._escapeHtml(g.code)}</span>
+            <span class="issue-group-count">${g.count}</span>
+            <span class="issue-group-chevron">▸</span>
+          </div>
+          <div class="issue-group-meta">
+            <span>First: ${firstTime}</span>
+            <span>Last: ${lastTime}</span>
+          </div>
+          <div class="issue-group-components">${comps}</div>
+          <div class="issue-group-samples">${samples}</div>
+        </div>`;
+    }).join('');
+  }
+
+  _getComponentCategory = (comp) => {
+    const c = (comp || '').toLowerCase();
+    if (c.includes('controller') || c.includes('livetable')) return 'controller';
+    if (c.includes('dag') || c.includes('execution')) return 'dag';
+    if (c.includes('onelake') || c.includes('lakehouse')) return 'onelake';
+    if (c.includes('dq') || c.includes('insight')) return 'dq';
+    if (c.includes('retry') || c.includes('token')) return 'retry';
+    return 'default';
+  }
+
+  _escapeHtml = (text) => {
+    if (!text) return '';
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  _bindPanelEvents = () => {
+    const body = document.getElementById('issues-body');
+    if (!body) return;
+    body.addEventListener('click', (e) => {
+      const card = e.target.closest('.issue-group-card');
+      if (!card || e.target.closest('.issue-group-samples')) return;
+      const code = card.dataset.code;
+      const group = this.groups.get(code);
+      if (group) group.expanded = !group.expanded;
+      card.classList.toggle('expanded');
+    });
+    body.addEventListener('dblclick', (e) => {
+      const card = e.target.closest('.issue-group-card');
+      if (!card) return;
+      const code = card.dataset.code;
+      if (code && window.edogViewer) {
+        const input = document.getElementById('search-input');
+        if (input) input.value = code;
+        window.edogViewer.filter.setSearch(code);
+      }
+    });
+  }
+
+  clear = () => {
+    this.groups.clear();
+    this._updateUI();
+    const body = document.getElementById('issues-body');
+    if (body) body.innerHTML = '<div class="issues-empty">No errors detected</div>';
+  }
+}
+
 // === js/control-panel.js ===
-// ===== COMMAND CENTER — Control Panel (Tab 4) =====
 
 class ControlPanel {
   constructor(containerEl, { autoDetector, stateManager }) {
@@ -6066,6 +6441,7 @@ class EdogLogViewer {
     this.smartContext = new SmartContextBar(this.autoDetector);
     this.errorIntel = new ErrorIntelligence(this.autoDetector);
     this.anomaly = new AnomalyDetector(this.state);
+    this.errorGrouping = new ErrorGrouping(this.state);
     this.controlPanel = new ControlPanel(
       document.getElementById('control-panel'),
       { autoDetector: this.autoDetector, stateManager: this.state }
@@ -6242,6 +6618,7 @@ class EdogLogViewer {
         const cf = document.getElementById('component-filter');
         if (cf) cf.value = '';
         this.filter.clearAll();
+        this.errorGrouping.clear();
       });
     }
     
@@ -6293,6 +6670,41 @@ class EdogLogViewer {
     document.addEventListener('keydown', this.handleKeydown);
     
     // Auto-scroll detection is handled by renderer._onScroll
+
+    // Issues toggle button
+    const issuesToggle = document.getElementById('issues-toggle-btn');
+    if (issuesToggle) {
+      issuesToggle.addEventListener('click', () => this.errorGrouping.togglePanel());
+    }
+    const issuesCollapse = document.getElementById('issues-collapse-btn');
+    if (issuesCollapse) {
+      issuesCollapse.addEventListener('click', () => this.errorGrouping.togglePanel());
+    }
+
+    // Issues panel resize handle
+    const resizeHandle = document.getElementById('issues-resize-handle');
+    if (resizeHandle) {
+      let startY, startHeight;
+      resizeHandle.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // prevent text selection during drag
+        startY = e.clientY;
+        const panel = document.getElementById('issues-panel');
+        startHeight = panel ? panel.offsetHeight : 220;
+        resizeHandle.classList.add('dragging');
+        const onMove = (e2) => {
+          const delta = startY - e2.clientY;
+          const newHeight = Math.max(100, Math.min(500, startHeight + delta));
+          if (panel) panel.style.height = newHeight + 'px';
+        };
+        const onUp = () => {
+          resizeHandle.classList.remove('dragging');
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    }
   }
   
   handleKeydown = (e) => {
@@ -6349,6 +6761,7 @@ class EdogLogViewer {
         this.state.addLog(data);
         this.autoDetector.processLog(data);
         this.anomaly.processLog(data);
+        this.errorGrouping.processLog(data);
         this.extractEndpointFromLog(data);
         this.extractComponentFromLog(data);
         this.extractIterationIdFromLog(data);
@@ -6372,6 +6785,7 @@ class EdogLogViewer {
         this.state.addLog(log);
         this.autoDetector.processLog(log);
         this.anomaly.processLog(log);
+        this.errorGrouping.processLog(log);
         this.extractEndpointFromLog(log);
         this.extractComponentFromLog(log);
         this.extractIterationIdFromLog(log);
@@ -6509,6 +6923,7 @@ class EdogLogViewer {
       for (; logIdx < logEnd; logIdx++) {
         this.autoDetector.processLog(logs[logIdx]);
         this.anomaly.processLog(logs[logIdx]);
+        this.errorGrouping.processLog(logs[logIdx]);
       }
       const telEnd = Math.min(telIdx + CHUNK, telemetryArr.length);
       for (; telIdx < telEnd; telIdx++) {
