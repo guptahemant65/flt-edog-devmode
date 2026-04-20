@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐕 EDOG Log Viewer — Enhancements Mock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+/* ======================================================================
+   DESIGN TOKENS — Exact match from edog-logs.html
+   ====================================================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0a0e1a;
+  --surface: #111827;
+  --surface-2: #1e293b;
+  --surface-3: #334155;
+  --border: rgba(255,255,255,0.06);
+  --border-bright: rgba(255,255,255,0.12);
+  --text: #e2e8f0;
+  --text-dim: #64748b;
+  --text-muted: #475569;
+  --accent: #8b5cf6;
+  --accent-dim: rgba(139,92,246,0.12);
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+  --level-verbose: #64748b;
+  --level-message: #38bdf8;
+  --level-warning: #fbbf24;
+  --level-error: #f87171;
+  --status-succeeded: #34d399;
+  --status-failed: #f87171;
+  --status-cancelled: #fbbf24;
+  --status-pending: #64748b;
+  --comp-controller: #60a5fa;
+  --comp-controller-bg: rgba(96, 165, 250, 0.15);
+  --comp-dag: #34d399;
+  --comp-dag-bg: rgba(52, 211, 153, 0.15);
+  --comp-onelake: #2dd4bf;
+  --comp-onelake-bg: rgba(45, 212, 191, 0.15);
+  --comp-dq: #a78bfa;
+  --comp-dq-bg: rgba(167, 139, 250, 0.15);
+  --comp-retry: #fbbf24;
+  --comp-retry-bg: rgba(251, 191, 36, 0.15);
+  --comp-default: #94a3b8;
+  --comp-default-bg: rgba(148, 163, 184, 0.12);
+  --row-error-tint: rgba(248, 113, 113, 0.07);
+  --row-warning-tint: rgba(251, 191, 36, 0.05);
+  --row-stripe: rgba(255, 255, 255, 0.018);
+  --toolbar-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --border: rgba(0,0,0,0.08);
+  --border-bright: rgba(0,0,0,0.15);
+  --text: #1e293b;
+  --text-dim: #64748b;
+  --text-muted: #94a3b8;
+  --accent: #7c3aed;
+  --accent-dim: rgba(124,58,237,0.08);
+  --comp-controller: #2563eb;
+  --comp-controller-bg: rgba(37, 99, 235, 0.1);
+  --comp-dag: #059669;
+  --comp-dag-bg: rgba(5, 150, 105, 0.1);
+  --comp-onelake: #0d9488;
+  --comp-onelake-bg: rgba(13, 148, 136, 0.1);
+  --comp-dq: #7c3aed;
+  --comp-dq-bg: rgba(124, 58, 237, 0.1);
+  --comp-retry: #d97706;
+  --comp-retry-bg: rgba(217, 119, 6, 0.1);
+  --comp-default: #64748b;
+  --comp-default-bg: rgba(100, 116, 139, 0.08);
+  --row-error-tint: rgba(239, 68, 68, 0.05);
+  --row-warning-tint: rgba(245, 158, 11, 0.04);
+  --row-stripe: rgba(0, 0, 0, 0.018);
+  --toolbar-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ======================================================================
+   BASE LAYOUT — Exact from edog-logs.html
+   ====================================================================== */
+html { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  min-height: 60px;
+}
+
+.header-left { display: flex; align-items: center; gap: 12px; }
+
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.status-badge.connected { background: rgba(52, 211, 153, 0.15); color: var(--status-succeeded); }
+
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+.stats-bar strong { font-weight: 600; }
+#stat-errors { color: var(--level-error); font-weight: 600; }
+#stat-ssr { color: var(--level-message); }
+
+.header-right { display: flex; align-items: center; gap: 8px; }
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+.icon-btn:hover { background: var(--surface-3); color: var(--text); }
+
+/* Tab Bar */
+#tab-bar {
+  display: flex;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  position: sticky;
+  top: 60px;
+  z-index: 99;
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.tab-btn:hover { color: var(--text); background: var(--surface-2); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab-shortcut {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+}
+
+/* Toolbar */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--toolbar-shadow);
+  position: sticky;
+  top: 102px;
+  z-index: 98;
+  flex-wrap: wrap;
+}
+#toolbar::before {
+  content: '';
+  order: 10;
+  flex-basis: 100%;
+  height: 0;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
+}
+
+/* Search */
+.search-wrapper {
+  position: relative;
+  flex: 1;
+  max-width: 480px;
+  order: 1;
+}
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-size: 14px;
+}
+#search-input {
+  width: 100%;
+  padding: 8px 80px 8px 36px;
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font-body);
+  outline: none;
+  transition: all 0.2s ease;
+}
+#search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+#search-input::placeholder { color: var(--text-muted); }
+#search-input.regex-active { font-family: var(--font-mono); font-size: 12px; }
+#search-input.regex-error { border-color: var(--level-error) !important; box-shadow: 0 0 0 3px rgba(248,113,113,0.15) !important; }
+#search-input.regex-valid { border-color: var(--status-succeeded); box-shadow: 0 0 0 3px rgba(52,211,153,0.1); }
+
+.search-right-controls {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.search-count {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* Feature 4: Regex Toggle */
+.regex-toggle {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.3;
+}
+.regex-toggle:hover { border-color: var(--border-bright); color: var(--text-dim); }
+.regex-toggle.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.regex-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--level-error);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 200;
+  display: none;
+  animation: tooltipIn 0.15s ease-out;
+}
+.regex-tooltip.visible { display: block; }
+
+@keyframes tooltipIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Level Filters */
+.level-filters { display: flex; gap: 4px; order: 2; }
+.level-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  transition: all 0.2s ease;
+}
+.level-btn:hover { border-color: var(--border-bright); background: var(--surface-2); }
+.level-btn.active[data-level="Verbose"] { border-color: var(--level-verbose); background: rgba(100, 116, 139, 0.15); color: var(--level-verbose); }
+.level-btn.active[data-level="Message"] { border-color: var(--level-message); background: rgba(56, 189, 248, 0.15); color: var(--level-message); }
+.level-btn.active[data-level="Warning"] { border-color: var(--level-warning); background: rgba(251, 191, 36, 0.15); color: var(--level-warning); }
+.level-btn.active[data-level="Error"] { border-color: var(--level-error); background: rgba(248, 113, 113, 0.15); color: var(--level-error); }
+
+/* Presets */
+.preset-bar { display: flex; gap: 4px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--border); order: 3; }
+.preset-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+.preset-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* Time Filter */
+.time-filter { display: flex; gap: 4px; margin-right: 12px; padding-right: 12px; border-right: 1px solid var(--border); order: 11; }
+.time-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.time-btn:hover { border-color: var(--accent); color: var(--accent); }
+.time-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* Toolbar Actions */
+.toolbar-actions { display: flex; gap: 8px; order: 16; margin-left: auto; }
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  transition: all 0.2s ease;
+}
+.action-btn:hover { background: var(--surface-3); color: var(--text); border-color: var(--border-bright); }
+.error-jump { color: var(--level-error); border-color: var(--level-error); }
+.error-jump:hover { background: var(--level-error); color: white; }
+
+/* Issues toggle button */
+.issues-toggle {
+  color: var(--level-error);
+  border-color: rgba(248,113,113,0.3);
+  position: relative;
+}
+.issues-toggle:hover { background: rgba(248,113,113,0.1); color: var(--level-error); border-color: var(--level-error); }
+.issues-toggle.active { background: rgba(248,113,113,0.15); border-color: var(--level-error); color: var(--level-error); }
+.issues-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--level-error);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+/* Main Content */
+#main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.tab-panel { flex: 1; display: none; flex-direction: column; background: var(--surface); overflow: hidden; animation: tabFadeIn 0.15s ease-out; }
+.tab-panel.active { display: flex; }
+@keyframes tabFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.panel { display: flex; flex-direction: column; background: var(--surface); overflow: hidden; flex: 1; }
+#logs-panel > .panel-header { display: none; }
+
+/* Log Rows */
+.log-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; position: relative; }
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 34px;
+  box-sizing: border-box;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 0.1s ease;
+}
+.log-row.error-row { border-left: 3px solid var(--level-error); background: var(--row-error-tint); }
+.log-row.warning-row { border-left: 3px solid var(--level-warning); background: var(--row-warning-tint); }
+.log-row.stripe { background: var(--row-stripe); }
+.log-row.stripe.error-row { background: var(--row-error-tint); }
+.log-row:hover { background: var(--surface-2); }
+.log-row.selected { background: var(--accent-dim) !important; border-right: 2px solid var(--accent); }
+.log-row.highlight-flash { animation: flashHighlight 1.5s ease-out; }
+@keyframes flashHighlight {
+  0% { background: rgba(139,92,246,0.25); }
+  100% { background: transparent; }
+}
+
+.log-time { color: var(--text-muted); white-space: nowrap; font-size: 11px; width: 90px; flex-shrink: 0; letter-spacing: -0.2px; opacity: 0.7; }
+.log-level { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; min-width: 28px; text-align: center; letter-spacing: 0.3px; text-transform: uppercase; flex-shrink: 0; }
+.log-level.verbose { background: rgba(100, 116, 139, 0.15); color: var(--level-verbose); }
+.log-level.message { background: rgba(56, 189, 248, 0.18); color: var(--level-message); }
+.log-level.warning { background: rgba(251, 191, 36, 0.2); color: var(--level-warning); font-weight: 700; }
+.log-level.error { background: rgba(248, 113, 113, 0.22); color: var(--level-error); font-weight: 700; }
+
+.log-component { padding: 2px 8px; background: var(--comp-default-bg); color: var(--comp-default); border-radius: 4px; font-size: 10px; font-weight: 500; white-space: nowrap; cursor: pointer; max-width: 180px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.log-component:hover { filter: brightness(1.3); }
+.log-component[data-category="controller"] { background: var(--comp-controller-bg); color: var(--comp-controller); }
+.log-component[data-category="dag"], .log-component[data-category="execution"] { background: var(--comp-dag-bg); color: var(--comp-dag); }
+.log-component[data-category="onelake"], .log-component[data-category="lakehouse"] { background: var(--comp-onelake-bg); color: var(--comp-onelake); }
+.log-component[data-category="dq"], .log-component[data-category="insights"] { background: var(--comp-dq-bg); color: var(--comp-dq); }
+.log-component[data-category="retry"], .log-component[data-category="error"] { background: var(--comp-retry-bg); color: var(--comp-retry); }
+
+.log-message { flex: 1; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 8px; color: var(--text); }
+.repeat-badge { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 8px; background: var(--accent); color: #000; font-size: 10px; font-weight: 700; font-family: var(--font-mono); line-height: 16px; vertical-align: middle; flex-shrink: 0; }
+
+/* Status bar */
+.logs-status { padding: 4px 12px; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); border-top: 1px solid var(--border); background: var(--surface); text-align: center; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Search Highlighting */
+mark { background: var(--accent-dim); color: var(--accent); padding: 1px 2px; border-radius: 2px; }
+
+/* ======================================================================
+   DETAIL PANEL — Exact from edog-logs.html
+   ====================================================================== */
+.detail-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  border-top: 2px solid var(--accent);
+  max-height: 42vh;
+  z-index: 200;
+  display: none;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+}
+.detail-panel.visible { display: flex; flex-direction: column; animation: slideUp 0.2s ease-out; }
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+}
+.detail-header::before { content: ''; position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 36px; height: 3px; background: var(--border-bright); border-radius: 2px; }
+.detail-header h3 { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; }
+#detail-close { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 14px; border-radius: 4px; border: none; background: transparent; color: var(--text-dim); cursor: pointer; }
+#detail-close:hover { background: var(--surface-3); color: var(--text); }
+
+.detail-content { padding: 0; overflow-y: auto; max-height: calc(42vh - 36px); flex: 1; }
+
+.detail-section { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.detail-section:last-child { border-bottom: none; }
+.detail-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+  border: none;
+  padding: 0;
+}
+
+.detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 20px; }
+.detail-field { display: flex; flex-direction: column; gap: 1px; }
+.detail-field label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 500; }
+.detail-field span { font-size: 12px; font-family: var(--font-mono); color: var(--text); word-break: break-all; line-height: 1.4; }
+
+.detail-message {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  max-height: 120px;
+  overflow-y: auto;
+  color: var(--text);
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  transition: all 0.12s;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.copy-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+.cross-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px 10px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.cross-link:hover { background: var(--accent-dim); border-color: var(--accent); }
+
+.json-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.level-badge { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; width: fit-content; }
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ======================================================================
+   FEATURE 1: Error Grouping Panel
+   ====================================================================== */
+.issues-panel {
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  flex-shrink: 0;
+}
+.issues-panel.collapsed { height: 0 !important; }
+
+.issues-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+}
+.issues-resize-handle:hover,
+.issues-resize-handle.dragging { background: var(--accent); }
+
+.issues-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.issues-header h4 {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.issues-header-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(248,113,113,0.15);
+  color: var(--level-error);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 16px;
+}
+.issues-collapse-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.issues-collapse-btn:hover { background: var(--surface-3); color: var(--text); }
+
+.issues-body {
+  overflow-y: auto;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.issue-group-card {
+  background: rgba(248, 113, 113, 0.05);
+  border: 1px solid rgba(248, 113, 113, 0.15);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.issue-group-card:hover { border-color: rgba(248, 113, 113, 0.35); background: rgba(248, 113, 113, 0.08); }
+.issue-group-card.active { border-color: var(--level-error); background: rgba(248, 113, 113, 0.1); }
+
+.issue-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.issue-group-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--level-error);
+  flex: 1;
+}
+.issue-group-count {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--level-error);
+  color: #000;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 16px;
+}
+.issue-group-chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.issue-group-card.expanded .issue-group-chevron { transform: rotate(90deg); }
+
+.issue-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.issue-group-components { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.issue-group-samples {
+  display: none;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(248,113,113,0.1);
+  flex-direction: column;
+  gap: 4px;
+}
+.issue-group-card.expanded .issue-group-samples { display: flex; }
+.issue-sample {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+
+.issues-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 16px;
+  font-style: italic;
+}
+
+/* ======================================================================
+   FEATURE 2: Stack Trace Parsing
+   ====================================================================== */
+.stack-trace-section { /* uses .detail-section */ }
+.stack-trace-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.stack-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.stack-filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+.stack-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.stack-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.stack-frame {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  line-height: 1.5;
+}
+.stack-frame:last-child { border-bottom: none; }
+.stack-frame:hover { background: var(--surface-2); }
+.stack-frame-icon { color: var(--text-muted); font-size: 8px; flex-shrink: 0; width: 12px; text-align: center; }
+
+.stack-frame.flt-frame {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.stack-frame.flt-frame .stack-frame-icon { color: var(--accent); }
+.stack-frame.flt-frame .stack-frame-method { color: var(--accent); font-weight: 500; }
+
+.stack-frame.framework-frame { color: var(--text-muted); }
+.stack-frame.framework-frame .stack-frame-method { color: var(--text-muted); }
+
+.stack-frame-method { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack-frame-location { color: var(--text-dim); font-size: 10px; flex-shrink: 0; white-space: nowrap; }
+
+.stack-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.stack-group-header:hover { background: var(--surface-3); color: var(--text-dim); }
+.stack-group-chevron { font-size: 8px; transition: transform 0.15s; }
+.stack-group-header.expanded .stack-group-chevron { transform: rotate(90deg); }
+.stack-group-frames { display: none; }
+.stack-group-header.expanded + .stack-group-frames { display: contents; }
+
+/* ======================================================================
+   FEATURE 3: Token Correlation View
+   ====================================================================== */
+.token-flow-section { /* uses .detail-section */ }
+.token-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.token-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+.token-step:first-child { border-radius: 6px 0 0 6px; }
+.token-step:last-child { border-radius: 0 6px 6px 0; }
+.token-step:only-child { border-radius: 6px; }
+.token-step:hover { background: var(--surface-2); border-color: var(--border-bright); z-index: 1; }
+.token-step + .token-step { margin-left: -1px; }
+
+.token-step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.token-step-dot.success { background: var(--status-succeeded); box-shadow: 0 0 4px var(--status-succeeded); }
+.token-step-dot.failed { background: var(--level-error); box-shadow: 0 0 4px var(--level-error); }
+.token-step-dot.pending { background: var(--text-muted); }
+
+.token-step-label { font-weight: 500; color: var(--text); white-space: nowrap; }
+.token-step.failed-step { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.05); }
+.token-step.failed-step .token-step-label { color: var(--level-error); }
+
+.token-step-arrow {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+  margin: 0 -1px;
+  z-index: 2;
+  background: var(--bg);
+  padding: 0 2px;
+}
+
+.token-step-delta {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  position: absolute;
+  bottom: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.token-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.token-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 3px 0;
+}
+.token-detail-label { color: var(--text-muted); font-size: 10px; min-width: 80px; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 500; }
+.token-detail-value { font-family: var(--font-mono); color: var(--text); font-size: 11px; }
+.token-detail-value.error { color: var(--level-error); }
+
+/* ======================================================================
+   ANIMATIONS
+   ====================================================================== */
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes errorPulse { 0% { background: rgba(248, 113, 113, 0.1); } 50% { background: rgba(248, 113, 113, 0.3); } 100% { background: rgba(248, 113, 113, 0.1); } }
+@keyframes panelExpand { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 300px; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <h1>🐕 EDOG Log Viewer</h1>
+      <span class="status-badge connected">
+        <span>●</span>
+        <span>Connected</span>
+      </span>
+      <div class="stats-bar">
+        <span>Logs: <strong>247</strong></span>
+        <span>SSR: <strong id="stat-ssr">18</strong></span>
+        <span>Errors: <strong id="stat-errors">7</strong></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="theme-btn" class="icon-btn" title="Toggle theme" onclick="toggleTheme()">🌙</button>
+    </div>
+  </header>
+
+  <nav id="tab-bar">
+    <button class="tab-btn active" data-tab="logs" onclick="switchTab('logs')">📋 Logs <span class="tab-shortcut">1</span></button>
+    <button class="tab-btn" data-tab="ssr" onclick="switchTab('ssr')">📡 SSR Telemetry <span class="tab-shortcut">2</span></button>
+    <button class="tab-btn" data-tab="summary" onclick="switchTab('summary')">📊 Execution Summary <span class="tab-shortcut">3</span></button>
+    <button class="tab-btn" data-tab="timeline" onclick="switchTab('timeline')">🎮 Command Center <span class="tab-shortcut">4</span></button>
+  </nav>
+
+  <div id="toolbar">
+    <div class="time-filter">
+      <button class="time-btn active" data-range="0">All</button>
+      <button class="time-btn" data-range="60">1m</button>
+      <button class="time-btn" data-range="300">5m</button>
+      <button class="time-btn" data-range="900">15m</button>
+      <button class="time-btn" data-range="3600">1h</button>
+    </div>
+
+    <!-- Feature 4: Regex toggle integrated into search -->
+    <div class="search-wrapper" id="search-wrapper">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" placeholder="Search logs... (Ctrl+K)" />
+      <div class="search-right-controls">
+        <span id="search-count" class="search-count"></span>
+        <button id="regex-toggle" class="regex-toggle" title="Toggle regex mode (Ctrl+R)" onclick="toggleRegex()">/.*/</button>
+      </div>
+      <div id="regex-tooltip" class="regex-tooltip"></div>
+    </div>
+
+    <div class="level-filters">
+      <button class="level-btn" data-level="Verbose">V</button>
+      <button class="level-btn active" data-level="Message">M</button>
+      <button class="level-btn active" data-level="Warning">W</button>
+      <button class="level-btn active" data-level="Error">E</button>
+    </div>
+    <div class="preset-bar">
+      <button class="preset-btn" data-preset="all">All</button>
+      <button class="preset-btn active" data-preset="flt">FLT</button>
+      <button class="preset-btn" data-preset="dag">DAG</button>
+      <button class="preset-btn" data-preset="spark">Spark</button>
+    </div>
+    <div class="toolbar-actions">
+      <button class="action-btn" title="Clear (Ctrl+L)">🗑 Clear</button>
+      <button class="action-btn" title="Export JSON">📥 Export</button>
+      <button class="action-btn" title="Pause (Space)">⏸ Pause</button>
+      <button id="btn-next-error" class="action-btn error-jump" title="Jump to next error (↓E)">↓E</button>
+      <!-- Feature 1: Issues toggle -->
+      <button id="issues-toggle-btn" class="action-btn issues-toggle" title="Toggle error grouping panel" onclick="toggleIssuesPanel()">
+        ⚡ Issues <span class="issues-count-badge">3</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="main-content">
+    <!-- TAB 1: Logs -->
+    <div id="tab-logs" class="tab-panel active">
+      <div id="logs-panel" class="panel">
+        <div class="panel-header"><h2>📋 Application Logs</h2></div>
+        <div id="logs-container" class="log-scroll"></div>
+
+        <!-- Feature 1: Error Grouping Panel -->
+        <div id="issues-panel" class="issues-panel collapsed" style="height: 220px;">
+          <div class="issues-resize-handle" id="issues-resize-handle"></div>
+          <div class="issues-header">
+            <h4>Error Groups <span class="issues-header-count" id="issues-count">3</span></h4>
+            <button class="issues-collapse-btn" onclick="toggleIssuesPanel()" title="Collapse issues">▾</button>
+          </div>
+          <div class="issues-body" id="issues-body"></div>
+        </div>
+
+        <div class="logs-status">
+          Showing <span id="visible-count">247</span> of <span id="total-count">247</span> logs
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: SSR Telemetry (placeholder) -->
+    <div id="tab-ssr" class="tab-panel">
+      <div class="panel" style="display:flex;align-items:center;justify-content:center;color:var(--text-dim);">
+        📡 SSR Telemetry tab (existing feature — not part of this mock)
+      </div>
+    </div>
+    <!-- TAB 3: Execution Summary (placeholder) -->
+    <div id="tab-summary" class="tab-panel">
+      <div class="panel" style="display:flex;align-items:center;justify-content:center;color:var(--text-dim);">
+        📊 Execution Summary tab (existing feature — not part of this mock)
+      </div>
+    </div>
+    <!-- TAB 4: Command Center (placeholder) -->
+    <div id="tab-timeline" class="tab-panel">
+      <div class="panel" style="display:flex;align-items:center;justify-content:center;color:var(--text-dim);">
+        🎮 Command Center tab (existing feature — not part of this mock)
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="detail-panel" class="detail-panel">
+    <div class="detail-header">
+      <h3 id="detail-title">Log Detail</h3>
+      <button id="detail-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-content" id="detail-content"></div>
+  </div>
+
+<script>
+// ======================================================================
+// STATE
+// ======================================================================
+const state = {
+  regexMode: false,
+  regexValid: true,
+  issuesPanelOpen: false,
+  activeIssueFilter: null,
+  selectedLogIndex: -1,
+  detailOpen: false,
+  fltOnlyStack: false,
+  theme: 'dark'
+};
+
+// ======================================================================
+// MOCK DATA — Realistic FLT log entries
+// ======================================================================
+const NOW = new Date();
+function t(minAgo, secOffset=0) {
+  const d = new Date(NOW.getTime() - minAgo * 60000 - secOffset * 1000);
+  return d.toTimeString().slice(0, 12);
+}
+function fullT(minAgo, secOffset=0) {
+  const d = new Date(NOW.getTime() - minAgo * 60000 - secOffset * 1000);
+  return d.toISOString();
+}
+
+const LOGS = [
+  { time: t(12,0),  level: 'Message',  component: 'LiveTableController',  category: 'controller', message: 'Starting materialization for LiveTable artifact_id=a1b2c3d4' },
+  { time: t(11,55), level: 'Message',  component: 'DagExecutionManager',  category: 'dag',        message: 'DAG execution initiated — 6 nodes, iterationId=iter-8f3a-2024-07-15' },
+  { time: t(11,50), level: 'Verbose',  component: 'FabricApiClient',      category: 'controller', message: 'POST /v1/workspaces/ws-001/lakehouses/lh-001/tables — 200 OK (142ms)' },
+  { time: t(11,45), level: 'Message',  component: 'DagExecutionManager',  category: 'dag',        message: 'Node "ExtractMetadata" started — dependencies: none' },
+  { time: t(11,40), level: 'Message',  component: 'GTSBasedSparkClient',  category: 'execution',  message: 'Spark session acquired — clusterId=spark-pool-west-3, sessionId=sess-9e2f' },
+  { time: t(11,30), level: 'Message',  component: 'OneLakeStorageClient', category: 'onelake',    message: 'Reading delta log from abfss://container@onelake.dfs.fabric.microsoft.com/tables/product_inventory' },
+  { time: t(11,20), level: 'Warning',  component: 'TokenManager',         category: 'retry',      message: 'Bearer token expiring in 45s — scheduling proactive refresh for MWC scope' },
+  { time: t(11,15), level: 'Message',  component: 'TokenManager',         category: 'retry',      message: 'MWC token generation initiated — scope=OneLake.ReadWrite.All' },
+  { time: t(11,10), level: 'Error',    component: 'TokenManager',         category: 'error',      message: 'ErrorCode=TokenExpiredError — Bearer token refresh failed: The token has expired. CorrelationId=corr-7a82, RAID=iter-8f3a-2024-07-15',
+    hasStackTrace: true,
+    stackTrace: `System.InvalidOperationException: The bearer token has expired and cannot be refreshed.
+   at Microsoft.LiveTable.Auth.TokenManager.RefreshBearerTokenAsync() in /src/Auth/TokenManager.cs:line 142
+   at Microsoft.LiveTable.Auth.TokenManager.EnsureValidTokenAsync() in /src/Auth/TokenManager.cs:line 89
+   at Microsoft.LiveTable.Api.FabricApiClient.SendRequestAsync(HttpRequestMessage request) in /src/Api/FabricApiClient.cs:line 203
+   at Microsoft.LiveTable.Api.FabricApiClient.PostAsync(String endpoint, Object payload) in /src/Api/FabricApiClient.cs:line 118
+   at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
+   at System.Runtime.CompilerServices.AsyncTaskMethodBuilder\`1.AsyncStateMachineBox\`1.MoveNext()
+   at System.Threading.Tasks.Task.InnerInvoke()
+   at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)
+   at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)`,
+    isTokenRelated: true,
+    tokenFlow: [
+      { step: 'Bearer Refresh', status: 'failed', time: t(11,10), error: 'Token expired' },
+      { step: 'MWC Generation', status: 'pending', time: null },
+      { step: 'API Call', status: 'pending', time: null }
+    ]
+  },
+  { time: t(11,5),  level: 'Error',    component: 'FabricApiClient',      category: 'error',      message: 'ErrorCode=TokenExpiredError — API call failed: Unauthorized (401). Endpoint=/v1/workspaces/ws-001/lakehouses, RAID=iter-8f3a-2024-07-15' },
+  { time: t(11,0),  level: 'Message',  component: 'RetryManager',         category: 'retry',      message: 'Retry policy triggered — attempt 1/3, backoff=2000ms, operation=RefreshBearerToken' },
+  { time: t(10,55), level: 'Message',  component: 'TokenManager',         category: 'retry',      message: 'Bearer token refresh succeeded on retry — new expiry=+3600s' },
+  { time: t(10,50), level: 'Message',  component: 'TokenManager',         category: 'retry',      message: 'MWC token generated successfully — scope=OneLake.ReadWrite.All, expiresIn=1800s' },
+  { time: t(10,45), level: 'Message',  component: 'DagExecutionManager',  category: 'dag',        message: 'Node "ExtractMetadata" completed — duration=65.2s, status=Succeeded' },
+  { time: t(10,40), level: 'Message',  component: 'DagExecutionManager',  category: 'dag',        message: 'Node "TransformData" started — dependencies: ExtractMetadata' },
+  { time: t(10,20), level: 'Warning',  component: 'GTSBasedSparkClient',  category: 'execution',  message: 'Spark job latency above threshold — elapsed=18.5s, threshold=15s, jobId=spark-j-4421' },
+  { time: t(10,10), level: 'Message',  component: 'OneLakeStorageClient', category: 'onelake',    message: 'Writing parquet files to abfss://container@onelake.dfs.fabric.microsoft.com/tables/product_inventory/_delta_log' },
+  { time: t(10,0),  level: 'Error',    component: 'OneLakeStorageClient', category: 'error',      message: 'ErrorCode=OneLakeAccessDenied — Write operation failed: 403 Forbidden. Path=/tables/product_inventory, RAID=iter-8f3a-2024-07-15',
+    hasStackTrace: true,
+    stackTrace: `Microsoft.LiveTable.Storage.OneLakeAccessDeniedException: Access denied to OneLake path: /tables/product_inventory
+   at Microsoft.LiveTable.Storage.OneLakeStorageClient.WriteParquetAsync(String path, ParquetPayload payload) in /src/Storage/OneLakeStorageClient.cs:line 287
+   at Microsoft.LiveTable.Storage.OneLakeStorageClient.CommitDeltaLogAsync(String tablePath, DeltaCommit commit) in /src/Storage/OneLakeStorageClient.cs:line 198
+   at Microsoft.LiveTable.Dag.Nodes.WriteNode.ExecuteAsync(DagContext context) in /src/Dag/Nodes/WriteNode.cs:line 67
+   at Microsoft.LiveTable.Dag.DagExecutionManager.ExecuteNodeAsync(DagNode node, DagContext context) in /src/Dag/DagExecutionManager.cs:line 312
+   at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
+   at System.Threading.Tasks.Task.InnerInvoke()
+   at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)` },
+  { time: t(9,55),  level: 'Error',    component: 'DagExecutionManager',  category: 'error',      message: 'ErrorCode=OneLakeAccessDenied — Node "WriteResults" failed — OneLake write permission denied, RAID=iter-8f3a-2024-07-15' },
+  { time: t(9,50),  level: 'Message',  component: 'DagExecutionManager',  category: 'dag',        message: 'Node "TransformData" completed — duration=50.8s, status=Succeeded' },
+  { time: t(9,45),  level: 'Error',    component: 'DagExecutionManager',  category: 'error',      message: 'ErrorCode=OneLakeAccessDenied — DAG execution failed — 1 node failed (WriteResults), 4 succeeded, 1 skipped' },
+  { time: t(9,40),  level: 'Message',  component: 'LiveTableController',  category: 'controller', message: 'Materialization completed with errors — artifact_id=a1b2c3d4, duration=135.2s' },
+  { time: t(9,35),  level: 'Error',    component: 'FabricApiClient',      category: 'error',      message: 'ErrorCode=TokenExpiredError — Callback notification failed: 401 Unauthorized. Endpoint=/v1/callbacks/materialization-complete, RAID=iter-8f3a-2024-07-15' },
+  { time: t(9,30),  level: 'Message',  component: 'RetryManager',         category: 'retry',      message: 'Retry policy triggered — attempt 1/3, backoff=1000ms, operation=PostCallback' },
+  { time: t(9,25),  level: 'Message',  component: 'FabricApiClient',      category: 'controller', message: 'Callback notification succeeded on retry — 200 OK (89ms)' },
+  { time: t(9,20),  level: 'Verbose',  component: 'LiveTableController',  category: 'controller', message: 'Cleanup: releasing Spark session sess-9e2f, closing OneLake connections' },
+  { time: t(9,15),  level: 'Message',  component: 'LiveTableController',  category: 'controller', message: 'Execution context disposed — total duration=162.4s, peak memory=384MB' },
+];
+
+// Error groups for Feature 1
+const ERROR_GROUPS = [
+  {
+    code: 'TokenExpiredError',
+    count: 3,
+    firstSeen: fullT(11,10),
+    lastSeen: fullT(9,35),
+    components: [
+      { name: 'TokenManager', category: 'error' },
+      { name: 'FabricApiClient', category: 'error' }
+    ],
+    samples: [
+      'Bearer token refresh failed: The token has expired. CorrelationId=corr-7a82',
+      'API call failed: Unauthorized (401). Endpoint=/v1/workspaces/ws-001/lakehouses',
+      'Callback notification failed: 401 Unauthorized. Endpoint=/v1/callbacks/materialization-complete'
+    ],
+    matchIndices: [8, 9, 21]
+  },
+  {
+    code: 'OneLakeAccessDenied',
+    count: 3,
+    firstSeen: fullT(10,0),
+    lastSeen: fullT(9,45),
+    components: [
+      { name: 'OneLakeStorageClient', category: 'onelake' },
+      { name: 'DagExecutionManager', category: 'dag' }
+    ],
+    samples: [
+      'Write operation failed: 403 Forbidden. Path=/tables/product_inventory',
+      'Node "WriteResults" failed — OneLake write permission denied',
+      'DAG execution failed — 1 node failed (WriteResults), 4 succeeded, 1 skipped'
+    ],
+    matchIndices: [17, 18, 20]
+  },
+  {
+    code: 'SparkLatencyWarning',
+    count: 1,
+    firstSeen: fullT(10,20),
+    lastSeen: fullT(10,20),
+    components: [
+      { name: 'GTSBasedSparkClient', category: 'execution' }
+    ],
+    samples: [
+      'Spark job latency above threshold — elapsed=18.5s, threshold=15s, jobId=spark-j-4421'
+    ],
+    matchIndices: [15]
+  }
+];
+
+// ======================================================================
+// RENDERING
+// ======================================================================
+
+function renderLogs() {
+  const container = document.getElementById('logs-container');
+  container.innerHTML = '';
+
+  const filteredIndices = getFilteredLogIndices();
+
+  filteredIndices.forEach((idx, pos) => {
+    const log = LOGS[idx];
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    if (log.level === 'Error') row.classList.add('error-row');
+    if (log.level === 'Warning') row.classList.add('warning-row');
+    if (pos % 2 === 1 && log.level !== 'Error' && log.level !== 'Warning') row.classList.add('stripe');
+    row.dataset.logIndex = idx;
+    row.onclick = () => showDetail(idx);
+
+    const timeEl = document.createElement('span');
+    timeEl.className = 'log-time';
+    timeEl.textContent = log.time;
+
+    const levelEl = document.createElement('span');
+    levelEl.className = 'log-level ' + log.level.toLowerCase();
+    levelEl.textContent = log.level === 'Verbose' ? 'VRB' : log.level === 'Message' ? 'MSG' : log.level === 'Warning' ? 'WRN' : 'ERR';
+
+    const compEl = document.createElement('span');
+    compEl.className = 'log-component';
+    compEl.dataset.category = log.category;
+    compEl.textContent = log.component;
+
+    const msgEl = document.createElement('span');
+    msgEl.className = 'log-message';
+
+    // Apply search highlighting
+    const searchText = document.getElementById('search-input').value.trim();
+    if (searchText) {
+      msgEl.innerHTML = highlightText(log.message, searchText);
+    } else {
+      msgEl.textContent = log.message;
+    }
+
+    row.appendChild(timeEl);
+    row.appendChild(levelEl);
+    row.appendChild(compEl);
+    row.appendChild(msgEl);
+    container.appendChild(row);
+  });
+
+  // Update counts
+  document.getElementById('visible-count').textContent = filteredIndices.length;
+  document.getElementById('total-count').textContent = LOGS.length;
+
+  // Update search count
+  updateSearchCount(filteredIndices.length);
+}
+
+function getFilteredLogIndices() {
+  const searchText = document.getElementById('search-input').value.trim().toLowerCase();
+  const activeLevels = new Set();
+  document.querySelectorAll('.level-btn.active').forEach(btn => activeLevels.add(btn.dataset.level));
+
+  return LOGS.map((_, i) => i).filter(i => {
+    const log = LOGS[i];
+    if (!activeLevels.has(log.level)) return false;
+
+    // Issue filter
+    if (state.activeIssueFilter !== null) {
+      const group = ERROR_GROUPS[state.activeIssueFilter];
+      if (!group.matchIndices.includes(i)) return false;
+    }
+
+    // Search
+    if (searchText) {
+      if (state.regexMode && state.regexValid) {
+        try {
+          const regex = new RegExp(searchText, 'i');
+          if (!regex.test(log.message) && !regex.test(log.component)) return false;
+        } catch(e) { return true; }
+      } else if (!state.regexMode) {
+        if (!log.message.toLowerCase().includes(searchText) && !log.component.toLowerCase().includes(searchText)) return false;
+      }
+    }
+    return true;
+  });
+}
+
+function highlightText(text, search) {
+  if (!search) return escapeHtml(text);
+  try {
+    let regex;
+    if (state.regexMode && state.regexValid) {
+      regex = new RegExp('(' + search + ')', 'gi');
+    } else {
+      regex = new RegExp('(' + escapeRegExp(search) + ')', 'gi');
+    }
+    return escapeHtml(text).replace(regex, '<mark>$1</mark>');
+  } catch(e) {
+    return escapeHtml(text);
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function updateSearchCount(visibleCount) {
+  const searchText = document.getElementById('search-input').value.trim();
+  const countEl = document.getElementById('search-count');
+  if (searchText) {
+    countEl.textContent = visibleCount + ' match' + (visibleCount !== 1 ? 'es' : '');
+  } else {
+    countEl.textContent = '';
+  }
+}
+
+// ======================================================================
+// FEATURE 1: Error Grouping Panel
+// ======================================================================
+
+function renderIssuesPanel() {
+  const body = document.getElementById('issues-body');
+  body.innerHTML = '';
+
+  if (ERROR_GROUPS.length === 0) {
+    body.innerHTML = '<div class="issues-empty">No errors detected</div>';
+    return;
+  }
+
+  ERROR_GROUPS.forEach((group, gi) => {
+    const card = document.createElement('div');
+    card.className = 'issue-group-card';
+    if (state.activeIssueFilter === gi) card.classList.add('active');
+    card.dataset.groupIndex = gi;
+
+    const firstSeen = new Date(group.firstSeen).toTimeString().slice(0, 8);
+    const lastSeen = new Date(group.lastSeen).toTimeString().slice(0, 8);
+
+    let componentsHtml = group.components.map(c =>
+      `<span class="log-component" data-category="${c.category}">${c.name}</span>`
+    ).join('');
+
+    let samplesHtml = group.samples.map(s =>
+      `<div class="issue-sample">${escapeHtml(s)}</div>`
+    ).join('');
+
+    card.innerHTML = `
+      <div class="issue-group-header">
+        <span class="issue-group-code">${escapeHtml(group.code)}</span>
+        <span class="issue-group-count">×${group.count}</span>
+        <span class="issue-group-chevron">▸</span>
+      </div>
+      <div class="issue-group-meta">
+        <span>First: ${firstSeen}</span>
+        <span>Last: ${lastSeen}</span>
+      </div>
+      <div class="issue-group-components">${componentsHtml}</div>
+      <div class="issue-group-samples">${samplesHtml}</div>
+    `;
+
+    // Click to filter
+    card.querySelector('.issue-group-header').addEventListener('click', (e) => {
+      e.stopPropagation();
+      card.classList.toggle('expanded');
+    });
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.issue-group-header')) return;
+      filterByIssueGroup(gi);
+    });
+
+    // Also filter on double-click anywhere
+    card.addEventListener('dblclick', () => filterByIssueGroup(gi));
+
+    body.appendChild(card);
+  });
+}
+
+function filterByIssueGroup(gi) {
+  if (state.activeIssueFilter === gi) {
+    state.activeIssueFilter = null;
+  } else {
+    state.activeIssueFilter = gi;
+  }
+  renderIssuesPanel();
+  renderLogs();
+}
+
+function toggleIssuesPanel() {
+  const panel = document.getElementById('issues-panel');
+  const btn = document.getElementById('issues-toggle-btn');
+  state.issuesPanelOpen = !state.issuesPanelOpen;
+
+  if (state.issuesPanelOpen) {
+    panel.classList.remove('collapsed');
+    btn.classList.add('active');
+  } else {
+    panel.classList.add('collapsed');
+    btn.classList.remove('active');
+    // Clear active filter when closing
+    if (state.activeIssueFilter !== null) {
+      state.activeIssueFilter = null;
+      renderLogs();
+    }
+  }
+}
+
+// Issues panel resize
+(function initIssuesResize() {
+  const handle = document.getElementById('issues-resize-handle');
+  const panel = document.getElementById('issues-panel');
+  let startY, startH, dragging = false;
+
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startH = panel.offsetHeight;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = startY - e.clientY;
+    const newH = Math.max(100, Math.min(500, startH + delta));
+    panel.style.height = newH + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+// ======================================================================
+// FEATURE 4: Regex Search Toggle
+// ======================================================================
+
+function toggleRegex() {
+  state.regexMode = !state.regexMode;
+  const btn = document.getElementById('regex-toggle');
+  const input = document.getElementById('search-input');
+
+  if (state.regexMode) {
+    btn.classList.add('active');
+    input.placeholder = 'Search with regex... (Ctrl+K)';
+    input.classList.add('regex-active');
+  } else {
+    btn.classList.remove('active');
+    input.placeholder = 'Search logs... (Ctrl+K)';
+    input.classList.remove('regex-active');
+    input.classList.remove('regex-error');
+    input.classList.remove('regex-valid');
+    document.getElementById('regex-tooltip').classList.remove('visible');
+  }
+  validateAndSearch();
+}
+
+function validateAndSearch() {
+  const input = document.getElementById('search-input');
+  const tooltip = document.getElementById('regex-tooltip');
+  const val = input.value.trim();
+
+  if (state.regexMode && val) {
+    try {
+      new RegExp(val);
+      state.regexValid = true;
+      input.classList.remove('regex-error');
+      input.classList.add('regex-valid');
+      tooltip.classList.remove('visible');
+    } catch(e) {
+      state.regexValid = false;
+      input.classList.add('regex-error');
+      input.classList.remove('regex-valid');
+      tooltip.textContent = e.message.replace('Invalid regular expression: ', '');
+      tooltip.classList.add('visible');
+    }
+  } else {
+    state.regexValid = true;
+    input.classList.remove('regex-error');
+    input.classList.remove('regex-valid');
+    tooltip.classList.remove('visible');
+  }
+
+  renderLogs();
+}
+
+document.getElementById('search-input').addEventListener('input', validateAndSearch);
+
+// Ctrl+R to toggle regex
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'r') { e.preventDefault(); toggleRegex(); }
+  if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('search-input').focus(); }
+});
+
+// ======================================================================
+// DETAIL PANEL — Features 2 & 3 integrated
+// ======================================================================
+
+function showDetail(logIndex) {
+  const log = LOGS[logIndex];
+  state.selectedLogIndex = logIndex;
+  state.detailOpen = true;
+  state.fltOnlyStack = false;
+
+  const panel = document.getElementById('detail-panel');
+  const content = document.getElementById('detail-content');
+  const title = document.getElementById('detail-title');
+
+  title.textContent = 'Log Detail — ' + log.component;
+  panel.classList.add('visible');
+
+  // Highlight the selected row
+  document.querySelectorAll('.log-row').forEach(r => r.classList.remove('selected'));
+  const row = document.querySelector(`.log-row[data-log-index="${logIndex}"]`);
+  if (row) row.classList.add('selected');
+
+  let html = '';
+
+  // Section: Metadata
+  html += `<div class="detail-section">
+    <h4>Metadata</h4>
+    <div class="detail-grid">
+      <div class="detail-field"><label>Timestamp</label><span>${log.time}</span></div>
+      <div class="detail-field"><label>Level</label><span class="level-badge ${log.level.toLowerCase()}">${log.level}</span></div>
+      <div class="detail-field"><label>Component</label><span>${escapeHtml(log.component)}</span></div>
+      <div class="detail-field"><label>Category</label><span>${log.category}</span></div>
+    </div>
+  </div>`;
+
+  // Section: Message
+  html += `<div class="detail-section">
+    <h4>Message <button class="copy-btn" onclick="copyText(\`${escapeHtml(log.message).replace(/`/g,'\\`')}\`)">copy</button></h4>
+    <div class="detail-message">${escapeHtml(log.message)}</div>
+  </div>`;
+
+  // Feature 2: Stack Trace
+  if (log.hasStackTrace && log.stackTrace) {
+    html += renderStackTraceSection(log.stackTrace);
+  }
+
+  // Feature 3: Token Correlation
+  if (log.isTokenRelated && log.tokenFlow) {
+    html += renderTokenFlowSection(log.tokenFlow);
+  }
+
+  content.innerHTML = html;
+
+  // Wire up stack trace interactions
+  if (log.hasStackTrace) {
+    wireStackTraceInteractions();
+  }
+}
+
+function renderStackTraceSection(stackTrace) {
+  const lines = stackTrace.split('\n').filter(l => l.trim());
+  const frames = parseStackFrames(lines);
+
+  let html = `<div class="detail-section stack-trace-section">
+    <h4>Stack Trace
+      <button class="copy-btn" onclick="copyStackTrace()">copy</button>
+    </h4>
+    <div class="stack-trace-controls">
+      <button class="stack-filter-btn" id="flt-only-btn" onclick="toggleFltOnly()">Show FLT frames only</button>
+      <span style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono);">${frames.length} frames</span>
+    </div>
+    <div class="stack-frames" id="stack-frames-container">`;
+
+  // Group framework frames
+  let currentGroup = null;
+  let groupFrames = [];
+
+  frames.forEach((frame, i) => {
+    if (frame.isFlt) {
+      // Flush any pending group
+      if (currentGroup && groupFrames.length > 0) {
+        html += renderFrameGroup(currentGroup, groupFrames);
+        currentGroup = null;
+        groupFrames = [];
+      }
+      html += renderSingleFrame(frame, 'flt-frame');
+    } else {
+      const ns = getFrameNamespace(frame.method);
+      if (currentGroup && currentGroup !== ns) {
+        html += renderFrameGroup(currentGroup, groupFrames);
+        groupFrames = [];
+      }
+      currentGroup = ns;
+      groupFrames.push(frame);
+    }
+  });
+
+  // Flush last group
+  if (currentGroup && groupFrames.length > 0) {
+    html += renderFrameGroup(currentGroup, groupFrames);
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+function parseStackFrames(lines) {
+  return lines.filter(l => l.trim().startsWith('at ')).map(line => {
+    const trimmed = line.trim().replace(/^at /, '');
+    const inMatch = trimmed.match(/^(.+?)\s+in\s+(.+)$/);
+    const method = inMatch ? inMatch[1] : trimmed;
+    const location = inMatch ? inMatch[2] : '';
+    const isFlt = method.startsWith('Microsoft.LiveTable.');
+    return { method, location, isFlt, raw: line };
+  });
+}
+
+function getFrameNamespace(method) {
+  const parts = method.split('.');
+  if (parts.length >= 3) return parts.slice(0, 3).join('.');
+  return parts[0] || 'Unknown';
+}
+
+function renderSingleFrame(frame, extraClass) {
+  return `<div class="stack-frame ${extraClass}" data-flt="${frame.isFlt}">
+    <span class="stack-frame-icon">▸</span>
+    <span class="stack-frame-method">${escapeHtml(frame.method)}</span>
+    ${frame.location ? `<span class="stack-frame-location">${escapeHtml(frame.location)}</span>` : ''}
+  </div>`;
+}
+
+function renderFrameGroup(ns, frames) {
+  const id = 'sg-' + ns.replace(/[^a-zA-Z0-9]/g, '-');
+  let html = `<div class="stack-group-header" data-group="${id}" onclick="toggleStackGroup(this)">
+    <span class="stack-group-chevron">▸</span>
+    <span>${escapeHtml(ns)} (${frames.length} frame${frames.length > 1 ? 's' : ''})</span>
+  </div>
+  <div class="stack-group-frames" data-group="${id}">`;
+  frames.forEach(f => {
+    html += renderSingleFrame(f, 'framework-frame');
+  });
+  html += '</div>';
+  return html;
+}
+
+function toggleStackGroup(header) {
+  header.classList.toggle('expanded');
+  const groupId = header.dataset.group;
+  const frames = header.nextElementSibling;
+  if (frames && frames.dataset.group === groupId) {
+    frames.style.display = header.classList.contains('expanded') ? 'contents' : 'none';
+  }
+}
+
+function toggleFltOnly() {
+  state.fltOnlyStack = !state.fltOnlyStack;
+  const btn = document.getElementById('flt-only-btn');
+  const container = document.getElementById('stack-frames-container');
+
+  if (state.fltOnlyStack) {
+    btn.classList.add('active');
+    container.querySelectorAll('.stack-group-header, .stack-group-frames').forEach(el => el.style.display = 'none');
+    container.querySelectorAll('.framework-frame').forEach(el => el.style.display = 'none');
+  } else {
+    btn.classList.remove('active');
+    container.querySelectorAll('.stack-group-header').forEach(el => el.style.display = '');
+    container.querySelectorAll('.stack-group-frames').forEach(el => el.style.display = '');
+    container.querySelectorAll('.framework-frame').forEach(el => el.style.display = '');
+  }
+}
+
+function wireStackTraceInteractions() {
+  // Already wired via onclick attributes
+}
+
+function copyStackTrace() {
+  const log = LOGS[state.selectedLogIndex];
+  if (log && log.stackTrace) {
+    navigator.clipboard.writeText(log.stackTrace).catch(() => {});
+    const btn = event.target;
+    btn.textContent = 'copied!';
+    setTimeout(() => btn.textContent = 'copy', 1200);
+  }
+}
+
+// ======================================================================
+// FEATURE 3: Token Correlation View
+// ======================================================================
+
+function renderTokenFlowSection(tokenFlow) {
+  let html = `<div class="detail-section token-flow-section">
+    <h4>Token Flow</h4>
+    <div class="token-breadcrumbs" style="padding-bottom: 16px;">`;
+
+  tokenFlow.forEach((step, i) => {
+    const isFailed = step.status === 'failed';
+    const isPending = step.status === 'pending';
+    const stepClass = isFailed ? 'failed-step' : '';
+    const dotClass = isFailed ? 'failed' : (isPending ? 'pending' : 'success');
+
+    html += `<div class="token-step ${stepClass}" onclick="filterByTokenStep(${i})" title="Click to filter logs for this step">
+      <span class="token-step-dot ${dotClass}"></span>
+      <span class="token-step-label">${escapeHtml(step.step)}</span>
+      ${step.time ? `<span style="font-family:var(--font-mono);font-size:9px;color:var(--text-dim);margin-left:4px;">${step.time}</span>` : ''}
+    </div>`;
+
+    if (i < tokenFlow.length - 1) {
+      html += `<span class="token-step-arrow">→</span>`;
+    }
+  });
+
+  html += `</div>`;
+
+  // Token details
+  html += `<div class="token-details">`;
+
+  tokenFlow.forEach(step => {
+    if (step.status === 'failed' && step.error) {
+      html += `<div class="token-detail-row">
+        <span class="token-detail-label">${escapeHtml(step.step)}</span>
+        <span class="token-detail-value error">✕ ${escapeHtml(step.error)}</span>
+      </div>`;
+    } else if (step.status === 'pending') {
+      html += `<div class="token-detail-row">
+        <span class="token-detail-label">${escapeHtml(step.step)}</span>
+        <span class="token-detail-value" style="color:var(--text-muted)">— blocked by upstream failure</span>
+      </div>`;
+    }
+  });
+
+  html += `</div>
+    <div class="cross-link" onclick="filterTokenLogs()" style="margin-top:10px;">🔗 Show all token-related logs for this RAID</div>
+  </div>`;
+  return html;
+}
+
+function filterByTokenStep(stepIndex) {
+  // Flash feedback
+  const steps = document.querySelectorAll('.token-step');
+  if (steps[stepIndex]) {
+    steps[stepIndex].style.background = 'var(--accent-dim)';
+    steps[stepIndex].style.borderColor = 'var(--accent)';
+    setTimeout(() => {
+      steps[stepIndex].style.background = '';
+      steps[stepIndex].style.borderColor = '';
+    }, 800);
+  }
+}
+
+function filterTokenLogs() {
+  const input = document.getElementById('search-input');
+  input.value = 'token|bearer|MWC|Unauthorized|401';
+  if (!state.regexMode) toggleRegex();
+  validateAndSearch();
+}
+
+// ======================================================================
+// DETAIL PANEL CLOSE
+// ======================================================================
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('visible');
+  state.detailOpen = false;
+  state.selectedLogIndex = -1;
+  document.querySelectorAll('.log-row').forEach(r => r.classList.remove('selected'));
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).catch(() => {});
+  const btn = event.target;
+  btn.textContent = 'copied!';
+  setTimeout(() => btn.textContent = 'copy', 1200);
+}
+
+// ======================================================================
+// TAB SWITCHING
+// ======================================================================
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab-btn[data-tab="${tabId}"]`).classList.add('active');
+  document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// ======================================================================
+// THEME TOGGLE
+// ======================================================================
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.getElementById('theme-btn');
+  if (html.dataset.theme === 'dark') {
+    html.dataset.theme = 'light';
+    btn.textContent = '☀️';
+    state.theme = 'light';
+  } else {
+    html.dataset.theme = 'dark';
+    btn.textContent = '🌙';
+    state.theme = 'dark';
+  }
+}
+
+// ======================================================================
+// LEVEL FILTER BUTTONS
+// ======================================================================
+
+document.querySelectorAll('.level-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('active');
+    renderLogs();
+  });
+});
+
+// ======================================================================
+// KEYBOARD SHORTCUTS
+// ======================================================================
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.detailOpen) { closeDetail(); e.preventDefault(); }
+  if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && document.activeElement.tagName !== 'INPUT') {
+    const tabs = ['logs', 'ssr', 'summary', 'timeline'];
+    switchTab(tabs[parseInt(e.key) - 1]);
+    e.preventDefault();
+  }
+});
+
+// ======================================================================
+// INIT
+// ======================================================================
+
+renderLogs();
+renderIssuesPanel();
+
+// Auto-show the issues panel and detail panel for demo
+setTimeout(() => {
+  toggleIssuesPanel();
+}, 300);
+
+setTimeout(() => {
+  // Auto-select the error log with stack trace to showcase Features 2 & 3
+  showDetail(8);
+}, 600);
+</script>
+</body>
+</html>

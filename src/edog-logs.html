@@ -542,66 +542,6 @@ mark {
   font-family: var(--font-mono);
 }
 
-/* Feature 4: Regex Toggle */
-.search-right-controls {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.search-right-controls .search-count {
-  position: static;
-  right: auto;
-  top: auto;
-  transform: none;
-}
-.regex-toggle {
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  line-height: 1.3;
-}
-.regex-toggle:hover { border-color: var(--border-bright); color: var(--text-dim); }
-.regex-toggle.active { background: var(--accent); color: white; border-color: var(--accent); }
-
-#search-input.regex-active { font-family: var(--font-mono); font-size: 12px; }
-#search-input.regex-error { border-color: var(--level-error) !important; box-shadow: 0 0 0 3px rgba(248,113,113,0.15) !important; }
-#search-input.regex-valid { border-color: var(--status-succeeded); box-shadow: 0 0 0 3px rgba(52,211,153,0.1); }
-
-.regex-tooltip {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  background: var(--surface);
-  border: 1px solid rgba(248,113,113,0.3);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--level-error);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  z-index: 200;
-  display: none;
-  animation: tooltipIn 0.15s ease-out;
-}
-.regex-tooltip.visible { display: block; }
-
-@keyframes tooltipIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 .level-filters {
   display: flex;
   gap: 4px;
@@ -778,7 +718,7 @@ mark {
   color: var(--text);
 }
 
-#component-filter {
+#marker-filter {
   padding: 6px 10px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -793,12 +733,12 @@ mark {
   order: 13;
 }
 
-#component-filter:focus {
+#marker-filter:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-#component-filter option {
+#marker-filter option {
   background: var(--surface);
   color: var(--text);
 }
@@ -1131,22 +1071,6 @@ mark {
   text-overflow: ellipsis;
   padding-left: 8px;
   color: var(--text);
-}
-
-/* Server-side dedup repeat badge — "×42" like Chrome DevTools */
-.repeat-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--accent, #f59e0b);
-  color: #000;
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  line-height: 16px;
-  vertical-align: middle;
-  flex-shrink: 0;
 }
 
 /* Logs Status Bar */
@@ -1951,325 +1875,7 @@ mark {
   to { opacity: 1; }
 }
 
-/* === css/issues.css === */
-/* Feature 1: Error Grouping Panel — Chrome DevTools Issues style */
-.issues-panel {
-  border-left: 1px solid var(--border);
-  background: var(--bg);
-  overflow: hidden;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-}
-.issues-panel.collapsed { width: 0 !important; border-left: none; }
-
-.issues-resize-handle {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 4px;
-  cursor: ew-resize;
-  z-index: 10;
-  background: transparent;
-  transition: background 0.15s;
-}
-.issues-resize-handle:hover,
-.issues-resize-handle.dragging { background: var(--accent); }
-
-.issues-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 14px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-.issues-header h4 {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  border: none;
-  padding: 0;
-}
-.issues-header-count {
-  padding: 0 5px;
-  border-radius: 8px;
-  background: rgba(248,113,113,0.15);
-  color: var(--level-error);
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  line-height: 16px;
-}
-.issues-collapse-btn {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  border-radius: 3px;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.issues-collapse-btn:hover { background: var(--surface-3); color: var(--text); }
-
-.issues-body {
-  overflow-y: auto;
-  padding: 8px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-height: 0;
-}
-
-.issue-group-card {
-  background: rgba(248, 113, 113, 0.05);
-  border: 1px solid rgba(248, 113, 113, 0.15);
-  border-radius: 6px;
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.issue-group-card:hover { border-color: rgba(248, 113, 113, 0.35); background: rgba(248, 113, 113, 0.08); }
-.issue-group-card.active { border-color: var(--level-error); background: rgba(248, 113, 113, 0.1); }
-
-.issue-group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.issue-group-code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--level-error);
-  flex: 1;
-}
-.issue-group-count {
-  display: inline-block;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--level-error);
-  color: #000;
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  line-height: 16px;
-}
-.issue-group-chevron {
-  color: var(--text-muted);
-  font-size: 10px;
-  transition: transform 0.15s;
-  flex-shrink: 0;
-}
-.issue-group-card.expanded .issue-group-chevron { transform: rotate(90deg); }
-
-.issue-group-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-bottom: 6px;
-}
-.issue-group-components { display: flex; gap: 4px; flex-wrap: wrap; }
-
-.issue-group-samples {
-  display: none;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(248,113,113,0.1);
-  flex-direction: column;
-  gap: 4px;
-}
-.issue-group-card.expanded .issue-group-samples { display: flex; }
-.issue-sample {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 4px 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.5;
-}
-
-.issues-empty {
-  color: var(--text-muted);
-  font-size: 12px;
-  text-align: center;
-  padding: 16px;
-  font-style: italic;
-}
-
-/* Issues toggle button in toolbar */
-.issues-toggle {
-  color: var(--level-error);
-  border-color: rgba(248,113,113,0.3);
-  position: relative;
-}
-.issues-toggle:hover { background: rgba(248,113,113,0.1); color: var(--level-error); border-color: var(--level-error); }
-.issues-toggle.active { background: rgba(248,113,113,0.15); border-color: var(--level-error); color: var(--level-error); }
-.issues-count-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--level-error);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  line-height: 1;
-}
-
-/* === css/stacktrace.css === */
-/* Feature 2: Stack Trace Parsing */
-.stack-trace-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.stack-filter-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-dim);
-  font-size: 10px;
-  font-family: var(--font-mono);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.stack-filter-btn:hover { border-color: var(--accent); color: var(--accent); }
-.stack-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
-
-.stack-frames {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.stack-frame {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  border-bottom: 1px solid var(--border);
-  transition: background 0.1s;
-  line-height: 1.5;
-}
-.stack-frame:last-child { border-bottom: none; }
-.stack-frame:hover { background: var(--surface-2); }
-.stack-frame-icon { color: var(--text-muted); font-size: 8px; flex-shrink: 0; width: 12px; text-align: center; }
-
-.stack-frame.flt-frame {
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-.stack-frame.flt-frame .stack-frame-icon { color: var(--accent); }
-.stack-frame.flt-frame .stack-frame-method { color: var(--accent); font-weight: 500; }
-
-.stack-frame.framework-frame { color: var(--text-muted); }
-.stack-frame.framework-frame .stack-frame-method { color: var(--text-muted); }
-
-.stack-frame-method { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stack-frame-location { color: var(--text-dim); font-size: 10px; flex-shrink: 0; white-space: nowrap; }
-
-.stack-group-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: all 0.1s;
-}
-.stack-group-header:hover { background: var(--surface-3); color: var(--text-dim); }
-.stack-group-chevron { font-size: 8px; transition: transform 0.15s; }
-.stack-group-header.expanded .stack-group-chevron { transform: rotate(90deg); }
-.stack-group-frames { display: none; }
-.stack-group-header.expanded + .stack-group-frames { display: contents; }
-
-/* === css/token-correlation.css === */
-/* Feature 4: Token Correlation View */
-.token-flow-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.token-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  border-bottom: 1px solid var(--border);
-  transition: background 0.1s;
-  cursor: pointer;
-  position: relative;
-}
-.token-step:last-child { border-bottom: none; }
-.token-step:hover { background: var(--surface-2); }
-.token-step.current-step { background: var(--accent-dim); border-left: 3px solid var(--accent); }
-.token-step-icon { font-size: 12px; flex-shrink: 0; width: 18px; text-align: center; }
-.token-step-info { flex: 1; min-width: 0; }
-.token-step-label { font-weight: 500; color: var(--text); }
-.token-step-time { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
-.token-step-status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
-.token-step-status.success { background: #16a34a22; color: #22c55e; }
-.token-step-status.error { background: #dc262622; color: #ef4444; }
-.token-step-status.pending { background: #eab30822; color: #eab308; }
-
-.token-connector {
-  position: absolute;
-  left: 20px;
-  top: -1px;
-  width: 1px;
-  height: calc(100% + 2px);
-  background: var(--border);
-}
-.token-step:first-child .token-connector { top: 50%; height: 50%; }
-.token-step:last-child .token-connector { height: 50%; }
-
-/* ===== API Activity Toast— floating card for quick API calls ===== */
+/* ===== API Activity Toast — floating card for quick API calls ===== */
 .api-toast {
   display: none;
   position: fixed;
@@ -3011,20 +2617,16 @@ mark {
       <button class="time-btn" data-range="900" title="Last 15 minutes">15m</button>
       <button class="time-btn" data-range="3600" title="Last 1 hour">1h</button>
     </div>
-    <div class="search-wrapper" id="search-wrapper">
+    <div class="search-wrapper">
       <span class="search-icon">🔍</span>
       <input type="text" id="search-input" placeholder="Search logs... (Ctrl+K)" />
-      <div class="search-right-controls">
-        <span id="search-count" class="search-count"></span>
-        <button id="regex-toggle" class="regex-toggle" title="Toggle regex mode (Alt+R)">/.*/</button>
-      </div>
-      <div id="regex-tooltip" class="regex-tooltip"></div>
+      <span id="search-count" class="search-count"></span>
     </div>
     <select id="endpoint-filter" title="Filter by API endpoint">
       <option value="">All Endpoints</option>
     </select>
-    <select id="component-filter" title="Filter by component">
-      <option value="">All Components</option>
+    <select id="marker-filter" title="Filter by marker name">
+      <option value="">All Markers</option>
     </select>
     <div class="raid-filter-wrapper">
       <span class="raid-filter-icon">🔍</span>
@@ -3052,9 +2654,6 @@ mark {
       <button id="export-btn" class="action-btn" title="Export JSON">📥 Export</button>
       <button id="pause-btn" class="action-btn" title="Pause (Space)">⏸ Pause</button>
       <button id="btn-next-error" class="action-btn error-jump" title="Jump to next error (↓E)">↓E</button>
-      <button id="issues-toggle-btn" class="action-btn issues-toggle" title="Toggle error grouping panel" style="display:none">
-        ⚡ Issues <span class="issues-count-badge" id="issues-badge-count">0</span>
-      </button>
     </div>
   </div>
 
@@ -3068,23 +2667,12 @@ mark {
             Filtered: <span id="correlation-id"></span> <button id="correlation-close">✕</button>
           </span>
         </div>
-        <div id="logs-main-area" style="display:flex; flex:1; overflow:hidden;">
-        <div id="logs-container" class="log-scroll" style="flex:1; min-width:0;">
+        <div id="logs-container" class="log-scroll">
           <div id="empty-state" class="empty-state">
             <div class="empty-icon">📡</div>
             <div class="empty-text">Waiting for logs...</div>
             <div class="empty-dots"><span>.</span><span>.</span><span>.</span></div>
           </div>
-        </div>
-        <!-- Feature 1: Error Grouping Panel (vertical right drawer) -->
-        <div id="issues-panel" class="issues-panel collapsed" style="width: 320px;">
-          <div class="issues-resize-handle" id="issues-resize-handle"></div>
-          <div class="issues-header">
-            <h4>Error Groups <span class="issues-header-count" id="issues-count">0</span></h4>
-            <button class="issues-collapse-btn" id="issues-collapse-btn" title="Collapse issues">✕</button>
-          </div>
-          <div class="issues-body" id="issues-body"></div>
-        </div>
         </div>
         <div class="logs-status" id="logs-status-bar">
           Showing <span id="visible-count">0</span> of <span id="total-count">0</span> logs
@@ -3283,10 +2871,6 @@ class LogViewerState {
     this.autoScroll = true;
     this.paused = false;
     this.timeRangeSeconds = 0;
-    // Feature 4: Regex search
-    this.regexMode = false;
-    this.regexValid = true;
-    this.compiledRegex = null;
     this.stats = {
       totalLogs: 0, verbose: 0, message: 0, warning: 0, error: 0,
       totalEvents: 0, succeeded: 0, failed: 0
@@ -3301,10 +2885,12 @@ class LogViewerState {
     // W0.2 — Endpoint filter
     this.endpointFilter = '';
     this.knownEndpoints = new Set();
+    this.knownEndpointsLower = new Set();
 
-    // Component filter
-    this.componentFilter = '';
-    this.knownComponents = new Set();
+    // Marker name filter
+    this.markerFilter = '';
+    this.knownMarkers = new Set();
+    this.knownMarkersLower = new Set();
 
     // W0.3 — RAID / IterationId filter
     this.raidFilter = '';
@@ -3924,21 +3510,6 @@ class Renderer {
     const msg = entry.message || '';
     row._message.textContent = msg.length > 500 ? msg.substring(0, 500) + '\u2026' : msg;
 
-    // Repeat count badge — server-side dedup collapses identical consecutive
-    // messages into one entry with repeatCount ≥ 2 (Chrome DevTools-style "×N")
-    if (entry.repeatCount > 1) {
-      if (!row._repeatBadge) {
-        const badge = document.createElement('span');
-        badge.className = 'repeat-badge';
-        row._message.parentNode.insertBefore(badge, row._message.nextSibling);
-        row._repeatBadge = badge;
-      }
-      row._repeatBadge.textContent = '×' + entry.repeatCount;
-      row._repeatBadge.style.display = '';
-    } else if (row._repeatBadge) {
-      row._repeatBadge.style.display = 'none';
-    }
-
     // Error/warning row styling
     if (levelLower === 'error') {
       row.classList.add('error-row');
@@ -4071,10 +3642,15 @@ class Renderer {
   passesFilter = (entry) => {
     const component = entry.component || 'Unknown';
 
-    // Level filter — strict: only show levels that are toggled ON
+    // Level filter — but allow Verbose from FLT-relevant components
     const level = entry.level || 'Message';
     if (!this.state.activeLevels.has(level)) {
-      return false;
+      // If Verbose is off but preset is FLT, still show Verbose from included components
+      if (level !== 'Verbose' || this.state.activePreset !== 'flt') return false;
+      if (this.state.excludedComponents.has(component)) return false;
+      const fltPreset = FilterManager.COMPONENT_PRESETS.flt;
+      if (fltPreset.include && !fltPreset.include.some(p => p.test(component))) return false;
+      // Falls through — this is a Verbose log from an FLT-relevant component
     }
 
     // Correlation filter
@@ -4106,11 +3682,10 @@ class Renderer {
       if (endpoint.toLowerCase() !== this.state.endpointFilter.toLowerCase()) return false;
     }
 
-    // Component filter
-    if (this.state.componentFilter) {
-      const comp = entry.component || '';
-      const base = comp.replace(/-[A-Za-z]+$/, '');
-      if (base.toLowerCase() !== this.state.componentFilter.toLowerCase()) return false;
+    // Marker name filter
+    if (this.state.markerFilter) {
+      const marker = entry.codeMarkerName || '';
+      if (marker.toLowerCase() !== this.state.markerFilter.toLowerCase()) return false;
     }
 
     // RAID / IterationId filter (W0.3)
@@ -4124,29 +3699,15 @@ class Renderer {
       }
     }
 
-    // Text search (plain text or regex)
+    // Text search
     if (this.state.searchText) {
-      if (this.state.regexMode && this.state.compiledRegex) {
-        const rx = this.state.compiledRegex;
-        const msg = entry.message || '';
-        const comp2 = entry.component || '';
-        const raid = entry.rootActivityId || '';
-        // .test() is safe here — regex always compiled without 'g' flag (see setSearch), no lastIndex issue
-        if (!rx.test(msg) && !rx.test(comp2) && !rx.test(raid)) {
-          const custom = entry.customData ? JSON.stringify(entry.customData) : '';
-          if (!rx.test(custom)) return false;
-        }
-      } else if (this.state.regexMode && !this.state.regexValid) {
-        return false;  // Invalid regex → show no results
-      } else if (!this.state.regexMode) {
-        const searchLower = this.state.searchText.toLowerCase();
-        const msg = (entry.message || '').toLowerCase();
-        const comp2 = (entry.component || '').toLowerCase();
-        const raid = (entry.rootActivityId || '').toLowerCase();
-        if (!msg.includes(searchLower) && !comp2.includes(searchLower) && !raid.includes(searchLower)) {
-          const custom = entry.customData ? JSON.stringify(entry.customData).toLowerCase() : '';
-          if (!custom.includes(searchLower)) return false;
-        }
+      const searchLower = this.state.searchText.toLowerCase();
+      const msg = (entry.message || '').toLowerCase();
+      const comp2 = (entry.component || '').toLowerCase();
+      const raid = (entry.rootActivityId || '').toLowerCase();
+      if (!msg.includes(searchLower) && !comp2.includes(searchLower) && !raid.includes(searchLower)) {
+        const custom = entry.customData ? JSON.stringify(entry.customData).toLowerCase() : '';
+        if (!custom.includes(searchLower)) return false;
       }
     }
 
@@ -4293,66 +3854,12 @@ class FilterManager {
   }
   
   setSearch = (text) => {
+    // Debounce search
     clearTimeout(this.searchTimeout);
     this.searchTimeout = setTimeout(() => {
       this.state.searchText = text.trim();
-
-      // Regex validation
-      if (this.state.regexMode && this.state.searchText) {
-        try {
-          this.state.compiledRegex = new RegExp(this.state.searchText, 'i');
-          this.state.regexValid = true;
-        } catch (e) {
-          this.state.compiledRegex = null;
-          this.state.regexValid = false;
-          this.state.regexError = e.message;
-        }
-      } else {
-        this.state.compiledRegex = null;
-        this.state.regexValid = true;
-      }
-
-      this._updateRegexUI();
       this.applyFilters();
     }, 300);
-  }
-
-  toggleRegexMode = () => {
-    this.state.regexMode = !this.state.regexMode;
-    const btn = document.getElementById('regex-toggle');
-    const input = document.getElementById('search-input');
-    if (btn) btn.classList.toggle('active', this.state.regexMode);
-    if (input) {
-      input.classList.toggle('regex-active', this.state.regexMode);
-      input.placeholder = this.state.regexMode ? 'Search with regex... (Ctrl+K)' : 'Search logs... (Ctrl+K)';
-    }
-    // Re-evaluate current search text
-    if (this.state.searchText) {
-      this.setSearch(this.state.searchText);
-    } else {
-      this._updateRegexUI();
-    }
-  }
-
-  _updateRegexUI = () => {
-    const input = document.getElementById('search-input');
-    const tooltip = document.getElementById('regex-tooltip');
-    if (!input) return;
-
-    input.classList.remove('regex-error', 'regex-valid');
-    if (tooltip) tooltip.classList.remove('visible');
-
-    if (this.state.regexMode && this.state.searchText) {
-      if (!this.state.regexValid) {
-        input.classList.add('regex-error');
-        if (tooltip) {
-          tooltip.textContent = this.state.regexError || 'Invalid regex pattern';
-          tooltip.classList.add('visible');
-        }
-      } else {
-        input.classList.add('regex-valid');
-      }
-    }
   }
   
   toggleLevel = (level) => {
@@ -4586,13 +4093,7 @@ class DetailPanel {
       const customDataJson = JSON.stringify(entry.customData || {}, null, 2);
       const customDataKeys = Object.keys(entry.customData || {});
       const levelLower = (entry.level || '').toLowerCase();
-      const parsedFrames = StackTraceParser.hasStackTrace(entry.message) ? StackTraceParser.parse(entry.message) : [];
       
-      // Token correlation — detect steps for same RAID
-      const tokenSteps = TokenCorrelation.isTokenRelated(entry) 
-        ? TokenCorrelation.detectSteps(window.edogViewer?.state?.logBuffer || [], entry)
-        : [];
-
       content.innerHTML = `
         <div class="detail-section">
           <h4>Properties</h4>
@@ -4636,14 +4137,6 @@ class DetailPanel {
           <h4>Custom Data (${customDataKeys.length}) <button class="copy-btn" data-copy="customData">copy</button></h4>
           <pre class="json-container">${syntaxHighlightJson(customDataJson)}</pre>
         </div>` : ''}
-        
-        ${parsedFrames.length > 0 ? StackTraceParser.renderSection(
-          parsedFrames, this.escapeHtml
-        ) : ''}
-        
-        ${tokenSteps.length > 0 ? TokenCorrelation.renderSection(
-          tokenSteps, this.escapeHtml
-        ) : ''}
       `;
 
       // Bind copy buttons safely via addEventListener (no inline onclick)
@@ -4653,7 +4146,6 @@ class DetailPanel {
         customData: customDataJson
       };
       content.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
-        if (btn.dataset.copy === 'stackTrace') return; // handled separately below
         btn.addEventListener('click', () => {
           copyToClipboard(btn, copyData[btn.dataset.copy]);
         });
@@ -4669,43 +4161,6 @@ class DetailPanel {
           if (id && window.edogViewer && window.edogViewer.filter) {
             window.edogViewer.filter.setCorrelationFilter(id);
             this.hide();
-          }
-        });
-      });
-
-      // Stack trace group headers — addEventListener, not inline onclick
-      content.querySelectorAll('.stack-group-header').forEach(h => {
-        h.addEventListener('click', () => h.classList.toggle('expanded'));
-      });
-
-      // Stack trace FLT-only toggle
-      const fltBtn = content.querySelector('[data-action="flt-only"]');
-      if (fltBtn) {
-        fltBtn.addEventListener('click', () => {
-          fltBtn.classList.toggle('active');
-          const frames = content.querySelectorAll('.stack-frame:not(.flt-frame), .stack-group-header, .stack-group-frames');
-          const hide = fltBtn.classList.contains('active');
-          frames.forEach(f => f.style.display = hide ? 'none' : '');
-        });
-      }
-
-      // Stack trace copy
-      const stackCopyBtn = content.querySelector('[data-copy="stackTrace"]');
-      if (stackCopyBtn) {
-        const stackText = parsedFrames
-          .map(f => `  at ${f.method}${f.file ? ` in ${f.file}:${f.lineNum}` : ''}`)
-          .join('\n');
-        stackCopyBtn.addEventListener('click', () => {
-          copyToClipboard(stackCopyBtn, stackText);
-        });
-      }
-
-      // Token correlation step click — navigate to that log entry
-      content.querySelectorAll('.token-step[data-token-step-idx]').forEach(el => {
-        el.addEventListener('click', () => {
-          const idx = parseInt(el.dataset.tokenStepIdx, 10);
-          if (tokenSteps[idx] && tokenSteps[idx].entry && !tokenSteps[idx].isCurrent) {
-            this.showLogDetail(panel, tokenSteps[idx].entry);
           }
         });
       });
@@ -5703,349 +5158,8 @@ class AnomalyDetector {
   }
 }
 
-// === js/error-grouping.js ===
-/**
- * ErrorGrouping — Groups errors by error code/pattern for the Issues panel.
- * Chrome DevTools Issues-style collapsible panel.
- */
-class ErrorGrouping {
-  static MAX_GROUPS = 200; // Cap to prevent unbounded memory growth
-
-  constructor(state) {
-    this.state = state;
-    this.groups = new Map();
-    this.panelOpen = false;
-    this._uiDirty = false;
-    this._bindPanelEvents();
-  }
-
-  processLog = (entry) => {
-    if ((entry.level || '').toLowerCase() !== 'error') return;
-
-    // Only track errors from FLT-relevant components
-    const comp = entry.component || '';
-    const fltPatterns = FilterManager.COMPONENT_PRESETS.flt.include;
-    if (!fltPatterns.some(p => p.test(comp))) return;
-
-    const code = this._extractErrorCode(entry.message || '');
-
-    // Cap group count to prevent memory leak in long sessions
-    if (!this.groups.has(code) && this.groups.size >= ErrorGrouping.MAX_GROUPS) return;
-
-    if (!this.groups.has(code)) {
-      this.groups.set(code, {
-        code,
-        count: 0,
-        firstSeen: entry.timestamp,
-        lastSeen: entry.timestamp,
-        components: new Set(),
-        samples: [],
-        expanded: false
-      });
-    }
-    const group = this.groups.get(code);
-    group.count++;
-    group.lastSeen = entry.timestamp;
-    group.components.add(entry.component || 'Unknown');
-    if (group.samples.length < 3) {
-      group.samples.push(entry.message || '');
-    }
-
-    // Debounce DOM updates with rAF to avoid jank during batch processing
-    if (!this._uiDirty) {
-      this._uiDirty = true;
-      requestAnimationFrame(() => {
-        this._updateUI();
-        if (this.panelOpen) this.renderGroups();
-        this._uiDirty = false;
-      });
-    }
-  }
-
-  _extractErrorCode = (message) => {
-    const codeMatch = message.match(/ErrorCode[=:]\s*(\w+)/i)
-      || message.match(/Error[=:]\s*(\w+)/i)
-      || message.match(/(\w+Error)\b/);
-    if (codeMatch) return codeMatch[1];
-    // Aggressive normalization for better grouping
-    return message.substring(0, 80)
-      .replace(/[0-9a-f]{8,}/gi, 'X')
-      .replace(/\d+/g, 'N')
-      .replace(/[^a-zA-Z ]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 60) || 'Unknown';
-  }
-
-  _updateUI = () => {
-    const badge = document.getElementById('issues-badge-count');
-    const headerCount = document.getElementById('issues-count');
-    const toggleBtn = document.getElementById('issues-toggle-btn');
-    const count = this.groups.size;
-    if (badge) badge.textContent = count;
-    if (headerCount) headerCount.textContent = count;
-    if (toggleBtn) toggleBtn.style.display = count > 0 ? '' : 'none';
-  }
-
-  togglePanel = () => {
-    this.panelOpen = !this.panelOpen;
-    const panel = document.getElementById('issues-panel');
-    const btn = document.getElementById('issues-toggle-btn');
-    if (panel) panel.classList.toggle('collapsed', !this.panelOpen);
-    if (btn) btn.classList.toggle('active', this.panelOpen);
-    if (this.panelOpen) this.renderGroups();
-  }
-
-  renderGroups = () => {
-    const body = document.getElementById('issues-body');
-    if (!body) return;
-
-    if (this.groups.size === 0) {
-      body.innerHTML = '<div class="issues-empty">No errors detected</div>';
-      return;
-    }
-
-    const sorted = [...this.groups.values()].sort((a, b) => b.count - a.count);
-    body.innerHTML = sorted.map(g => {
-      const comps = [...g.components].map(c => {
-        const cat = this._getComponentCategory(c);
-        return `<span class="log-component" data-category="${cat}">${this._escapeHtml(c)}</span>`;
-      }).join('');
-      const samples = g.samples.map(s =>
-        `<div class="issue-sample">${this._escapeHtml(s)}</div>`
-      ).join('');
-      const firstTime = g.firstSeen ? new Date(g.firstSeen).toLocaleTimeString() : '—';
-      const lastTime = g.lastSeen ? new Date(g.lastSeen).toLocaleTimeString() : '—';
-      const expandedClass = g.expanded ? ' expanded' : '';
-      return `
-        <div class="issue-group-card${expandedClass}" data-code="${this._escapeHtml(g.code)}">
-          <div class="issue-group-header">
-            <span class="issue-group-code">${this._escapeHtml(g.code)}</span>
-            <span class="issue-group-count">${g.count}</span>
-            <span class="issue-group-chevron">▸</span>
-          </div>
-          <div class="issue-group-meta">
-            <span>First: ${firstTime}</span>
-            <span>Last: ${lastTime}</span>
-          </div>
-          <div class="issue-group-components">${comps}</div>
-          <div class="issue-group-samples">${samples}</div>
-        </div>`;
-    }).join('');
-  }
-
-  _getComponentCategory = (comp) => {
-    const c = (comp || '').toLowerCase();
-    if (c.includes('controller') || c.includes('livetable')) return 'controller';
-    if (c.includes('dag') || c.includes('execution')) return 'dag';
-    if (c.includes('onelake') || c.includes('lakehouse')) return 'onelake';
-    if (c.includes('dq') || c.includes('insight')) return 'dq';
-    if (c.includes('retry') || c.includes('token')) return 'retry';
-    return 'default';
-  }
-
-  _escapeHtml = (text) => {
-    if (!text) return '';
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  _bindPanelEvents = () => {
-    const body = document.getElementById('issues-body');
-    if (!body) return;
-    body.addEventListener('click', (e) => {
-      const card = e.target.closest('.issue-group-card');
-      if (!card || e.target.closest('.issue-group-samples')) return;
-      const code = card.dataset.code;
-      const group = this.groups.get(code);
-      if (group) group.expanded = !group.expanded;
-      card.classList.toggle('expanded');
-    });
-    body.addEventListener('dblclick', (e) => {
-      const card = e.target.closest('.issue-group-card');
-      if (!card) return;
-      const code = card.dataset.code;
-      if (code && window.edogViewer) {
-        const input = document.getElementById('search-input');
-        if (input) input.value = code;
-        window.edogViewer.filter.setSearch(code);
-      }
-    });
-  }
-
-  clear = () => {
-    this.groups.clear();
-    this._updateUI();
-    const body = document.getElementById('issues-body');
-    if (body) body.innerHTML = '<div class="issues-empty">No errors detected</div>';
-  }
-}
-
-// === js/stack-trace.js ===
-/**
- * StackTraceParser — Detects and renders C# stack traces in the detail panel.
- */
-class StackTraceParser {
-  static STACK_LINE_REGEX = /^\s+at\s+(.+?)(?:\s+in\s+(.+?):line\s+(\d+))?$/;
-  static FLT_NAMESPACE = /^Microsoft\.LiveTable\./;
-  static FRAMEWORK_NAMESPACES = [
-    /^System\./,
-    /^Microsoft\.AspNetCore\./,
-    /^Microsoft\.Extensions\./,
-  ];
-
-  static hasStackTrace(message) {
-    return /\n\s+at\s+(System\.|Microsoft\.)/m.test(message || '');
-  }
-
-  static parse(message) {
-    const lines = (message || '').split('\n');
-    const frames = [];
-    for (const line of lines) {
-      const match = line.match(StackTraceParser.STACK_LINE_REGEX);
-      if (match) {
-        const method = match[1];
-        const file = match[2] || '';
-        const lineNum = match[3] || '';
-        const isFlt = StackTraceParser.FLT_NAMESPACE.test(method);
-        const isFramework = StackTraceParser.FRAMEWORK_NAMESPACES.some(rx => rx.test(method));
-        frames.push({ method, file, lineNum, isFlt, isFramework });
-      }
-    }
-    return frames;
-  }
-
-  static renderSection(frames, escapeHtml) {
-    if (frames.length === 0) return '';
-
-    // Group consecutive framework frames
-    const rendered = [];
-    let frameworkGroup = [];
-    const flushFrameworkGroup = () => {
-      if (frameworkGroup.length === 0) return;
-      if (frameworkGroup.length <= 2) {
-        frameworkGroup.forEach(f => rendered.push(StackTraceParser._renderFrame(f, escapeHtml)));
-      } else {
-        const ns = frameworkGroup[0].method.split('.').slice(0, 2).join('.');
-        rendered.push(`<div class="stack-group-header" data-action="toggle-group">
-          <span class="stack-group-chevron">▸</span>
-          ${escapeHtml(ns)} (${frameworkGroup.length} frames)
-        </div><div class="stack-group-frames">`);
-        frameworkGroup.forEach(f => rendered.push(StackTraceParser._renderFrame(f, escapeHtml)));
-        rendered.push('</div>');
-      }
-      frameworkGroup = [];
-    };
-
-    for (const frame of frames) {
-      if (frame.isFramework && !frame.isFlt) {
-        frameworkGroup.push(frame);
-      } else {
-        flushFrameworkGroup();
-        rendered.push(StackTraceParser._renderFrame(frame, escapeHtml));
-      }
-    }
-    flushFrameworkGroup();
-
-    return `
-      <div class="detail-section stack-trace-section">
-        <h4>Stack Trace (${frames.length} frames)
-          <button class="stack-filter-btn" data-action="flt-only">FLT only</button>
-          <button class="copy-btn" data-copy="stackTrace">copy</button>
-        </h4>
-        <div class="stack-frames">${rendered.join('')}</div>
-      </div>`;
-  }
-
-  static _renderFrame(frame, escapeHtml) {
-    const cls = frame.isFlt ? 'flt-frame' : (frame.isFramework ? 'framework-frame' : '');
-    const loc = frame.file ? `${frame.file}:${frame.lineNum}` : '';
-    return `<div class="stack-frame ${cls}">
-      <span class="stack-frame-icon">▸</span>
-      <span class="stack-frame-method">${escapeHtml(frame.method)}</span>
-      ${loc ? `<span class="stack-frame-location">${escapeHtml(loc)}</span>` : ''}
-    </div>`;
-  }
-}
-
-// === js/token-correlation.js ===
-/**
- * TokenCorrelation — Detects token-related log entries and renders a lifecycle breadcrumb trail.
- * Shows all token steps for the same RAID in chronological order.
- */
-class TokenCorrelation {
-  static TOKEN_KEYWORDS = [
-    'token', 'refresh', 'credential', 'auth', 'bearer',
-    'accesstoken', 'mwc', 'aad', 'oauth', 'jwt'
-  ];
-  
-  static TOKEN_STEP_PATTERNS = [
-    { pattern: /token\s*(request|fetch|acquire|obtain)/i, label: 'Token Request', icon: '🔑', order: 1 },
-    { pattern: /auth(enticat|oriz)/i, label: 'Authentication', icon: '🔐', order: 2 },
-    { pattern: /token\s*(response|received|acquired|granted)/i, label: 'Token Received', icon: '✅', order: 3 },
-    { pattern: /token\s*(refresh|renew)/i, label: 'Token Refresh', icon: '🔄', order: 4 },
-    { pattern: /token\s*(expir|invalid|revok)/i, label: 'Token Expired/Invalid', icon: '⚠️', order: 5 },
-    { pattern: /token\s*(fail|error|denied)/i, label: 'Token Error', icon: '❌', order: 6 },
-    { pattern: /credential/i, label: 'Credential Operation', icon: '🔑', order: 7 },
-    { pattern: /bearer/i, label: 'Bearer Token', icon: '🎫', order: 8 },
-  ];
-
-  static isTokenRelated(entry) {
-    const msg = (entry.message || '').toLowerCase();
-    const comp = (entry.component || '').toLowerCase();
-    return TokenCorrelation.TOKEN_KEYWORDS.some(kw => msg.includes(kw) || comp.includes(kw));
-  }
-
-  static detectSteps(logBuffer, currentEntry) {
-    if (!currentEntry.rootActivityId) return [];
-    const raid = currentEntry.rootActivityId;
-    
-    // Find all token-related entries with same RAID
-    const related = logBuffer
-      .filter(e => e.rootActivityId === raid && TokenCorrelation.isTokenRelated(e))
-      .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-    
-    if (related.length <= 1) return [];
-    
-    return related.map(entry => {
-      const matched = TokenCorrelation.TOKEN_STEP_PATTERNS.find(p => p.pattern.test(entry.message || ''));
-      const level = (entry.level || '').toLowerCase();
-      const statusClass = level === 'error' ? 'error' : (level === 'warning' ? 'pending' : 'success');
-      return {
-        label: matched ? matched.label : (entry.component || 'Token Step'),
-        icon: matched ? matched.icon : '📋',
-        time: entry.timestamp || '',
-        status: entry.level || 'Info',
-        statusClass,
-        isCurrent: entry === currentEntry,
-        entry
-      };
-    });
-  }
-
-  static renderSection(steps, escapeHtml) {
-    if (steps.length === 0) return '';
-    
-    const stepsHtml = steps.map((step, i) => `
-      <div class="token-step ${step.isCurrent ? 'current-step' : ''}" data-token-step-idx="${i}">
-        ${i > 0 ? '<div class="token-connector"></div>' : ''}
-        <span class="token-step-icon">${step.icon}</span>
-        <div class="token-step-info">
-          <div class="token-step-label">${escapeHtml(step.label)}</div>
-          <div class="token-step-time">${escapeHtml(step.time)}</div>
-        </div>
-        <span class="token-step-status ${step.statusClass}">${escapeHtml(step.status)}</span>
-      </div>
-    `).join('');
-
-    return `
-      <div class="detail-section token-correlation-section">
-        <h4>Token Flow (${steps.length} steps)</h4>
-        <div class="token-flow-steps">${stepsHtml}</div>
-      </div>`;
-  }
-}
-
 // === js/control-panel.js ===
+// ===== COMMAND CENTER — Control Panel (Tab 4) =====
 
 class ControlPanel {
   constructor(containerEl, { autoDetector, stateManager }) {
@@ -6786,7 +5900,6 @@ class EdogLogViewer {
     this.smartContext = new SmartContextBar(this.autoDetector);
     this.errorIntel = new ErrorIntelligence(this.autoDetector);
     this.anomaly = new AnomalyDetector(this.state);
-    this.errorGrouping = new ErrorGrouping(this.state);
     this.controlPanel = new ControlPanel(
       document.getElementById('control-panel'),
       { autoDetector: this.autoDetector, stateManager: this.state }
@@ -6848,25 +5961,6 @@ class EdogLogViewer {
         this.filter.setSearch(e.target.value);
       });
     }
-
-    // Regex toggle: Alt+R (not Ctrl+R — that's browser refresh)
-    document.addEventListener('keydown', (e) => {
-      if (e.altKey && e.key === 'r') {
-        // Allow Alt+R from search input (intentional) but not from other inputs
-        if (e.target.tagName === 'INPUT' && e.target.id !== 'search-input') return;
-        if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-        e.preventDefault();
-        this.filter.toggleRegexMode();
-      }
-    });
-
-    // Regex toggle button click
-    const regexBtn = document.getElementById('regex-toggle');
-    if (regexBtn) {
-      regexBtn.addEventListener('click', () => {
-        this.filter.toggleRegexMode();
-      });
-    }
     
     // Endpoint filter (W0.2)
     const endpointFilter = document.getElementById('endpoint-filter');
@@ -6877,11 +5971,11 @@ class EdogLogViewer {
       });
     }
 
-    // Component filter
-    const componentFilter = document.getElementById('component-filter');
-    if (componentFilter) {
-      componentFilter.addEventListener('change', (e) => {
-        this.state.componentFilter = e.target.value;
+    // Marker name filter
+    const markerFilter = document.getElementById('marker-filter');
+    if (markerFilter) {
+      markerFilter.addEventListener('change', (e) => {
+        this.state.markerFilter = e.target.value;
         this.filter.applyFilters();
       });
     }
@@ -6957,13 +6051,12 @@ class EdogLogViewer {
       clearBtn.addEventListener('click', () => {
         this.clearRaidFilter();
         this.state.endpointFilter = '';
-        this.state.componentFilter = '';
+        this.state.markerFilter = '';
         const ef = document.getElementById('endpoint-filter');
         if (ef) ef.value = '';
-        const cf = document.getElementById('component-filter');
-        if (cf) cf.value = '';
+        const mf = document.getElementById('marker-filter');
+        if (mf) mf.value = '';
         this.filter.clearAll();
-        this.errorGrouping.clear();
       });
     }
     
@@ -7015,41 +6108,6 @@ class EdogLogViewer {
     document.addEventListener('keydown', this.handleKeydown);
     
     // Auto-scroll detection is handled by renderer._onScroll
-
-    // Issues toggle button
-    const issuesToggle = document.getElementById('issues-toggle-btn');
-    if (issuesToggle) {
-      issuesToggle.addEventListener('click', () => this.errorGrouping.togglePanel());
-    }
-    const issuesCollapse = document.getElementById('issues-collapse-btn');
-    if (issuesCollapse) {
-      issuesCollapse.addEventListener('click', () => this.errorGrouping.togglePanel());
-    }
-
-    // Issues panel resize handle (horizontal — ew-resize for vertical drawer)
-    const resizeHandle = document.getElementById('issues-resize-handle');
-    if (resizeHandle) {
-      let startX, startWidth;
-      resizeHandle.addEventListener('mousedown', (e) => {
-        e.preventDefault(); // prevent text selection during drag
-        startX = e.clientX;
-        const panel = document.getElementById('issues-panel');
-        startWidth = panel ? panel.offsetWidth : 320;
-        resizeHandle.classList.add('dragging');
-        const onMove = (e2) => {
-          const delta = startX - e2.clientX;
-          const newWidth = Math.max(200, Math.min(600, startWidth + delta));
-          if (panel) panel.style.width = newWidth + 'px';
-        };
-        const onUp = () => {
-          resizeHandle.classList.remove('dragging');
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-        };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      });
-    }
   }
   
   handleKeydown = (e) => {
@@ -7106,9 +6164,8 @@ class EdogLogViewer {
         this.state.addLog(data);
         this.autoDetector.processLog(data);
         this.anomaly.processLog(data);
-        this.errorGrouping.processLog(data);
         this.extractEndpointFromLog(data);
-        this.extractComponentFromLog(data);
+        this.extractMarkerFromLog(data);
         this.extractIterationIdFromLog(data);
         this.renderer.scheduleRender();
       } else if (type === 'telemetry') {
@@ -7130,9 +6187,8 @@ class EdogLogViewer {
         this.state.addLog(log);
         this.autoDetector.processLog(log);
         this.anomaly.processLog(log);
-        this.errorGrouping.processLog(log);
         this.extractEndpointFromLog(log);
-        this.extractComponentFromLog(log);
+        this.extractMarkerFromLog(log);
         this.extractIterationIdFromLog(log);
       } catch (err) {
         console.error('[ws-batch] Failed to process log entry:', err);
@@ -7202,7 +6258,7 @@ class EdogLogViewer {
             const level = (log.level || '').toLowerCase();
             if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
             this.extractEndpointFromLog(log);
-            this.extractComponentFromLog(log);
+            this.extractMarkerFromLog(log);
             this.extractIterationIdFromLog(log);
           } catch (err) {
             console.error('[load] Failed to process log entry:', err);
@@ -7234,7 +6290,7 @@ class EdogLogViewer {
       }
       
       this.updateEndpointDropdown();
-      this.updateComponentDropdown();
+      this.updateMarkerDropdown();
       
       // Apply FLT preset (populates excludedComponents from loaded logs, then renders)
       this.filter.applyPreset('flt');
@@ -7268,7 +6324,6 @@ class EdogLogViewer {
       for (; logIdx < logEnd; logIdx++) {
         this.autoDetector.processLog(logs[logIdx]);
         this.anomaly.processLog(logs[logIdx]);
-        this.errorGrouping.processLog(logs[logIdx]);
       }
       const telEnd = Math.min(telIdx + CHUNK, telemetryArr.length);
       for (; telIdx < telEnd; telIdx++) {
@@ -7364,7 +6419,9 @@ class EdogLogViewer {
     const match = component.match(/-([A-Za-z]+)$/);
     if (match) {
       const endpoint = match[1];
-      if (!this.state.knownEndpoints.has(endpoint)) {
+      const lower = endpoint.toLowerCase();
+      if (!this.state.knownEndpointsLower.has(lower)) {
+        this.state.knownEndpointsLower.add(lower);
         this.state.knownEndpoints.add(endpoint);
         this.updateEndpointDropdown();
       }
@@ -7372,11 +6429,13 @@ class EdogLogViewer {
   }
 
   extractEndpointFromTelemetry = (event) => {
-    const name = event.activityName || '';
-    // Known patterns: RunDag, GetLatestDag, CancelDAG, etc.
+    const name = (event.activityName || '').toLowerCase();
+    // Known patterns (case-insensitive match)
     const endpointPatterns = ['RunDag', 'GetLatestDag', 'CancelDAG', 'RunDAG', 'GetDag'];
     for (const pat of endpointPatterns) {
-      if (name.includes(pat) && !this.state.knownEndpoints.has(pat)) {
+      const patLower = pat.toLowerCase();
+      if (name.includes(patLower) && !this.state.knownEndpointsLower.has(patLower)) {
+        this.state.knownEndpointsLower.add(patLower);
         this.state.knownEndpoints.add(pat);
         this.updateEndpointDropdown();
       }
@@ -7399,28 +6458,28 @@ class EdogLogViewer {
     select.value = current; // Preserve selection
   }
 
-  extractComponentFromLog = (entry) => {
+  extractMarkerFromLog = (entry) => {
     if (!entry) return;
-    const component = entry.component || '';
-    if (!component || component === 'Unknown') return;
-    // Normalize: strip trailing endpoint suffix (e.g. "OneLake-GetLatestDag" → "OneLake")
-    const base = component.replace(/-[A-Za-z]+$/, '');
-    if (base && !this.state.knownComponents.has(base)) {
-      this.state.knownComponents.add(base);
-      this.updateComponentDropdown();
+    const marker = entry.codeMarkerName || '';
+    if (!marker) return;
+    const lower = marker.toLowerCase();
+    if (!this.state.knownMarkersLower.has(lower)) {
+      this.state.knownMarkersLower.add(lower);
+      this.state.knownMarkers.add(marker);
+      this.updateMarkerDropdown();
     }
   }
 
-  updateComponentDropdown = () => {
-    const select = document.getElementById('component-filter');
+  updateMarkerDropdown = () => {
+    const select = document.getElementById('marker-filter');
     if (!select) return;
     const current = select.value;
-    select.innerHTML = '<option value="">All Components</option>';
-    const sorted = Array.from(this.state.knownComponents).sort();
-    sorted.forEach(comp => {
+    select.innerHTML = '<option value="">All Markers</option>';
+    const sorted = Array.from(this.state.knownMarkers).sort();
+    sorted.forEach(m => {
       const opt = document.createElement('option');
-      opt.value = comp;
-      opt.textContent = comp;
+      opt.value = m;
+      opt.textContent = m;
       select.appendChild(opt);
     });
     select.value = current;

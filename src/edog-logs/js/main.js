@@ -191,11 +191,11 @@ class EdogLogViewer {
       });
     }
 
-    // Component filter
-    const componentFilter = document.getElementById('component-filter');
-    if (componentFilter) {
-      componentFilter.addEventListener('change', (e) => {
-        this.state.componentFilter = e.target.value;
+    // Marker name filter
+    const markerFilter = document.getElementById('marker-filter');
+    if (markerFilter) {
+      markerFilter.addEventListener('change', (e) => {
+        this.state.markerFilter = e.target.value;
         this.filter.applyFilters();
       });
     }
@@ -271,11 +271,11 @@ class EdogLogViewer {
       clearBtn.addEventListener('click', () => {
         this.clearRaidFilter();
         this.state.endpointFilter = '';
-        this.state.componentFilter = '';
+        this.state.markerFilter = '';
         const ef = document.getElementById('endpoint-filter');
         if (ef) ef.value = '';
-        const cf = document.getElementById('component-filter');
-        if (cf) cf.value = '';
+        const mf = document.getElementById('marker-filter');
+        if (mf) mf.value = '';
         this.filter.clearAll();
       });
     }
@@ -385,7 +385,7 @@ class EdogLogViewer {
         this.autoDetector.processLog(data);
         this.anomaly.processLog(data);
         this.extractEndpointFromLog(data);
-        this.extractComponentFromLog(data);
+        this.extractMarkerFromLog(data);
         this.extractIterationIdFromLog(data);
         this.renderer.scheduleRender();
       } else if (type === 'telemetry') {
@@ -408,7 +408,7 @@ class EdogLogViewer {
         this.autoDetector.processLog(log);
         this.anomaly.processLog(log);
         this.extractEndpointFromLog(log);
-        this.extractComponentFromLog(log);
+        this.extractMarkerFromLog(log);
         this.extractIterationIdFromLog(log);
       } catch (err) {
         console.error('[ws-batch] Failed to process log entry:', err);
@@ -478,7 +478,7 @@ class EdogLogViewer {
             const level = (log.level || '').toLowerCase();
             if (level && this.state.stats[level] !== undefined) this.state.stats[level]++;
             this.extractEndpointFromLog(log);
-            this.extractComponentFromLog(log);
+            this.extractMarkerFromLog(log);
             this.extractIterationIdFromLog(log);
           } catch (err) {
             console.error('[load] Failed to process log entry:', err);
@@ -510,7 +510,7 @@ class EdogLogViewer {
       }
       
       this.updateEndpointDropdown();
-      this.updateComponentDropdown();
+      this.updateMarkerDropdown();
       
       // Apply FLT preset (populates excludedComponents from loaded logs, then renders)
       this.filter.applyPreset('flt');
@@ -639,7 +639,9 @@ class EdogLogViewer {
     const match = component.match(/-([A-Za-z]+)$/);
     if (match) {
       const endpoint = match[1];
-      if (!this.state.knownEndpoints.has(endpoint)) {
+      const lower = endpoint.toLowerCase();
+      if (!this.state.knownEndpointsLower.has(lower)) {
+        this.state.knownEndpointsLower.add(lower);
         this.state.knownEndpoints.add(endpoint);
         this.updateEndpointDropdown();
       }
@@ -647,11 +649,13 @@ class EdogLogViewer {
   }
 
   extractEndpointFromTelemetry = (event) => {
-    const name = event.activityName || '';
-    // Known patterns: RunDag, GetLatestDag, CancelDAG, etc.
+    const name = (event.activityName || '').toLowerCase();
+    // Known patterns (case-insensitive match)
     const endpointPatterns = ['RunDag', 'GetLatestDag', 'CancelDAG', 'RunDAG', 'GetDag'];
     for (const pat of endpointPatterns) {
-      if (name.includes(pat) && !this.state.knownEndpoints.has(pat)) {
+      const patLower = pat.toLowerCase();
+      if (name.includes(patLower) && !this.state.knownEndpointsLower.has(patLower)) {
+        this.state.knownEndpointsLower.add(patLower);
         this.state.knownEndpoints.add(pat);
         this.updateEndpointDropdown();
       }
@@ -674,28 +678,28 @@ class EdogLogViewer {
     select.value = current; // Preserve selection
   }
 
-  extractComponentFromLog = (entry) => {
+  extractMarkerFromLog = (entry) => {
     if (!entry) return;
-    const component = entry.component || '';
-    if (!component || component === 'Unknown') return;
-    // Normalize: strip trailing endpoint suffix (e.g. "OneLake-GetLatestDag" → "OneLake")
-    const base = component.replace(/-[A-Za-z]+$/, '');
-    if (base && !this.state.knownComponents.has(base)) {
-      this.state.knownComponents.add(base);
-      this.updateComponentDropdown();
+    const marker = entry.codeMarkerName || '';
+    if (!marker) return;
+    const lower = marker.toLowerCase();
+    if (!this.state.knownMarkersLower.has(lower)) {
+      this.state.knownMarkersLower.add(lower);
+      this.state.knownMarkers.add(marker);
+      this.updateMarkerDropdown();
     }
   }
 
-  updateComponentDropdown = () => {
-    const select = document.getElementById('component-filter');
+  updateMarkerDropdown = () => {
+    const select = document.getElementById('marker-filter');
     if (!select) return;
     const current = select.value;
-    select.innerHTML = '<option value="">All Components</option>';
-    const sorted = Array.from(this.state.knownComponents).sort();
-    sorted.forEach(comp => {
+    select.innerHTML = '<option value="">All Markers</option>';
+    const sorted = Array.from(this.state.knownMarkers).sort();
+    sorted.forEach(m => {
       const opt = document.createElement('option');
-      opt.value = comp;
-      opt.textContent = comp;
+      opt.value = m;
+      opt.textContent = m;
       select.appendChild(opt);
     });
     select.value = current;

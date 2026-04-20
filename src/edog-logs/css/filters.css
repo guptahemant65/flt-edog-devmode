@@ -222,7 +222,7 @@
   color: var(--text);
 }
 
-#component-filter {
+#marker-filter {
   padding: 6px 10px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -237,12 +237,12 @@
   order: 13;
 }
 
-#component-filter:focus {
+#marker-filter:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-#component-filter option {
+#marker-filter option {
   background: var(--surface);
   color: var(--text);
 }

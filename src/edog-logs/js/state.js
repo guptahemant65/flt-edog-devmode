@@ -149,10 +149,12 @@ class LogViewerState {
     // W0.2 — Endpoint filter
     this.endpointFilter = '';
     this.knownEndpoints = new Set();
+    this.knownEndpointsLower = new Set();
 
-    // Component filter
-    this.componentFilter = '';
-    this.knownComponents = new Set();
+    // Marker name filter
+    this.markerFilter = '';
+    this.knownMarkers = new Set();
+    this.knownMarkersLower = new Set();
 
     // W0.3 — RAID / IterationId filter
     this.raidFilter = '';
