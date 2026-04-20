@@ -150,13 +150,18 @@ def show_config_table(config):
     cert_tp = _thumbprint_cache.get(cert_cn, '')
     cert_display = f"{cert_cn} ({cert_tp[:8]}...)" if cert_tp else cert_cn or '[dim]unknown[/dim]'
     
-    # Resolve FLT repo branch
+    # Resolve FLT repo branch and last commit
     flt_repo = config.get('flt_repo_path')
     flt_branch = None
+    flt_commit = None
     if flt_repo and Path(flt_repo).is_dir():
         try:
             flt_branch = subprocess.check_output(
                 ['git', '-C', flt_repo, 'rev-parse', '--abbrev-ref', 'HEAD'],
+                stderr=subprocess.DEVNULL, text=True
+            ).strip()
+            flt_commit = subprocess.check_output(
+                ['git', '-C', flt_repo, 'log', '-1', '--format=%h %s'],
                 stderr=subprocess.DEVNULL, text=True
             ).strip()
         except Exception:
@@ -175,6 +180,8 @@ def show_config_table(config):
         if flt_branch:
             repo_display += f'  [dim]({flt_branch})[/dim]'
         table.add_row("FLT Repo", repo_display)
+        if flt_commit:
+            table.add_row("Last Commit", f'[dim]{flt_commit}[/dim]')
         console.print(table)
     else:
         print(f"   Username:    {config.get('username', DEFAULT_USERNAME + ' (default)')}")
@@ -187,6 +194,8 @@ def show_config_table(config):
         if flt_branch:
             repo_plain += f'  ({flt_branch})'
         print(f"   FLT Repo:    {repo_plain}")
+        if flt_commit:
+            print(f"   Last Commit: {flt_commit}")
 
 
 def ui_status(msg):
