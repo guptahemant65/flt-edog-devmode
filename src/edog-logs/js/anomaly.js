@@ -28,7 +28,7 @@ class AnomalyDetector {
       if (this.lastPollTime[reqId]) {
         const gap = ts - this.lastPollTime[reqId];
         if (gap > 30000) {
-          this.warn('slow-poll', `Slow polling detected: ${(gap/1000).toFixed(0)}s gap for request ${reqId.substring(0,8)}…`);
+          this.warn('slow-poll', `Slow polling detected: ${(gap/1000).toFixed(0)}s gap for request ${reqId}`);
         }
       }
       this.lastPollTime[reqId] = ts;

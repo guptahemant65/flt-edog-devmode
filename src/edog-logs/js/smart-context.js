@@ -42,7 +42,7 @@ class SmartContextBar {
     const completed = exec.completedNodes || 0;
     const failed = exec.failedNodes || 0;
     const elapsed = this.autoDetector.getElapsedTime() || '—';
-    const shortId = iterationId.substring(0, 8) + '…' + iterationId.substring(iterationId.length - 4);
+    const shortId = iterationId;
 
     this.element.innerHTML = `
       <span class="ctx-type">🔄 Execution</span>
@@ -80,12 +80,12 @@ class SmartContextBar {
     const statusClass = (call.status || 'unknown').toLowerCase();
     const statusIcon = statusClass === 'succeeded' ? '✓' : statusClass === 'failed' ? '✗' : '●';
     const duration = call.duration ? this._formatDuration(call.duration) : '—';
-    const shortRaid = raidId.substring(0, 8) + '…' + raidId.substring(raidId.length - 4);
+    const shortRaid = raidId;
     const attrs = call.attributes || {};
     // Extract key attributes to display
     const keyAttrs = [];
-    if (attrs.WorkspaceId) keyAttrs.push(['Workspace', attrs.WorkspaceId.substring(0, 8) + '…']);
-    if (attrs.ArtifactId) keyAttrs.push(['Artifact', attrs.ArtifactId.substring(0, 8) + '…']);
+    if (attrs.WorkspaceId) keyAttrs.push(['Workspace', attrs.WorkspaceId]);
+    if (attrs.ArtifactId) keyAttrs.push(['Artifact', attrs.ArtifactId]);
     if (attrs.DagNodesCount) keyAttrs.push(['Nodes', attrs.DagNodesCount]);
     if (attrs.ShowExtendedLineage) keyAttrs.push(['Extended', attrs.ShowExtendedLineage]);
     if (attrs.RefreshMode) keyAttrs.push(['Mode', attrs.RefreshMode]);

@@ -62,7 +62,7 @@ class FilterManager {
     const badge = document.getElementById('correlation-badge');
     const idSpan = document.getElementById('correlation-id');
     if (badge && idSpan) {
-      idSpan.textContent = id.substring(0, 8) + '...';
+      idSpan.textContent = id;
       badge.style.display = 'block';
     }
   }

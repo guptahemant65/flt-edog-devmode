@@ -790,7 +790,7 @@ class EdogLogViewer {
     const badgeCounts = document.getElementById('exec-badge-counts');
     if (!badge) return;
 
-    const shortId = id.length > 8 ? '…' + id.slice(-8) : id;
+    const shortId = id;
     const info = this.state.knownIterationIds.get(id);
     const logCount = info ? info.logCount : '?';
     const ssrCount = info ? info.ssrCount : '?';
@@ -833,12 +833,12 @@ class EdogLogViewer {
     list.innerHTML = filtered.map(id => {
       const info = this.state.knownIterationIds.get(id) || {};
       const statusDot = { 'Completed': '🟢', 'Succeeded': '🟢', 'Failed': '🔴', 'Running': '🟡' }[info.status] || '⚪';
-      const shortId = id.slice(-8);
+      const shortId = id;
       const time = info.firstSeen ? this.renderer.formatTime(info.firstSeen) : '';
       const dagName = info.dagName || '';
       return `<div class="raid-item" data-id="${id}">
         <span class="raid-status-dot">${statusDot}</span>
-        <span class="raid-item-id">…${shortId}</span>
+        <span class="raid-item-id">${shortId}</span>
         ${dagName ? `<span class="raid-item-dag">${dagName}</span>` : ''}
         <span class="raid-item-meta">${time}</span>
       </div>`;

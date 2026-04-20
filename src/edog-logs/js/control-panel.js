@@ -349,7 +349,7 @@ class ControlPanel {
     var failed = (execution && execution.failedNodes) || 0;
     var done = completed + failed;
     var pct = totalNodes > 0 ? Math.round((done / totalNodes) * 100) : 0;
-    var shortId = iterationId ? this._escapeHtml(iterationId.substring(iterationId.length - 8)) : '...';
+    var shortId = iterationId ? this._escapeHtml(iterationId) : '...';
 
     // Build node list from execution data
     var nodeListHtml = '';
@@ -387,7 +387,7 @@ class ControlPanel {
     this.execCard.innerHTML =
       '<div class="exec-active-header">' +
         '<span class="exec-status-icon">\u27f3</span>' +
-        '<span>Running: <code>...' + shortId + '</code></span>' +
+        '<span>Running: <code>' + shortId + '</code></span>' +
         '<span class="exec-elapsed" id="cp-elapsed">' + elapsed + 's</span>' +
       '</div>' +
       '<div class="exec-progress"><div class="exec-progress-fill" style="width:' + pct + '%"></div></div>' +
@@ -512,7 +512,7 @@ class ControlPanel {
     var self = this;
     var rows = executions.slice(0, 10).map(function(ex) {
       var shortId = ex.iterationId
-        ? '...' + self._escapeHtml(ex.iterationId.substring(ex.iterationId.length - 8))
+        ? self._escapeHtml(ex.iterationId)
         : '\u2014';
       var st = ex.status || '';
       var statusClass = st === 'Succeeded' ? 'succeeded' : st === 'Failed' ? 'failed' : 'cancelled';

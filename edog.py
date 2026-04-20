@@ -58,8 +58,174 @@ except ImportError:
     RICH_AVAILABLE = False
 
 # ============================================================================
-# UI Abstraction Layer
+# 🐕 EDOG Personality — Dog Moods, Achievements, Heartbeat
 # ============================================================================
+EDOG_DOGS = {
+    "happy":    r"ᐠ( ᐛ )ᐟ",
+    "excited":  r"ᐠ( ˶ᐢ ᵕ ᐢ˶ )ᐟ",
+    "sleepy":   r"ᐠ( ˘ᴗ˘ )ᐟ",
+    "alert":    r"ᐠ( •̀ᴗ•́ )ᐟ",
+    "sad":      r"ᐠ( ´•̥̥̥ω•̥̥̥` )ᐟ",
+    "cool":     r"ᐠ( ⌐■_■ )ᐟ",
+}
+
+ACHIEVEMENTS_FILE = ".edog-achievements.json"
+
+ACHIEVEMENT_DEFS = {
+    "first_deploy":   ("🎖️", "First Deploy",      "Deployed for the first time"),
+    "night_owl":      ("🦉", "Night Owl",          "Deployed after midnight"),
+    "early_bird":     ("🐦", "Early Bird",         "Deployed before 7 AM"),
+    "streak_5":       ("🔥", "On Fire",            "5 successful deploys in a row"),
+    "streak_10":      ("💎", "Diamond Streak",     "10 successful deploys in a row"),
+    "marathon":       ("🏃", "Marathon Runner",    "Session lasted over 4 hours"),
+    "weekend_warrior":("⚔️", "Weekend Warrior",    "Deployed on a weekend"),
+    "speed_demon":    ("⚡", "Speed Demon",        "Deploy completed in under 30 seconds"),
+    "centurion":      ("💯", "Centurion",          "100 total deploys"),
+    "token_survivor": ("🛡️", "Token Survivor",     "Survived 5+ token refreshes in one session"),
+}
+
+
+def _get_achievements_path():
+    return Path(__file__).parent / ACHIEVEMENTS_FILE
+
+
+def load_achievements():
+    """Load achievements from file."""
+    path = _get_achievements_path()
+    if path.exists():
+        try:
+            with open(path, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"unlocked": [], "stats": {"total_deploys": 0, "streak": 0, "best_streak": 0}}
+
+
+def save_achievements(data):
+    """Save achievements to file."""
+    try:
+        with open(_get_achievements_path(), 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def unlock_achievement(achievement_id, data=None):
+    """Unlock an achievement if not already unlocked. Returns (newly_unlocked, data)."""
+    if data is None:
+        data = load_achievements()
+    if achievement_id in data["unlocked"]:
+        return False, data
+    if achievement_id not in ACHIEVEMENT_DEFS:
+        return False, data
+    data["unlocked"].append(achievement_id)
+    save_achievements(data)
+    emoji, name, desc = ACHIEVEMENT_DEFS[achievement_id]
+    if RICH_AVAILABLE:
+        console.print(f"  [bold yellow]🏆 Achievement Unlocked![/bold yellow]  {emoji} [bold]{name}[/bold] — [dim]{desc}[/dim]")
+    else:
+        print(f"  🏆 Achievement Unlocked!  {emoji} {name} — {desc}")
+    return True, data
+
+
+def check_session_achievements(session_start, session_stats):
+    """Check and unlock achievements at end of session."""
+    data = load_achievements()
+    now = datetime.now()
+    duration = now - session_start
+
+    # Marathon: session > 4 hours
+    if duration.total_seconds() > 4 * 3600:
+        unlock_achievement("marathon", data)
+
+    # Token survivor: 5+ refreshes
+    if session_stats.get("token_refreshes", 0) >= 5:
+        unlock_achievement("token_survivor", data)
+
+    # Update streak based on success (no refresh failures = success)
+    if session_stats.get("refresh_failures", 0) == 0 and duration.total_seconds() > 60:
+        data["stats"]["streak"] = data["stats"].get("streak", 0) + 1
+        if data["stats"]["streak"] > data["stats"].get("best_streak", 0):
+            data["stats"]["best_streak"] = data["stats"]["streak"]
+    else:
+        data["stats"]["streak"] = 0
+
+    if data["stats"]["streak"] >= 5:
+        unlock_achievement("streak_5", data)
+    if data["stats"]["streak"] >= 10:
+        unlock_achievement("streak_10", data)
+
+    save_achievements(data)
+
+
+def check_deploy_achievements(deploy_duration_secs=None):
+    """Check and unlock achievements at deploy time."""
+    data = load_achievements()
+    now = datetime.now()
+
+    # First deploy
+    data["stats"]["total_deploys"] = data["stats"].get("total_deploys", 0) + 1
+    if data["stats"]["total_deploys"] == 1:
+        unlock_achievement("first_deploy", data)
+    if data["stats"]["total_deploys"] >= 100:
+        unlock_achievement("centurion", data)
+
+    # Time-based
+    if now.hour >= 0 and now.hour < 5:
+        unlock_achievement("night_owl", data)
+    if now.hour >= 5 and now.hour < 7:
+        unlock_achievement("early_bird", data)
+    if now.weekday() >= 5:
+        unlock_achievement("weekend_warrior", data)
+
+    # Speed demon
+    if deploy_duration_secs is not None and deploy_duration_secs < 30:
+        unlock_achievement("speed_demon", data)
+
+    save_achievements(data)
+
+
+def get_dog_mood(state="starting"):
+    """Get the dog ASCII art for the current mood."""
+    mood_map = {
+        "starting": "happy",
+        "deployed": "excited",
+        "error":    "sad",
+        "idle":     "sleepy",
+        "refresh":  "alert",
+        "debug":    "cool",
+    }
+    mood = mood_map.get(state, "happy")
+    return EDOG_DOGS.get(mood, EDOG_DOGS["happy"])
+
+
+def show_achievements_summary():
+    """Show achievement stats in banner."""
+    data = load_achievements()
+    total = data["stats"].get("total_deploys", 0)
+    streak = data["stats"].get("streak", 0)
+    unlocked = len(data.get("unlocked", []))
+    total_possible = len(ACHIEVEMENT_DEFS)
+
+    if total == 0:
+        return  # First time, skip
+
+    parts = []
+    if streak > 1:
+        parts.append(f"🔥 Streak: {streak}")
+    parts.append(f"Deploys: {total}")
+    parts.append(f"Achievements: {unlocked}/{total_possible}")
+
+    summary = " · ".join(parts)
+    if RICH_AVAILABLE:
+        console.print(f"        [dim]{summary}[/dim]")
+    else:
+        print(f"        {summary}")
+
+
+HEARTBEAT_FRAMES = ["💓", "💗", "💖", "💗"]
+
+
 EDOG_VERSION = "3.3.0"
 
 _edog_theme = Theme({
@@ -117,16 +283,17 @@ def ui_log(msg, level="info"):
     ui_print(f"  [{style}]{ts}[/{style}]  {msg}")
 
 
-def show_banner():
-    """Display the EDOG banner."""
+def show_banner(mood="starting"):
+    """Display the EDOG banner with dog mood."""
+    dog = get_dog_mood(mood)
     if RICH_AVAILABLE:
         banner_text = Text()
-        banner_text.append("🐕  EDOG DevMode", style="bold cyan")
+        banner_text.append(f"{dog}  EDOG DevMode", style="bold cyan")
         banner_text.append(f"  v{EDOG_VERSION}\n", style="dim")
         banner_text.append("FabricLiveTable Development Tool", style="dim white")
         console.print(Panel(banner_text, border_style="cyan", padding=(0, 2)))
     else:
-        print(f"\n  🐕  EDOG DevMode  v{EDOG_VERSION}")
+        print(f"\n  {dog}  EDOG DevMode  v{EDOG_VERSION}")
         print(f"  FabricLiveTable Development Tool\n")
 
 
@@ -148,7 +315,7 @@ def show_config_table(config):
     # Resolve cert info from username
     cert_cn = config.get('username', '').replace('@', '.')
     cert_tp = _thumbprint_cache.get(cert_cn, '')
-    cert_display = f"{cert_cn} ({cert_tp[:8]}...)" if cert_tp else cert_cn or '[dim]unknown[/dim]'
+    cert_display = f"{cert_cn} ({cert_tp})" if cert_tp else cert_cn or '[dim]unknown[/dim]'
     
     # Resolve FLT repo branch and last commit
     flt_repo = config.get('flt_repo_path')
@@ -185,7 +352,7 @@ def show_config_table(config):
         console.print(table)
     else:
         print(f"   Username:    {config.get('username', DEFAULT_USERNAME + ' (default)')}")
-        cert_plain = f"{cert_cn} ({cert_tp[:8]}...)" if cert_tp else cert_cn or 'unknown'
+        cert_plain = f"{cert_cn} ({cert_tp})" if cert_tp else cert_cn or 'unknown'
         print(f"   Certificate: {cert_plain}")
         print(f"   Workspace:   {config.get('workspace_id', 'not set')}")
         print(f"   Artifact:    {config.get('artifact_id', 'not set')}")
@@ -543,7 +710,7 @@ def ensure_workload_dev_mode(flt_repo_path, capacity_id, bearer_token=None):
                 old_tenant = data.get("TenantGuid", "(empty)")
                 data["TenantGuid"] = tenant_id
                 changed = True
-                ui_info(f"Updated TenantGuid in workload-dev-mode.json (cert change: {old_tenant[:8]}… → {tenant_id[:8]}…)")
+                ui_info(f"Updated TenantGuid in workload-dev-mode.json (cert change: {old_tenant} → {tenant_id})")
 
             if capacity_id and data.get("CapacityGuid", "").lower() != capacity_id.lower():
                 data["CapacityGuid"] = capacity_id
@@ -2800,13 +2967,13 @@ def _find_cert_thumbprint(cert_subject: str):
                         cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
                     except OSError:
                         pass
-                    ui_dim(f"Cert: {matches[0].get('cn', cert_subject)} ({tp[:8]}...)")
+                    ui_dim(f"Cert: {matches[0].get('cn', cert_subject)} ({tp})")
                     return tp
                 elif len(matches) > 1:
                     ui_info(f"Found {len(matches)} CBA certificates matching '{cert_subject}':")
                     options = []
                     for c in matches:
-                        label = f"{c.get('cn', '?')}  thumbprint:{c['thumbprint'][:8]}...  expires:{c.get('notAfter', '?')[:10]}"
+                        label = f"{c.get('cn', '?')}  thumbprint:{c['thumbprint']}  expires:{c.get('notAfter', '?')[:10]}"
                         options.append(label)
                     chosen = ui_choose("Select certificate", options)
                     if chosen:
@@ -2844,7 +3011,7 @@ def _find_cert_thumbprint(cert_subject: str):
                     cache_file.write_text(f"{cert_subject}={tp}\n", encoding="utf-8")
                 except OSError:
                     pass
-                ui_success(f"Certificate imported and ready ({tp[:8]}...)")
+                ui_success(f"Certificate imported and ready ({tp})")
     return tp
 
 
@@ -3649,7 +3816,7 @@ def run_doctor():
     try:
         tp = _find_cert_thumbprint(cert_cn)
         if tp:
-            check_pass(f"Certificate: {tp[:8]}...")
+            check_pass(f"Certificate: {tp}")
         else:
             check_warn(f"Certificate not found for {cert_cn}", "Install CBA certificate or check username")
     except Exception:
@@ -3658,14 +3825,14 @@ def run_doctor():
     # 8. Workspace ID
     ws_id = config.get("workspace_id", "")
     if ws_id and len(ws_id) > 8:
-        check_pass(f"Workspace ID: {ws_id[:8]}...")
+        check_pass(f"Workspace ID: {ws_id}")
     else:
         check_fail("Workspace ID not set", "Run: edog --config -w <workspace-id>")
 
     # 9. Artifact ID
     art_id = config.get("artifact_id", "")
     if art_id and len(art_id) > 8:
-        check_pass(f"Artifact ID: {art_id[:8]}...")
+        check_pass(f"Artifact ID: {art_id}")
     else:
         check_fail("Artifact ID not set", "Run: edog --config -a <artifact-id>")
 
@@ -4286,14 +4453,18 @@ def print_session_summary(session_start, stats, debug_mode=False, revert_clean=T
     summary = " · ".join(parts)
     exit_msg = "All changes reverted. Clean state." if revert_clean else "⚠️  Revert may be incomplete — run 'edog --revert' to verify."
 
+    # Check session-end achievements
+    check_session_achievements(session_start, stats)
+
+    dog = get_dog_mood("idle")
     if RICH_AVAILABLE:
         from rich.panel import Panel
         console.print(Panel(
-            f"[bold]👋  EDOG DevMode stopped[/bold]\n{summary}\n{exit_msg}",
+            f"[bold]{dog}  EDOG DevMode stopped[/bold]\n{summary}\n{exit_msg}",
             border_style="dim", expand=False
         ))
     else:
-        print(f"👋  {summary}")
+        print(f"{dog}  {summary}")
         print(f"{'✅' if revert_clean else '⚠️ '} {exit_msg}")
 
 
@@ -4417,9 +4588,10 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
             "capacity_id": capacity_id,
             "flt_repo_path": str(repo_root) if repo_root else loaded_cfg.get("flt_repo_path"),
         }
-        show_banner()
+        show_banner(mood="debug" if debug_mode else "starting")
         set_terminal_title("EDOG 🐕 [DEBUG] | Starting..." if debug_mode else "EDOG 🐕 | Starting...")
         show_config_table(banner_config)
+        show_achievements_summary()
         ui_dim(f"Auto-launch: {'Yes' if launch_service else 'No'}")
         if debug_mode:
             ui_dim("Mode: DEBUG (Visual Studio debugger attachment)")
@@ -4507,6 +4679,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         devmode_expiry = inject_devmode_token(username, str(repo_root))
 
         if launch_service:
+            deploy_start = datetime.now()
             ui_step("Starting FLT Service...")
             service_process = start_flt_service(repo_root, debug_mode=debug_mode)
             if service_process:
@@ -4530,7 +4703,9 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                 ui_dim(wait_msg)
                 if connected_event.wait(timeout=connection_timeout):
                     if service_process.poll() is None:
+                        deploy_secs = (datetime.now() - deploy_start).total_seconds()
                         ui_success("Deployed successfully! Logs available at http://localhost:5050")
+                        check_deploy_achievements(deploy_duration_secs=deploy_secs)
                     else:
                         ui_warn(f"Service exited during startup (code: {service_process.returncode})")
                 else:
@@ -4665,9 +4840,23 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
                     session_stats["refresh_failures"] += 1
                     show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
             
-            # Wait for next check
-            ui_dim(f"Next check in {CHECK_INTERVAL_MINS} mins...")
-            time.sleep(CHECK_INTERVAL_MINS * 60)
+            # Wait for next check with heartbeat
+            wait_secs = CHECK_INTERVAL_MINS * 60
+            heartbeat_idx = 0
+            for elapsed in range(wait_secs):
+                if elapsed == 0:
+                    ui_dim(f"Next check in {CHECK_INTERVAL_MINS} mins...")
+                # Update heartbeat in terminal title every 2 seconds
+                if elapsed % 2 == 0:
+                    heart = HEARTBEAT_FRAMES[heartbeat_idx % len(HEARTBEAT_FRAMES)]
+                    heartbeat_idx += 1
+                    total_mins = int(remaining.total_seconds() / 60) - (elapsed // 60) if remaining else 0
+                    title_prefix = "EDOG 🐕 [DEBUG]" if debug_mode else "EDOG 🐕"
+                    title = f"{title_prefix} {heart} Token: {total_mins}m"
+                    if service_process and service_process.poll() is None:
+                        title += " | Service: Running"
+                    set_terminal_title(title)
+                time.sleep(1)
             
     except KeyboardInterrupt:
         ui_step("Shutting down...")

@@ -478,16 +478,16 @@ class Renderer {
 
     let correlationHtml = '';
     if (correlationId) {
-      const shortCorr = correlationId.substring(0, 8);
+      const shortCorr = correlationId;
       correlationHtml = '<div class="telem-correlation" data-correlation="' + this.escapeHtml(correlationId) + '" title="Filter by ' + this.escapeHtml(correlationId) + '">' + this.escapeHtml(shortCorr) + '</div>';
     }
 
     let attributesHtml = '';
     if (event.attributes) {
       const attrs = [];
-      if (event.attributes.WorkspaceId) attrs.push('<span class="attr-pill">WS: ' + this.escapeHtml(event.attributes.WorkspaceId.substring(0, 6)) + '</span>');
-      if (event.attributes.ArtifactId) attrs.push('<span class="attr-pill">Art: ' + this.escapeHtml(event.attributes.ArtifactId.substring(0, 6)) + '</span>');
-      if (event.attributes.IterationId) attrs.push('<span class="attr-pill">Iter: ' + this.escapeHtml(event.attributes.IterationId.substring(0, 6)) + '</span>');
+      if (event.attributes.WorkspaceId) attrs.push('<span class="attr-pill">WS: ' + this.escapeHtml(event.attributes.WorkspaceId) + '</span>');
+      if (event.attributes.ArtifactId) attrs.push('<span class="attr-pill">Art: ' + this.escapeHtml(event.attributes.ArtifactId) + '</span>');
+      if (event.attributes.IterationId) attrs.push('<span class="attr-pill">Iter: ' + this.escapeHtml(event.attributes.IterationId) + '</span>');
       if (attrs.length > 0) {
         attributesHtml = '<div class="telem-attrs">' + attrs.join('') + '</div>';
       }
