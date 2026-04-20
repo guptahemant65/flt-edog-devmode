@@ -150,6 +150,18 @@ def show_config_table(config):
     cert_tp = _thumbprint_cache.get(cert_cn, '')
     cert_display = f"{cert_cn} ({cert_tp[:8]}...)" if cert_tp else cert_cn or '[dim]unknown[/dim]'
     
+    # Resolve FLT repo branch
+    flt_repo = config.get('flt_repo_path')
+    flt_branch = None
+    if flt_repo and Path(flt_repo).is_dir():
+        try:
+            flt_branch = subprocess.check_output(
+                ['git', '-C', flt_repo, 'rev-parse', '--abbrev-ref', 'HEAD'],
+                stderr=subprocess.DEVNULL, text=True
+            ).strip()
+        except Exception:
+            pass
+    
     if RICH_AVAILABLE:
         table = Table(show_header=False, border_style="dim", padding=(0, 2))
         table.add_column("Field", style="label", min_width=12)
@@ -159,7 +171,10 @@ def show_config_table(config):
         table.add_row("Workspace", config.get('workspace_id', '[dim]not set[/dim]'))
         table.add_row("Artifact", config.get('artifact_id', '[dim]not set[/dim]'))
         table.add_row("Capacity", config.get('capacity_id', '[dim]not set[/dim]'))
-        table.add_row("FLT Repo", config.get('flt_repo_path', '[dim]auto-detect[/dim]'))
+        repo_display = flt_repo or '[dim]auto-detect[/dim]'
+        if flt_branch:
+            repo_display += f'  [dim]({flt_branch})[/dim]'
+        table.add_row("FLT Repo", repo_display)
         console.print(table)
     else:
         print(f"   Username:    {config.get('username', DEFAULT_USERNAME + ' (default)')}")
@@ -168,7 +183,10 @@ def show_config_table(config):
         print(f"   Workspace:   {config.get('workspace_id', 'not set')}")
         print(f"   Artifact:    {config.get('artifact_id', 'not set')}")
         print(f"   Capacity:    {config.get('capacity_id', 'not set')}")
-        print(f"   FLT Repo:    {config.get('flt_repo_path', 'auto-detect')}")
+        repo_plain = flt_repo or 'auto-detect'
+        if flt_branch:
+            repo_plain += f'  ({flt_branch})'
+        print(f"   FLT Repo:    {repo_plain}")
 
 
 def ui_status(msg):
@@ -4404,7 +4422,19 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         print(f"Workspace: {workspace_id}")
         print(f"Artifact:  {artifact_id}")
         print(f"Capacity:  {capacity_id}")
-        print(f"FLT Repo:  {repo_root or 'auto-detect'}")
+        flt_branch_plain = None
+        if repo_root:
+            try:
+                flt_branch_plain = subprocess.check_output(
+                    ['git', '-C', str(repo_root), 'rev-parse', '--abbrev-ref', 'HEAD'],
+                    stderr=subprocess.DEVNULL, text=True
+                ).strip()
+            except Exception:
+                pass
+        repo_display_plain = str(repo_root) if repo_root else 'auto-detect'
+        if flt_branch_plain:
+            repo_display_plain += f'  ({flt_branch_plain})'
+        print(f"FLT Repo:  {repo_display_plain}")
         print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
         if debug_mode:
             print("Mode: DEBUG (Visual Studio debugger attachment)")
