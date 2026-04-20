@@ -4382,11 +4382,13 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
     
     # Show daemon banner
     if RICH_AVAILABLE:
+        loaded_cfg = load_config()
         banner_config = {
             "username": username,
             "workspace_id": workspace_id,
             "artifact_id": artifact_id,
             "capacity_id": capacity_id,
+            "flt_repo_path": str(repo_root) if repo_root else loaded_cfg.get("flt_repo_path"),
         }
         show_banner()
         set_terminal_title("EDOG 🐕 [DEBUG] | Starting..." if debug_mode else "EDOG 🐕 | Starting...")
@@ -4402,6 +4404,7 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         print(f"Workspace: {workspace_id}")
         print(f"Artifact:  {artifact_id}")
         print(f"Capacity:  {capacity_id}")
+        print(f"FLT Repo:  {repo_root or 'auto-detect'}")
         print(f"Auto-launch: {'Yes' if launch_service else 'No'}")
         if debug_mode:
             print("Mode: DEBUG (Visual Studio debugger attachment)")
