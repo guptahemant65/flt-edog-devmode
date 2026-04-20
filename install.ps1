@@ -1,7 +1,7 @@
 # FLT EDOG DevMode - One-liner Install Script
 # 
 # Usage:
-#   irm https://raw.githubusercontent.com/guptahemant65/flt-edog-devmode/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/guptahemant_microsoft/flt-edog-devmode/main/install.ps1 | iex
 #
 # Or locally:
 #   .\install.ps1
@@ -16,7 +16,7 @@ Write-Host ""
 
 # Configuration
 $InstallDir = "$env:USERPROFILE\.edog"
-$RepoUrl = "https://github.com/guptahemant65/flt-edog-devmode/archive/refs/heads/main.zip"
+$RepoUrl = "https://github.com/guptahemant_microsoft/flt-edog-devmode/archive/refs/heads/main.zip"
 
 # Step 1: Check Python + .NET SDK
 Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
@@ -75,7 +75,7 @@ if ($ScriptDir -and (Test-Path "$ScriptDir\edog.py")) {
         Remove-Item "$env:TEMP\edog-extract" -Recurse -Force
     } catch {
         Write-Host "       ERROR: Download failed. Clone the repo manually." -ForegroundColor Red
-        Write-Host "       git clone https://github.com/guptahemant65/flt-edog-devmode $InstallDir" -ForegroundColor Gray
+        Write-Host "       git clone https://github.com/guptahemant_microsoft/flt-edog-devmode $InstallDir" -ForegroundColor Gray
         exit 1
     }
 }

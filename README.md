@@ -4,7 +4,7 @@
 
 **One command. Zero popups. FabricLiveTable DevMode on autopilot.**
 
-[![v3.2.0](https://img.shields.io/badge/version-3.2.0-blue?style=for-the-badge)](https://github.com/guptahemant65/flt-edog-devmode)
+[![v3.2.0](https://img.shields.io/badge/version-3.2.0-blue?style=for-the-badge)](https://github.com/guptahemant_microsoft/flt-edog-devmode)
 [![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
@@ -206,7 +206,7 @@ Interactive authenticated shell
 
 ```powershell
 # Clone and go — that's literally it
-git clone https://github.com/guptahemant65/flt-edog-devmode.git
+git clone https://github.com/guptahemant_microsoft/flt-edog-devmode.git
 cd flt-edog-devmode
 
 edog
