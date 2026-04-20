@@ -131,7 +131,7 @@ Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Restart your terminal (for PATH changes)" -ForegroundColor White
 Write-Host "  2. Configure EDOG:" -ForegroundColor White
-Write-Host "       edog --config -w WORKSPACE_ID -a ARTIFACT_ID -c CAPACITY_ID" -ForegroundColor Gray
+Write-Host "       edog --config -w WORKSPACE_ID -a ARTIFACT_ID -c CAPACITY_ID -r FLT_REPO_PATH" -ForegroundColor Gray
 Write-Host "  3. Install git hook (recommended):" -ForegroundColor White
 Write-Host "       edog --install-hook" -ForegroundColor Gray
 Write-Host "  4. Start EDOG:" -ForegroundColor White

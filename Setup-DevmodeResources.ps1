@@ -147,7 +147,8 @@ Write-Host ""
 # Load config
 $config = Get-EdogConfig
 Write-Host "Loaded config:"
-Write-Host "  Capacity: $($config.capacity_id)"
+Write-Host "  FLT Repo:          $($config.flt_repo_path)"
+Write-Host "  Capacity:          $($config.capacity_id)"
 Write-Host "  Current Workspace: $($config.workspace_id)"
 Write-Host "  Current Lakehouse: $($config.artifact_id)"
 Write-Host ""
