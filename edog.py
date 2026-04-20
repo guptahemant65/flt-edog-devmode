@@ -57,7 +57,131 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-EDOG_VERSION = "3.3.0"
+EDOG_VERSION = "3.4.0"
+
+# ============================================================================
+# Dashboard — Persistent monitoring display (Rich only)
+# ============================================================================
+
+class DashboardLog:
+    """Circular buffer of timestamped log entries for the dashboard."""
+
+    def __init__(self, max_entries=50):
+        self.entries = []
+        self.max_entries = max_entries
+
+    def add(self, message, level="info"):
+        self.entries.append((datetime.now(), level, message))
+        if len(self.entries) > self.max_entries:
+            self.entries = self.entries[-self.max_entries:]
+
+    def recent(self, n=18):
+        return self.entries[-n:]
+
+
+TOKEN_LIFETIME_MINS = 75  # Approx JWT lifetime for progress bar scaling
+
+
+def _token_bar(remaining_mins, width=20):
+    """Build a color-coded token TTL progress bar."""
+    pct = max(0, min(1, remaining_mins / TOKEN_LIFETIME_MINS))
+    filled = int(pct * width)
+    empty = width - filled
+    if remaining_mins <= 5:
+        color = "bold red"
+    elif remaining_mins <= 15:
+        color = "yellow"
+    else:
+        color = "green"
+    bar = "█" * filled + "░" * empty
+    return f"[{color}]{bar}[/{color}] {int(remaining_mins)}m"
+
+
+def build_dashboard(state, log):
+    """Build the Rich Layout for the monitoring dashboard.
+
+    state keys: bearer_remaining, devmode_remaining, service_running,
+    service_pid, service_managed, git_watcher, debug_mode, session_start,
+    token_refreshes, refresh_failures, service_restarts
+    """
+    if not RICH_AVAILABLE:
+        return None
+
+    from rich.layout import Layout
+    from rich.panel import Panel
+    from rich.table import Table
+
+    layout = Layout()
+    layout.split_row(
+        Layout(name="log", ratio=3),
+        Layout(name="system", ratio=2, minimum_size=32),
+    )
+
+    # === Left panel: Event Log ===
+    log_table = Table(show_header=True, header_style="dim", box=None, padding=(0, 1), expand=True)
+    log_table.add_column("Time", style="dim", width=11)
+    log_table.add_column("Event", ratio=1)
+    style_map = {"info": "cyan", "success": "green", "warn": "yellow", "error": "red"}
+    icon_map = {"info": "●", "success": "✔", "warn": "⚠", "error": "✖"}
+    for ts, level, msg in log.recent(18):
+        time_str = ts.strftime('%I:%M:%S %p')
+        icon = icon_map.get(level, "●")
+        style = style_map.get(level, "white")
+        log_table.add_row(time_str, f"[{style}]{icon}[/{style}] {msg}")
+    layout["log"].update(Panel(log_table, title="[bold]Event Log[/bold]", border_style="cyan", padding=(0, 1)))
+
+    # === Right panel: System Gauges ===
+    gauges = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+    gauges.add_column("Label", style="dim cyan", width=12)
+    gauges.add_column("Value", ratio=1)
+
+    bearer_r = state.get("bearer_remaining")
+    if bearer_r is not None:
+        gauges.add_row("Bearer", _token_bar(max(0, bearer_r.total_seconds() / 60)))
+    else:
+        gauges.add_row("Bearer", "[dim]unknown[/dim]")
+
+    devmode_r = state.get("devmode_remaining")
+    if devmode_r is not None:
+        gauges.add_row("DevMode", _token_bar(max(0, devmode_r.total_seconds() / 60)))
+
+    gauges.add_row("", "")
+
+    if state.get("service_running"):
+        gauges.add_row("Service", f"[green]● Online[/green]  PID {state.get('service_pid', '?')}")
+    elif state.get("service_managed"):
+        gauges.add_row("Service", "[red]● Offline[/red]")
+    else:
+        gauges.add_row("Service", "[dim]● Not managed[/dim]")
+
+    gauges.add_row("Git Watch", "[green]● Active[/green]" if state.get("git_watcher") else "[dim]● Disabled[/dim]")
+
+    if state.get("debug_mode"):
+        gauges.add_row("Mode", "[yellow]● DEBUG[/yellow]")
+
+    gauges.add_row("", "")
+
+    uptime = datetime.now() - state["session_start"]
+    total_secs = int(uptime.total_seconds())
+    if total_secs >= 3600:
+        uptime_str = f"{total_secs // 3600}h {(total_secs % 3600) // 60}m"
+    else:
+        uptime_str = f"{total_secs // 60}m {total_secs % 60}s"
+    gauges.add_row("Uptime", uptime_str)
+
+    r = state.get("token_refreshes", 0)
+    f_count = state.get("refresh_failures", 0)
+    rs = state.get("service_restarts", 0)
+    parts = [f"{r} refresh{'es' if r != 1 else ''}"]
+    if f_count:
+        parts.append(f"[red]{f_count} fail{'s' if f_count != 1 else ''}[/red]")
+    if rs:
+        parts.append(f"{rs} restart{'s' if rs != 1 else ''}")
+    gauges.add_row("Stats", " · ".join(parts))
+
+    layout["system"].update(Panel(gauges, title="[bold]System[/bold]", border_style="cyan", padding=(0, 1)))
+
+    return layout
 
 _edog_theme = Theme({
     "info": "cyan",
@@ -4573,100 +4697,229 @@ def run_daemon(username, workspace_id, artifact_id, capacity_id, repo_root, laun
         ui_dim("Git change watcher disabled (debug mode — avoids breakpoint drift)")
 
     # Monitor loop
-    ui_step("Monitoring token expiry (Ctrl+C to stop)")
-    ui_dim(f"Check interval: {CHECK_INTERVAL_MINS} mins | Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
-    if service_process:
-        ui_dim(f"FLT Service: Running (PID: {service_process.pid})")
-        ui_dim("Service logs available at http://localhost:5050")
-    
     try:
-        while True:
-            # Check if service crashed
-            if service_process and service_process.poll() is not None:
-                exit_code = service_process.returncode
-                ui_warn(f"FLT Service exited unexpectedly (code: {exit_code})")
-                show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
-                service_process = None
+        if RICH_AVAILABLE:
+            # Dashboard mode — persistent split-pane display
+            from rich.live import Live
 
-                if launch_service:
-                    try:
-                        if ui_confirm("Restart service?", default=True):
-                            ui_step("Restarting FLT Service...")
-                            service_process = start_flt_service(repo_root, debug_mode=debug_mode)
-                            if service_process:
-                                # Restart output streaming thread
-                                stop_event = threading.Event()
-                                connected_event = threading.Event()
-                                output_thread = threading.Thread(
-                                    target=stream_service_output,
-                                    args=(service_process, stop_event, connected_event),
-                                    daemon=True
-                                )
-                                output_thread.start()
-                                ui_success(f"Service restarted (PID: {service_process.pid})")
-                            else:
-                                ui_error("Failed to restart service — continuing with token management only")
-                    except KeyboardInterrupt:
-                        # User hit Ctrl+C on the restart prompt — don't restart, keep monitoring
-                        ui_dim("Skipped restart — continuing with token management only")
-            
-            # Calculate time remaining — use the EARLIER expiry of the two tokens
-            bearer_remaining = get_token_time_remaining(bearer_expiry)
-            devmode_remaining = get_token_time_remaining(devmode_expiry) if devmode_expiry else None
-            remaining = min(bearer_remaining, devmode_remaining) if (bearer_remaining and devmode_remaining) else (bearer_remaining or devmode_remaining)
-            remaining_str = format_timedelta(remaining)
-            
-            status = f"Bearer: {format_timedelta(bearer_remaining)}"
-            if devmode_expiry:
-                status += f" | DevMode: {format_timedelta(devmode_remaining)}"
+            dlog = DashboardLog()
+            dstate = {
+                "bearer_remaining": get_token_time_remaining(bearer_expiry),
+                "devmode_remaining": get_token_time_remaining(devmode_expiry) if devmode_expiry else None,
+                "service_running": service_process is not None and service_process.poll() is None,
+                "service_pid": service_process.pid if service_process else None,
+                "service_managed": launch_service,
+                "git_watcher": not debug_mode,
+                "debug_mode": debug_mode,
+                "session_start": session_start,
+                "token_refreshes": 0,
+                "refresh_failures": 0,
+                "service_restarts": 0,
+            }
+
+            dlog.add("Monitoring started", "success")
+            dlog.add(f"Check every {CHECK_INTERVAL_MINS}min · refresh when <{REFRESH_THRESHOLD_MINS}min left", "info")
             if service_process:
-                status += " | Service: Running"
-            ui_info(f"[{datetime.now().strftime('%I:%M:%S %p')}] {status}")
-            
-            # Update terminal title with token countdown
-            if remaining:
-                total_mins = int(remaining.total_seconds() / 60)
-                title_prefix = "EDOG 🐕 [DEBUG]" if debug_mode else "EDOG 🐕"
-                title = f"{title_prefix} | Token: {total_mins}m left"
-                if service_process:
-                    title += " | Service: Running"
-                set_terminal_title(title)
-            
-            # Check if refresh needed(triggers on whichever token expires first)
-            if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
-                ui_step("Token expiring soon, refreshing...")
-                show_notification("EDOG DevMode", "Token expiring, refreshing...")
-                
-                # Invalidate bearer cache so get_bearer_token fetches fresh
-                try:
-                    cache_path = get_bearer_cache_path()
-                    if cache_path.exists():
-                        cache_path.unlink()
-                except Exception:
-                    pass
-                
-                new_bearer = get_bearer_token(username)
-                
-                if new_bearer:
-                    bearer_token = new_bearer
-                    bearer_expiry = parse_jwt_expiry(bearer_token)
-                    ui_success(f"Bearer refreshed (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
-                    session_stats["token_refreshes"] += 1
+                dlog.add(f"Service running (PID: {service_process.pid})", "info")
+                dlog.add("Logs: http://localhost:5050", "info")
 
-                    # Update the live bearer file (PowerBI API audience)
-                    if not write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id):
-                        ui_warn("Token refreshed but could not write to live file — service may lose connectivity")
-                    # Refresh UserAuthorizationToken (MwcFrontendBaseEndpoint audience)
-                    devmode_expiry = inject_devmode_token(username, str(repo_root))
-                    show_notification("EDOG DevMode", f"Tokens refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
-                else:
-                    ui_error("Failed to refresh tokens - continuing with old ones")
-                    session_stats["refresh_failures"] += 1
-                    show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
-            
-            # Wait for next check
-            ui_dim(f"Next check in {CHECK_INTERVAL_MINS} mins...")
-            time.sleep(CHECK_INTERVAL_MINS * 60)
+            last_check = time.time()
+
+            with Live(build_dashboard(dstate, dlog), console=console, refresh_per_second=1) as live:
+                while True:
+                    time.sleep(1)
+
+                    # Update token remaining (real-time countdown)
+                    bearer_remaining = get_token_time_remaining(bearer_expiry)
+                    devmode_remaining = get_token_time_remaining(devmode_expiry) if devmode_expiry else None
+                    remaining = min(bearer_remaining, devmode_remaining) if (bearer_remaining and devmode_remaining) else (bearer_remaining or devmode_remaining)
+                    dstate["bearer_remaining"] = bearer_remaining
+                    dstate["devmode_remaining"] = devmode_remaining
+                    dstate["token_refreshes"] = session_stats["token_refreshes"]
+                    dstate["refresh_failures"] = session_stats["refresh_failures"]
+                    dstate["service_restarts"] = session_stats.get("service_restarts", 0)
+
+                    # Check if service crashed
+                    if service_process and service_process.poll() is not None:
+                        exit_code = service_process.returncode
+                        dlog.add(f"Service exited unexpectedly (code: {exit_code})", "error")
+                        show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
+                        dstate["service_running"] = False
+                        dstate["service_pid"] = None
+                        service_process = None
+
+                        if launch_service:
+                            # Pause dashboard for restart prompt
+                            live.stop()
+                            try:
+                                if ui_confirm("Restart service?", default=True):
+                                    ui_step("Restarting FLT Service...")
+                                    service_process = start_flt_service(repo_root, debug_mode=debug_mode)
+                                    if service_process:
+                                        stop_event = threading.Event()
+                                        connected_event = threading.Event()
+                                        output_thread = threading.Thread(
+                                            target=stream_service_output,
+                                            args=(service_process, stop_event, connected_event),
+                                            daemon=True
+                                        )
+                                        output_thread.start()
+                                        dlog.add(f"Service restarted (PID: {service_process.pid})", "success")
+                                        dstate["service_running"] = True
+                                        dstate["service_pid"] = service_process.pid
+                                        session_stats["service_restarts"] = session_stats.get("service_restarts", 0) + 1
+                                    else:
+                                        dlog.add("Service restart failed", "error")
+                                else:
+                                    dlog.add("Service restart skipped by user", "warn")
+                            except KeyboardInterrupt:
+                                dlog.add("Service restart skipped", "warn")
+                            live.start()
+                    else:
+                        dstate["service_running"] = service_process is not None and service_process.poll() is None
+
+                    # Update terminal title
+                    if remaining:
+                        total_mins = int(remaining.total_seconds() / 60)
+                        title_prefix = "EDOG 🐕 [DEBUG]" if debug_mode else "EDOG 🐕"
+                        title = f"{title_prefix} | Token: {total_mins}m left"
+                        if service_process:
+                            title += " | Service: Running"
+                        set_terminal_title(title)
+
+                    # Periodic token check
+                    elapsed_since_check = time.time() - last_check
+                    if elapsed_since_check >= CHECK_INTERVAL_MINS * 60:
+                        last_check = time.time()
+
+                        if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
+                            dlog.add("Token expiring soon, refreshing...", "warn")
+                            show_notification("EDOG DevMode", "Token expiring, refreshing...")
+
+                            # Pause dashboard for token refresh (sub-functions use console.print)
+                            live.stop()
+
+                            try:
+                                cache_path = get_bearer_cache_path()
+                                if cache_path.exists():
+                                    cache_path.unlink()
+                            except Exception:
+                                pass
+
+                            new_bearer = get_bearer_token(username)
+
+                            if new_bearer:
+                                bearer_token = new_bearer
+                                bearer_expiry = parse_jwt_expiry(bearer_token)
+                                session_stats["token_refreshes"] += 1
+
+                                if not write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id):
+                                    dlog.add("Token refreshed but live file write failed", "warn")
+                                devmode_expiry = inject_devmode_token(username, str(repo_root))
+
+                                dlog.add(f"Tokens refreshed (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else '?'})", "success")
+                                show_notification("EDOG DevMode", f"Tokens refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
+                            else:
+                                dlog.add("Token refresh failed — using old tokens", "error")
+                                session_stats["refresh_failures"] += 1
+                                show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
+
+                            live.start()
+                        else:
+                            dlog.add(f"Token OK ({format_timedelta(remaining)} remaining)", "info")
+
+                    # Redraw dashboard
+                    live.update(build_dashboard(dstate, dlog))
+
+        else:
+            # Plain text mode — no Rich available
+            ui_step("Monitoring token expiry (Ctrl+C to stop)")
+            ui_dim(f"Check interval: {CHECK_INTERVAL_MINS} mins | Refresh threshold: {REFRESH_THRESHOLD_MINS} mins remaining")
+            if service_process:
+                ui_dim(f"FLT Service: Running (PID: {service_process.pid})")
+                ui_dim("Service logs available at http://localhost:5050")
+
+            while True:
+                # Check if service crashed
+                if service_process and service_process.poll() is not None:
+                    exit_code = service_process.returncode
+                    ui_warn(f"FLT Service exited unexpectedly (code: {exit_code})")
+                    show_notification("EDOG DevMode", f"⚠️ FLT Service exited (code: {exit_code})")
+                    service_process = None
+
+                    if launch_service:
+                        try:
+                            if ui_confirm("Restart service?", default=True):
+                                ui_step("Restarting FLT Service...")
+                                service_process = start_flt_service(repo_root, debug_mode=debug_mode)
+                                if service_process:
+                                    stop_event = threading.Event()
+                                    connected_event = threading.Event()
+                                    output_thread = threading.Thread(
+                                        target=stream_service_output,
+                                        args=(service_process, stop_event, connected_event),
+                                        daemon=True
+                                    )
+                                    output_thread.start()
+                                    ui_success(f"Service restarted (PID: {service_process.pid})")
+                                else:
+                                    ui_error("Failed to restart service — continuing with token management only")
+                        except KeyboardInterrupt:
+                            ui_dim("Skipped restart — continuing with token management only")
+
+                # Calculate time remaining
+                bearer_remaining = get_token_time_remaining(bearer_expiry)
+                devmode_remaining = get_token_time_remaining(devmode_expiry) if devmode_expiry else None
+                remaining = min(bearer_remaining, devmode_remaining) if (bearer_remaining and devmode_remaining) else (bearer_remaining or devmode_remaining)
+
+                status = f"Bearer: {format_timedelta(bearer_remaining)}"
+                if devmode_expiry:
+                    status += f" | DevMode: {format_timedelta(devmode_remaining)}"
+                if service_process:
+                    status += " | Service: Running"
+                ui_info(f"[{datetime.now().strftime('%I:%M:%S %p')}] {status}")
+
+                # Update terminal title
+                if remaining:
+                    total_mins = int(remaining.total_seconds() / 60)
+                    title_prefix = "EDOG 🐕 [DEBUG]" if debug_mode else "EDOG 🐕"
+                    title = f"{title_prefix} | Token: {total_mins}m left"
+                    if service_process:
+                        title += " | Service: Running"
+                    set_terminal_title(title)
+
+                # Check if refresh needed
+                if remaining and remaining <= timedelta(minutes=REFRESH_THRESHOLD_MINS):
+                    ui_step("Token expiring soon, refreshing...")
+                    show_notification("EDOG DevMode", "Token expiring, refreshing...")
+
+                    try:
+                        cache_path = get_bearer_cache_path()
+                        if cache_path.exists():
+                            cache_path.unlink()
+                    except Exception:
+                        pass
+
+                    new_bearer = get_bearer_token(username)
+
+                    if new_bearer:
+                        bearer_token = new_bearer
+                        bearer_expiry = parse_jwt_expiry(bearer_token)
+                        ui_success(f"Bearer refreshed (expires: {bearer_expiry.strftime('%I:%M:%S %p') if bearer_expiry else 'unknown'})")
+                        session_stats["token_refreshes"] += 1
+
+                        if not write_bearer_live_token(bearer_token, bearer_expiry.timestamp() if bearer_expiry else None, workspace_id):
+                            ui_warn("Token refreshed but could not write to live file — service may lose connectivity")
+                        devmode_expiry = inject_devmode_token(username, str(repo_root))
+                        show_notification("EDOG DevMode", f"Tokens refreshed! Expires {bearer_expiry.strftime('%H:%M')}")
+                    else:
+                        ui_error("Failed to refresh tokens - continuing with old ones")
+                        session_stats["refresh_failures"] += 1
+                        show_notification("EDOG DevMode", "⚠️ Token refresh failed!")
+
+                # Wait for next check
+                ui_dim(f"Next check in {CHECK_INTERVAL_MINS} mins...")
+                time.sleep(CHECK_INTERVAL_MINS * 60)
             
     except KeyboardInterrupt:
         ui_step("Shutting down...")
