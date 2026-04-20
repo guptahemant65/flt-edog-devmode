@@ -678,6 +678,39 @@ def prompt_guid(prompt_text, field_name):
     return prompt_guid_rich(prompt_text, field_name=field_name)
 
 
+def _auto_detect_flt_repo_path():
+    """Auto-detect FLT repo path and return it, or None if not found."""
+    repos = find_flt_repo()
+    if len(repos) == 1:
+        chosen = repos[0]
+        if ui_confirm(f"Found FLT repo: {chosen}", default=True):
+            return str(chosen.resolve())
+    elif len(repos) > 1:
+        ui_info(f"Found {len(repos)} FLT repos:")
+        options = [str(r) for r in repos]
+        chosen_path = ui_choose("Select repo", options)
+        if chosen_path:
+            return str(Path(chosen_path).resolve())
+    
+    # Not found — prompt user
+    while True:
+        repo_input = ui_prompt(
+            "FLT Repo Path",
+            default="",
+            example=r"C:\Users\you\repos\workload-fabriclivetable"
+        )
+        if not repo_input:
+            return None
+        repo_path = Path(repo_input).resolve()
+        if not repo_path.exists():
+            ui_error(f"Path does not exist: {repo_path}")
+            continue
+        if not (repo_path / "Service" / "Microsoft.LiveTable.Service").exists():
+            ui_error("Not a valid FLT repo (missing Service/Microsoft.LiveTable.Service)")
+            continue
+        return str(repo_path)
+
+
 def prompt_for_config(flt_repo_path=None):
     """Prompt user to enter config values. Auto-detects capacity_id from workload-dev-mode.json if available."""
     if RICH_AVAILABLE:
@@ -692,6 +725,11 @@ def prompt_for_config(flt_repo_path=None):
         print("\n📝 First-time setup - please enter your EDOG environment details:")
         print("   (You can find these in Fabric portal URL or workload-dev-mode.json)\n")
     
+    # Auto-detect FLT repo path if not already set
+    resolved_repo = flt_repo_path
+    if not resolved_repo:
+        resolved_repo = _auto_detect_flt_repo_path()
+    
     # Try to discover usernames from installed CBA certs
     username = _choose_username_from_certs(DEFAULT_USERNAME)
     
@@ -700,12 +738,15 @@ def prompt_for_config(flt_repo_path=None):
     
     capacity_id = prompt_guid_rich("Capacity ID", field_name=None)
     
-    return {
+    result = {
         "username": username,
         "workspace_id": workspace_id,
         "artifact_id": artifact_id,
         "capacity_id": capacity_id
     }
+    if resolved_repo:
+        result["flt_repo_path"] = resolved_repo
+    return result
 
 
 def update_config(username=None, workspace_id=None, artifact_id=None, capacity_id=None, flt_repo_path=None):
@@ -756,7 +797,15 @@ def ensure_config():
     """Ensure config exists, prompt user if not. Also syncs capacity_id from workload-dev-mode.json."""
     config = load_config()
     
-    # First, try to sync capacity_id from workload-dev-mode.json if flt_repo_path is set
+    # Auto-detect flt_repo_path on first startup if not set
+    if not config.get("flt_repo_path"):
+        resolved = _auto_detect_flt_repo_path()
+        if resolved:
+            config["flt_repo_path"] = resolved
+            save_config(config)
+            ui_success(f"Saved FLT repo path: {resolved}")
+    
+    # Sync capacity_id from workload-dev-mode.json if flt_repo_path is set
     if config.get("flt_repo_path"):
         sync_capacity_from_workload(config.get("flt_repo_path"), silent=False)
         config = load_config()  # Reload after potential sync
