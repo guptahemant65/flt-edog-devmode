@@ -2675,13 +2675,20 @@ def _choose_username_from_certs(default_username, current_username=None):
                     ui_warn("Using expired certificate — auth may fail if cert is revoked")
                 return clean
         else:
-            # No certs found — offer refresh or manual
+            # No certs found — offer refresh, import, or manual
             ui_warn("No CBA certificates found in cert store")
-            options = ["🔄 Refresh cert list", "Enter manually..."]
+            options = ["🔄 Refresh cert list", "📦 Import from .pfx/.p12 file", "Enter manually..."]
             chosen = ui_choose("Options", options)
             if chosen == "🔄 Refresh cert list":
                 ui_dim("Re-scanning certificates...")
                 continue
+            elif chosen == "📦 Import from .pfx/.p12 file":
+                if _try_import_cert(""):
+                    ui_dim("Re-scanning certificates after import...")
+                    continue  # re-discover after successful import
+                else:
+                    val = ui_prompt("Username/Email", default=current_username or default_username)
+                    return val if val else (current_username or default_username)
             else:
                 val = ui_prompt("Username/Email", default=current_username or default_username)
                 return val if val else (current_username or default_username)
@@ -2883,7 +2890,10 @@ def _find_cert_thumbprint(cert_subject: str):
 
 
 def _try_import_cert(cert_cn: str) -> bool:
-    """Prompt user for a .pfx/.p12 cert file and import into CurrentUser\\My store."""
+    """Prompt user for a .pfx/.p12 cert file and import into CurrentUser\\My store.
+    
+    Handles password-protected PFX files. cert_cn can be empty (import-first flow).
+    """
     if not ui_confirm("Do you have the certificate file (.pfx/.p12) to import?", default=False):
         ui_dim("Install the CBA cert manually into CurrentUser\\My cert store, then retry.")
         return False
@@ -2904,11 +2914,25 @@ def _try_import_cert(cert_cn: str) -> bool:
         ui_error(f"Expected .pfx or .p12 file, got: {cert_file.suffix}")
         return False
     
+    # Ask for password (PFX files are usually password-protected)
     try:
-        ps_cmd = (
-            f'Import-PfxCertificate -FilePath "{cert_file}" '
-            f'-CertStoreLocation Cert:\\CurrentUser\\My'
-        )
+        import getpass
+        password = getpass.getpass("  PFX password (leave empty if none): ")
+    except Exception:
+        password = ui_prompt("PFX password (leave empty if none)", default="")
+    
+    try:
+        if password:
+            ps_cmd = (
+                f'$pwd = ConvertTo-SecureString -String "{password}" -Force -AsPlainText; '
+                f'Import-PfxCertificate -FilePath "{cert_file}" '
+                f'-CertStoreLocation Cert:\\CurrentUser\\My -Password $pwd'
+            )
+        else:
+            ps_cmd = (
+                f'Import-PfxCertificate -FilePath "{cert_file}" '
+                f'-CertStoreLocation Cert:\\CurrentUser\\My'
+            )
         
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_cmd],
@@ -2917,10 +2941,19 @@ def _try_import_cert(cert_cn: str) -> bool:
         
         if result.returncode == 0 and result.stdout.strip():
             ui_success("Certificate imported into CurrentUser\\My store")
+            # Try to extract thumbprint from import output
+            for line in result.stdout.strip().splitlines():
+                line = line.strip()
+                if len(line) == 40 and all(c in '0123456789abcdefABCDEF' for c in line):
+                    ui_dim(f"  Thumbprint: {line}")
+                    break
             return True
         else:
             err = result.stderr.strip() or result.stdout.strip()
-            ui_error(f"Import failed: {err[:200]}")
+            if "password" in err.lower() or "network password" in err.lower():
+                ui_error("Wrong password for PFX file")
+            else:
+                ui_error(f"Import failed: {err[:200]}")
             return False
     except subprocess.TimeoutExpired:
         ui_error("Import timed out")
