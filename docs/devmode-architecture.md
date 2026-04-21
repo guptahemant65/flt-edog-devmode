@@ -167,8 +167,97 @@ edog is the **ground crew**. FLT + WCL SDK is the **pilot** that actually flies 
 
 ---
 
+## All DevMode Parameters
+
+Beyond the 5 fields edog auto-generates, the WCL SDK supports additional parameters. These can be set as command-line args (`-DevMode:ParamName="value"`) or in `workload-dev-mode.json`:
+
+| Parameter | Required | Default | What It Does |
+|-----------|----------|---------|-------------|
+| `WorkloadStartUpMode` | ✅ | — | Must be `"DevMode"` |
+| `CapacityGuid` | ✅ | — | Capacity whose traffic routes to your local workload |
+| `TenantGuid` | ✅ | — | Tenant the test user belongs to |
+| `MwcFrontendBaseEndpoint` | ✅ | — | MWC endpoint (e.g., `https://edog.pbidedicated.windows-int.net:443/`) |
+| `LocalConfigFilePath` | ❌ | `C:\workload-dev-mode.json` | Path to the config file (command-line only — ignored if in the JSON itself) |
+| `WorkloadToOrchestratorHealthCheckEnabled` | ❌ | `true` | If disabled, workload won't detect when Orchestrator kills the relay |
+| `ChangeRoleDelaySeconds` | ❌ | `2` | Delay before workload transitions to Primary role. Increase if crashing during role change |
+| `InitialHealthCheckDelaySeconds` | ❌ | `15` | How long Orchestrator waits before sending health checks. Increase if workload starts slowly |
+| `UseManifestPublicProperty` | ❌ | `false` | Whether to honor manifest `public` scope on endpoints (needed for ASWL) |
+| `WorkspaceAllowedRoutes` | ❌ | `[]` | Endpoints accessible via workspace-based routing instead of capacity-based |
+
+**edog auto-manages:** `WorkloadStartUpMode`, `CapacityGuid`, `TenantGuid`, `MwcFrontendBaseEndpoint`, `EnvironmentType`, `UserAuthorizationToken`, and `LocalConfigFilePath` (via launchSettings.json).
+
+---
+
+## Debugging Tips (From the Trenches)
+
+### "Is my request hitting my local workload?"
+Check the HTTP response headers. If you see:
+- **Routing header:** `Host proxy`
+- **Via header:** contains the Azure Relay URL
+
+...then your request was routed to your local DevMode instance. If these headers are missing, you're hitting the deployed workload, not yours.
+
+### "Why isn't my breakpoint getting hit?"
+Same answer — check the response headers. No `Host proxy` routing header = your request never reached your local machine.
+
+### "Which DevMode instances are registered for my capacity?"
+Run this Kusto query against `pbipkustppe.kusto.windows.net/pbipppe`:
+
+```kusto
+let capacityObjectId = "<your-capacity-guid>";
+let registerRaids =
+    ASTrace
+    | where TIMESTAMP > ago(1d)
+    | where MarkerName has "OR-Workload-Register"
+    | where MessageText == "Workload registration request received"
+    | extend WorkloadId = tostring(CustomData["WorkloadId"])
+    | extend CapacityObjectId = tostring(CustomData["VirtualServiceObjectId"])
+    | where CapacityObjectId has capacityObjectId
+    | summarize by TIMESTAMP, WorkloadId, CapacityObjectId, RootActivityId;
+ASTrace
+| where TIMESTAMP > ago(1d)
+| where MarkerName has "OR-DevX-WorkloadInstance-HealthMonitoring"
+| join kind=inner(registerRaids) on RootActivityId
+| summarize min(TIMESTAMP), max(TIMESTAMP) by RootActivityId, WorkloadId
+| sort by min_TIMESTAMP asc
+```
+
+### Telemetry
+When DevMode starts, the WCL SDK tries to launch the Geneva Monitoring Agent so your logs appear in the standard Kusto PPE tables. Look for:
+- `"Geneva 'MonAgentLauncher' has been launched with PID ..."` → telemetry is flowing
+- `"Could not find MonAgentLauncher binary"` → not installed; set `MWC_DEBUG_SERVICEPLATFORM_TRACER_LOCAL_DIR` env var to log to local filesystem instead
+
+### CertificateKeyNotSupportedException
+If CAE (Conditional Access Evaluation) is enabled for your workload, the S2SAuth cert must be installed locally. Download it from the [KeyVault](https://ms.portal.azure.com/#@microsoft.onmicrosoft.com/asset/Microsoft_Azure_KeyVault/Certificate/https://pbidedicatedoneboxrootkv.vault.azure.net/certificates/s2s-onebox-ame) as PFX and install in Machine Store.
+
+---
+
+## Supported Rollouts
+
+- ✅ **EDog** (`https://edog.pbidedicated.windows-int.net:443/`)
+- ✅ **CSTs** (e.g., `https://cst099.pbidedicated.windows-int.net:443/`)
+- ✅ **INT3** and other PPE rollouts
+- ❌ **Daily** — cannot be used
+- ❌ **Production** — cannot be used
+
+---
+
+## Unsupported Features in DevMode (as of now)
+
+These don't work in DevMode yet (per MWC team):
+- Untrusted Workloads
+- Capacityless Requests
+- Premium Files
+- Access Protection
+- WASO
+- Non-HTTP endpoints (WebSockets, raw TCP)
+
+---
+
 ## Reference
 
 - **MWC Wiki — First-Party DevX**: [dev.azure.com/powerbi/MWC/_wiki/wikis/MWC.wiki/94941](https://dev.azure.com/powerbi/MWC/_wiki/wikis/MWC.wiki/94941/First-Party-DevX)
-- **Detailed setup guide**: [Trident Wiki — Oneboxless Dev Experience](https://powerbi.visualstudio.com/Trident/_wiki/wikis/Trident.wiki/162028/-PrPre-New-Oneboxless-Dev-Experience)
+- **Trident Wiki — Oneboxless Dev Experience**: [powerbi.visualstudio.com/Trident/_wiki/wikis/Trident.wiki/162028](https://powerbi.visualstudio.com/Trident/_wiki/wikis/Trident.wiki/162028/Workload-Oneboxless-DevExp)
 - **Azure Relay docs**: [learn.microsoft.com/en-us/azure/azure-relay](https://learn.microsoft.com/en-us/azure/azure-relay/relay-what-is-it)
+- **MWC DevMode support channel**: [Teams — MWC Oneboxless Development Onboarding](https://teams.microsoft.com/l/channel/19%3A1183393aca15419c87e56197d8b9d7bc%40thread.tacv2/MWC%20Oneboxless%20Development%20Onboarding)
+- **Test tenant credentials**: [Fabric Shared Test Tenants](https://eng.ms/docs/cloud-ai-platform/azure-data/azure-data-intelligence-platform/microsoft-fabric-platform/fabric-platform-shared-services/fabric-platform-release-deployment/tsg/deployment/sharedtesttenants)
