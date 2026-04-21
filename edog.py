@@ -2669,7 +2669,11 @@ def _choose_username_from_certs(default_username, current_username=None):
             elif chosen.endswith(" (current)"):
                 return current_username
             else:
-                return chosen
+                # Strip [EXPIRED] tag if present
+                clean = chosen.replace(" [EXPIRED]", "")
+                if " [EXPIRED]" in chosen:
+                    ui_warn("Using expired certificate — auth may fail if cert is revoked")
+                return clean
         else:
             # No certs found — offer refresh or manual
             ui_warn("No CBA certificates found in cert store")
@@ -2687,48 +2691,64 @@ def _discover_cert_usernames():
     """Discover CBA usernames from installed certificates.
     
     Returns list of email-style usernames (e.g. Admin1CBA@FabricFMLV09PPE.ccsctp.net)
-    extracted from cert CNs. Only includes valid (non-expired) certs matching the CBA
-    naming pattern. Returns empty list if token-helper unavailable.
+    extracted from cert CNs. Expired certs are included with [EXPIRED] suffix so user
+    can still select them if needed. Returns empty list if token-helper unavailable.
     """
     helper_exe = _get_token_helper_exe()
     if not helper_exe:
+        ui_dim("token-helper.exe not found — cannot scan cert store")
         return []
     try:
         result = subprocess.run(
             [str(helper_exe), "--list-certs"],
             capture_output=True, text=True, timeout=10,
         )
-        if result.returncode != 0 or not result.stdout.strip():
+        if result.returncode != 0:
+            ui_warn(f"token-helper --list-certs failed (exit {result.returncode})")
+            if result.stderr.strip():
+                ui_dim(f"  stderr: {result.stderr.strip()[:200]}")
+            return []
+        if not result.stdout.strip():
+            ui_dim("token-helper returned empty cert list")
             return []
         certs = json.loads(result.stdout.strip())
         cba_pattern = re.compile(r'^[A-Za-z]+\d*CBA\..+\.ccsctp\.net$', re.IGNORECASE)
         now = datetime.utcnow()
         usernames = []
         seen = set()
-        expired_skipped = 0
+        non_cba_count = 0
         for c in certs:
             cn = c.get("cn", "")
             if not cba_pattern.match(cn):
+                non_cba_count += 1
                 continue
-            # Check expiry — skip expired certs
+            parts = cn.split(".", 1)
+            email = f"{parts[0]}@{parts[1]}"
+            # Check expiry — tag expired certs but still include them
+            is_expired = False
             not_after = c.get("notAfter", "")
             if not_after:
                 try:
                     expiry = datetime.fromisoformat(not_after.replace("Z", "+00:00")).replace(tzinfo=None)
                     if expiry < now:
-                        expired_skipped += 1
-                        continue
+                        is_expired = True
                 except (ValueError, TypeError):
                     pass
-            parts = cn.split(".", 1)
-            email = f"{parts[0]}@{parts[1]}"
+            label = f"{email} [EXPIRED]" if is_expired else email
             if email.lower() not in seen:
                 seen.add(email.lower())
-                usernames.append(email)
-        if expired_skipped:
-            ui_dim(f"Skipped {expired_skipped} expired cert(s)")
+                usernames.append(label)
+        if non_cba_count and not usernames:
+            ui_dim(f"Found {non_cba_count} cert(s) but none matched CBA pattern (*CBA.*.ccsctp.net)")
         return usernames
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+    except subprocess.TimeoutExpired:
+        ui_warn("token-helper --list-certs timed out after 10s")
+        return []
+    except json.JSONDecodeError as e:
+        ui_warn(f"token-helper returned invalid JSON: {e}")
+        return []
+    except Exception as e:
+        ui_warn(f"Cert discovery failed: {e}")
         return []
 
 
@@ -2773,15 +2793,16 @@ def _find_cert_thumbprint(cert_subject: str):
                 # Filter certs matching our subject
                 matches = [c for c in certs if cert_subject.lower() in c.get("cn", "").lower()
                            or cert_subject.lower() in c.get("subject", "").lower()]
-                # Remove expired certs
+                # Separate expired vs valid, but keep both available
                 valid_matches = []
+                expired_matches = []
                 for c in matches:
                     not_after = c.get("notAfter", "")
                     if not_after:
                         try:
                             expiry = datetime.fromisoformat(not_after.replace("Z", "+00:00")).replace(tzinfo=None)
                             if expiry < now:
-                                ui_warn(f"Skipping expired cert: {c.get('cn', '?')} (expired {not_after[:10]})")
+                                expired_matches.append(c)
                                 continue
                             days_left = (expiry - now).days
                             if days_left <= warn_days:
@@ -2789,7 +2810,18 @@ def _find_cert_thumbprint(cert_subject: str):
                         except (ValueError, TypeError):
                             pass
                     valid_matches.append(c)
-                matches = valid_matches
+                
+                # Use valid certs first; if none, offer expired ones
+                if valid_matches:
+                    matches = valid_matches
+                elif expired_matches:
+                    ui_warn(f"No valid certs found for '{cert_subject}' — {len(expired_matches)} expired cert(s) available")
+                    if len(expired_matches) == 1:
+                        c = expired_matches[0]
+                        ui_dim(f"  Expired: {c.get('cn', '?')} (expired {c.get('notAfter', '?')[:10]})")
+                    matches = expired_matches  # let user use expired cert
+                else:
+                    matches = []
                 if len(matches) == 1:
                     tp = matches[0]["thumbprint"]
                     _thumbprint_cache[cert_subject] = tp
@@ -2816,10 +2848,15 @@ def _find_cert_thumbprint(cert_subject: str):
                             pass
                         return tp
                     return None
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
-            pass
+        except subprocess.TimeoutExpired:
+            ui_warn("token-helper --list-certs timed out during thumbprint lookup")
+        except json.JSONDecodeError as e:
+            ui_warn(f"token-helper returned invalid JSON: {e}")
+        except Exception as e:
+            ui_warn(f"Cert thumbprint lookup via token-helper failed: {e}")
 
     # Fallback: PowerShell cert store query
+    ui_dim(f"Trying PowerShell cert store query for '{cert_subject}'...")
     tp = _query_cert_store(cert_subject)
     if tp:
         _thumbprint_cache[cert_subject] = tp
@@ -2926,8 +2963,17 @@ def _query_cert_store(cert_cn: str) -> str | None:
             capture_output=True, text=True, timeout=10,
         )
         tp2 = result2.stdout.strip()
-        return tp2 if tp2 and len(tp2) == 40 else None
-    except Exception:
+        if tp2 and len(tp2) == 40:
+            return tp2
+        # Both methods failed — show diagnostic hints
+        ui_dim(f"PowerShell found no cert with CN={cert_cn} in CurrentUser\\My")
+        ui_dim("  Hint: is the cert installed in LocalMachine\\My instead?")
+        return None
+    except subprocess.TimeoutExpired:
+        ui_warn("PowerShell cert store query timed out")
+        return None
+    except Exception as e:
+        ui_warn(f"PowerShell cert store query failed: {e}")
         return None
 
 
