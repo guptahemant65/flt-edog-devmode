@@ -2914,25 +2914,11 @@ def _try_import_cert(cert_cn: str) -> bool:
         ui_error(f"Expected .pfx or .p12 file, got: {cert_file.suffix}")
         return False
     
-    # Ask for password (PFX files are usually password-protected)
     try:
-        import getpass
-        password = getpass.getpass("  PFX password (leave empty if none): ")
-    except Exception:
-        password = ui_prompt("PFX password (leave empty if none)", default="")
-    
-    try:
-        if password:
-            ps_cmd = (
-                f'$pwd = ConvertTo-SecureString -String "{password}" -Force -AsPlainText; '
-                f'Import-PfxCertificate -FilePath "{cert_file}" '
-                f'-CertStoreLocation Cert:\\CurrentUser\\My -Password $pwd'
-            )
-        else:
-            ps_cmd = (
-                f'Import-PfxCertificate -FilePath "{cert_file}" '
-                f'-CertStoreLocation Cert:\\CurrentUser\\My'
-            )
+        ps_cmd = (
+            f'Import-PfxCertificate -FilePath "{cert_file}" '
+            f'-CertStoreLocation Cert:\\CurrentUser\\My'
+        )
         
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_cmd],
@@ -2950,10 +2936,7 @@ def _try_import_cert(cert_cn: str) -> bool:
             return True
         else:
             err = result.stderr.strip() or result.stdout.strip()
-            if "password" in err.lower() or "network password" in err.lower():
-                ui_error("Wrong password for PFX file")
-            else:
-                ui_error(f"Import failed: {err[:200]}")
+            ui_error(f"Import failed: {err[:200]}")
             return False
     except subprocess.TimeoutExpired:
         ui_error("Import timed out")
