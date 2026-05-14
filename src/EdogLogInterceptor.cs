@@ -65,6 +65,7 @@ namespace Microsoft.LiveTable.Service.DevMode
             new Regex(@"^IncludedLakehouses", RegexOptions.Compiled | RegexOptions.IgnoreCase),
             new Regex(@"^SelectedOnly", RegexOptions.Compiled | RegexOptions.IgnoreCase),
             new Regex(@"^OC\.", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^SQL_QUERY", RegexOptions.Compiled | RegexOptions.IgnoreCase),
         };
 
         // ── Error dedup — prevents relay-timeout-storm floods ────────────

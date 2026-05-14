@@ -127,6 +127,7 @@ class FilterManager {
       /^IncludedLakehouses/i,
       /^SelectedOnly/i,
       /^OC\./i,
+      /^SQL_QUERY/i,
     ] },
     dag: { include: [/DagExecution/i, /NodeExec/i, /Hook/i, /InsightsMetrics/i, /RunMetrics/i, /Orchestrat/i, /Pipeline/i] },
     spark: { include: [/Spark/i, /GTS/i, /Notebook/i, /Session/i, /Livy/i, /Transform/i] },
